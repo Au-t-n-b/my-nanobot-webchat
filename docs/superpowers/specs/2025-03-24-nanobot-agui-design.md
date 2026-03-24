@@ -165,4 +165,7 @@ data: <JSON 单行>
 
 - 蓝图: [CURSOR_REFACTOR_PLAN.md](../../../CURSOR_REFACTOR_PLAN.md)
 - 代码锚点: [`nanobot/agent/loop.py`](../../../nanobot/agent/loop.py) — `process_direct`, `_run_agent_loop`
-- 修订记录: 在 spec review 通过后于本节追加 **Revision** 行。
+
+### Revision
+
+- **2025-03-24:** 初稿；首轮 review 指出 `RunFinished.error` 与 D6/蓝图路径表述后已修订；二轮 review **Approved**；采纳 advisory 显式化「成功路径以 RunFinished 结束」及表中 `error` 说明。

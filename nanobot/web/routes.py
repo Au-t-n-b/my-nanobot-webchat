@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any
 
 from aiohttp import web
 
+from nanobot.web.fs_ops import BadRequestError, FsOpError, NotFoundError, open_in_os, resolve_in_workspace
 from nanobot.web.keys import AGENT_LOOP_KEY, APPROVAL_REGISTRY_KEY, CONFIG_KEY, RUN_REGISTRY_KEY
 from nanobot.web.paths import normalize_file_query, resolve_file_target
 from nanobot.web.run_registry import ApprovalRegistry, RunRegistry
@@ -79,6 +80,24 @@ async def handle_skills(_request: web.Request) -> web.Response:
         return web.json_response({"items": list_skills()})
     except Exception as e:
         return _error("internal_error", "Failed to list skills", detail=str(e), status=500)
+
+
+async def handle_open_folder(request: web.Request) -> web.Response:
+    try:
+        data = await request.json()
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return _error("bad_request", "Invalid JSON body", status=400)
+    target = data.get("target")
+    try:
+        resolved = resolve_in_workspace(str(target))
+        open_in_os(resolved)
+        return web.json_response({"ok": True})
+    except (BadRequestError, NotFoundError) as e:
+        return _error(e.code, e.message, detail=e.detail, status=e.status)
+    except FsOpError as e:
+        return _error(e.code, e.message, detail=e.detail, status=e.status)
+    except Exception as e:
+        return _error("internal_error", "Failed to open folder", detail=str(e), status=500)
 
 
 def _text_from_user_content(content: Any) -> str | None:
@@ -375,7 +394,9 @@ def setup_routes(app: web.Application) -> None:
     app.router.add_post("/api/approve-tool", handle_approve)
     app.router.add_get("/api/file", handle_file)
     app.router.add_get("/api/skills", handle_skills)
+    app.router.add_post("/api/open-folder", handle_open_folder)
     app.router.add_options("/api/chat", handle_options)
     app.router.add_options("/api/approve-tool", handle_options)
     app.router.add_options("/api/file", handle_options)
     app.router.add_options("/api/skills", handle_options)
+    app.router.add_options("/api/open-folder", handle_options)

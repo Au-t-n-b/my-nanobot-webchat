@@ -64,3 +64,39 @@ def open_in_os(target: Path) -> None:
         return
     subprocess.Popen(["xdg-open", str(target.parent if target.is_file() else target)])
 
+
+def trash_paths(raw_paths: list[str]) -> dict[str, object]:
+    """Trash paths under workspace; escape path causes whole request rejection."""
+    if not isinstance(raw_paths, list) or not raw_paths:
+        raise BadRequestError("paths must be a non-empty array")
+
+    # Validate all first (all-or-nothing on escape).
+    resolved: list[Path] = []
+    seen: set[str] = set()
+    for raw in raw_paths:
+        p = resolve_in_workspace(str(raw), must_exist=False)
+        key = str(p)
+        if key in seen:
+            continue
+        seen.add(key)
+        resolved.append(p)
+
+    try:
+        from send2trash import send2trash
+    except Exception as e:  # pragma: no cover
+        raise FsOpError("send2trash is not available", detail=str(e)) from e
+
+    deleted: list[str] = []
+    failed: list[dict[str, str]] = []
+    for p in resolved:
+        if not p.exists():
+            failed.append({"path": str(p), "reason": "not found"})
+            continue
+        try:
+            send2trash(str(p))
+            deleted.append(str(p))
+        except Exception as e:
+            failed.append({"path": str(p), "reason": str(e)})
+
+    return {"ok": len(failed) == 0, "deleted": deleted, "failed": failed}
+

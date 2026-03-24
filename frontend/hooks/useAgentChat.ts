@@ -10,6 +10,12 @@ export type AgentMessage = {
   content: string;
 };
 
+export type StepLog = {
+  id: string;
+  stepName: "thinking" | "tool";
+  text: string;
+};
+
 export type ToolPendingPayload = {
   threadId: string;
   runId: string;
@@ -30,8 +36,7 @@ function parseSseRecord(raw: string): { event: string; data: Record<string, unkn
   }
   if (!event || !dataStr) return null;
   try {
-    const data = JSON.parse(dataStr) as Record<string, unknown>;
-    return { event, data };
+    return { event, data: JSON.parse(dataStr) as Record<string, unknown> };
   } catch {
     return null;
   }
@@ -57,6 +62,7 @@ function applySseBlocks(
 export function useAgentChat() {
   const [threadId, setThreadId] = useState("");
   const [messages, setMessages] = useState<AgentMessage[]>([]);
+  const [stepLogs, setStepLogs] = useState<StepLog[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pendingTool, setPendingTool] = useState<ToolPendingPayload | null>(null);
@@ -77,6 +83,14 @@ export function useAgentChat() {
     /\/$/,
     "",
   );
+
+  const clearChat = useCallback(() => {
+    setMessages([]);
+    setStepLogs([]);
+    setError(null);
+    setPendingTool(null);
+    setPendingChoices(null);
+  }, []);
 
   const sendMessage = useCallback(
     async (text: string) => {
@@ -161,6 +175,9 @@ export function useAgentChat() {
             setMessages((prev) =>
               prev.map((m) => (m.id === asstId ? { ...m, content: m.content + d } : m)),
             );
+          } else if (event === "StepStarted" && typeof data.text === "string") {
+            const stepName = data.stepName === "tool" ? "tool" : "thinking";
+            setStepLogs((prev) => [...prev, { id: newId(), stepName, text: String(data.text) }]);
           } else if (event === "ToolPending") {
             setPendingTool({
               threadId: String(data.threadId ?? ""),
@@ -209,10 +226,13 @@ export function useAgentChat() {
   return {
     threadId,
     messages,
+    stepLogs,
     isLoading,
     error,
     pendingTool,
     pendingChoices,
     sendMessage,
+    clearChat,
   };
 }
+

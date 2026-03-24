@@ -122,9 +122,9 @@ Run manual: `nanobot agui -p 8765` then `curl -N -X POST http://127.0.0.1:8765/a
 **Files:**
 - Create/modify: `frontend/app/page.tsx`, `frontend/components/Sidebar.tsx`, `ChatArea.tsx`, `MessageList.tsx`, `ChatInput.tsx`, `PreviewPanel.tsx` (shell)
 
-- [ ] **Step 4.1:** Layout: Sidebar | Chat | Preview (collapsible). Tailwind `bg-zinc-950 text-zinc-100`. Lucide icons.
+- [x] **Step 4.1:** Layout: Sidebar | Chat | Preview (collapsible). Tailwind `bg-zinc-950 text-zinc-100`. Lucide icons.
 
-- [ ] **Step 4.2:** Message bubbles: user vs assistant; fold `StepStarted` in UI. Commit.
+- [x] **Step 4.2:** Message bubbles: user vs assistant; fold `StepStarted` in UI. Commit.
 
 ---
 
@@ -190,3 +190,4 @@ cd frontend && npm run build && npm run lint
 
 - **2025-03-24:** Initial plan from approved spec + CURSOR_REFACTOR_PLAN.
 - **2025-03-24:** Plan review **Approved**; merged advisory (SSE `Content-Type`, `on_progress`/`tool_hint`, HITL Future-only, `present_choices` sub-steps, `threadId` persistence, `humanInTheLoop` note).
+

@@ -22,14 +22,14 @@ export default function Home() {
     clearChat,
   } = useAgentChat();
   const [input, setInput] = useState("");
-  const [previewOpen, setPreviewOpen] = useState(true);
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [previewPath, setPreviewPath] = useState<string | null>(null);
 
   const apiBase = process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8765";
 
   const openFilePreview = (path: string) => {
     setPreviewPath(path);
-    setPreviewOpen(true);
+    setIsPreviewOpen(true);
   };
 
   return (
@@ -53,7 +53,7 @@ export default function Home() {
           />
         </div>
 
-        <div className={previewOpen ? "col-span-12 md:col-span-6" : "col-span-12 md:col-span-9"}>
+        <div className={isPreviewOpen ? "col-span-12 md:col-span-6" : "col-span-12 md:col-span-9"}>
           <ChatArea
             messages={messages}
             stepLogs={stepLogs}
@@ -71,21 +71,23 @@ export default function Home() {
             onApproveTool={(approved) => {
               void approveTool(approved);
             }}
-            onPreviewPath={openFilePreview}
+            onFileLinkClick={openFilePreview}
+            previewPanelOpen={isPreviewOpen}
+            onOpenPreviewPanel={() => setIsPreviewOpen(true)}
             disabled={isLoading || !threadId}
           />
         </div>
 
-        <div className="col-span-12 md:col-span-3">
-          <PreviewPanel
-            visible={previewOpen}
-            onToggle={() => setPreviewOpen((v) => !v)}
-            apiBase={apiBase}
-            filePath={previewPath}
-            onClearFile={() => setPreviewPath(null)}
-            onOpenPath={openFilePreview}
-          />
-        </div>
+        {isPreviewOpen && (
+          <div className="col-span-12 md:col-span-3">
+            <PreviewPanel
+              onClose={() => setIsPreviewOpen(false)}
+              filePath={previewPath}
+              onClearFile={() => setPreviewPath(null)}
+              onOpenPath={openFilePreview}
+            />
+          </div>
+        )}
       </div>
     </main>
   );

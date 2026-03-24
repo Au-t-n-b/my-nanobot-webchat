@@ -21,6 +21,7 @@ type SkillItem = {
 };
 
 type SkillsResp = { items: SkillItem[] };
+type TrashModalState = { open: boolean; mode: "one" | "all"; targets: string[] };
 
 function apiPath(path: string, apiBase: string): string {
   if (process.env.NEXT_PUBLIC_AGUI_DIRECT === "1") {
@@ -28,12 +29,6 @@ function apiPath(path: string, apiBase: string): string {
   }
   return path;
 }
-
-type TrashModalState = {
-  open: boolean;
-  mode: "one" | "all";
-  targets: string[];
-};
 
 export function Sidebar({ threadId, apiBase, onClear, onPreviewPath, messages }: Props) {
   const [skills, setSkills] = useState<SkillItem[]>([]);
@@ -43,11 +38,8 @@ export function Sidebar({ threadId, apiBase, onClear, onPreviewPath, messages }:
   const [removedPaths, setRemovedPaths] = useState<Set<string>>(new Set());
   const [trashError, setTrashError] = useState<string | null>(null);
   const [trashBusy, setTrashBusy] = useState(false);
-  const [trashModal, setTrashModal] = useState<TrashModalState>({
-    open: false,
-    mode: "one",
-    targets: [],
-  });
+  const [trashModal, setTrashModal] = useState<TrashModalState>({ open: false, mode: "one", targets: [] });
+  const [previewPathInput, setPreviewPathInput] = useState("");
 
   const selected = useMemo(
     () => skills.find((s) => s.name === selectedSkillName) ?? null,
@@ -112,7 +104,6 @@ export function Sidebar({ threadId, apiBase, onClear, onPreviewPath, messages }:
       });
       const txt = await res.text();
       let payload: {
-        ok?: boolean;
         deleted?: string[];
         failed?: Array<{ path?: string; reason?: string }>;
         error?: { message?: string };
@@ -153,15 +144,21 @@ export function Sidebar({ threadId, apiBase, onClear, onPreviewPath, messages }:
 
       <div className="text-xs text-zinc-500 space-y-2">
         <p>threadId</p>
-        <p className="break-all text-zinc-300">{threadId || "..."}</p>
-        <p className="pt-1">API</p>
+        <p className="break-all text-zinc-300">{threadId || "…"}</p>
+        <p className="pt-1">AGUI 后端（供 rewrites / 直连）</p>
         <p className="break-all text-zinc-400">{apiBase}</p>
       </div>
 
       <div className="space-y-2 text-xs">
-        <div className="flex items-center gap-2 text-zinc-400"><Cpu size={14} /> 模型：当前后端配置</div>
-        <div className="flex items-center gap-2 text-zinc-400"><Sparkles size={14} /> 技能：Phase 3 联动中</div>
-        <div className="flex items-center gap-2 text-zinc-400"><FileText size={14} /> 文件索引：Task6 预览接入</div>
+        <div className="flex items-center gap-2 text-zinc-400">
+          <Cpu size={14} /> 模型：当前后端配置
+        </div>
+        <div className="flex items-center gap-2 text-zinc-400">
+          <Sparkles size={14} /> 流式 / HITL / 选择题
+        </div>
+        <div className="flex items-center gap-2 text-zinc-400">
+          <FileText size={14} /> 文件：Markdown 链接 + 侧栏路径
+        </div>
       </div>
 
       <section className="rounded-md border border-zinc-800 bg-zinc-950/40 p-2 flex flex-col gap-2 min-h-0">
@@ -195,7 +192,7 @@ export function Sidebar({ threadId, apiBase, onClear, onPreviewPath, messages }:
               type="button"
               onClick={() => {
                 setSelectedSkillName(s.name);
-                onPreviewPath(s.skillFile); // only SKILL.md
+                onPreviewPath(s.skillFile);
               }}
               className={
                 "w-full text-left text-xs rounded px-2 py-1.5 border " +
@@ -301,6 +298,32 @@ export function Sidebar({ threadId, apiBase, onClear, onPreviewPath, messages }:
           </div>
         </div>
       )}
+
+      <div className="rounded-lg border border-zinc-800 bg-zinc-950/40 p-3 space-y-2 text-xs">
+        <div className="flex items-center gap-2 text-zinc-400 font-medium">
+          <FileText size={14} />
+          按路径预览
+        </div>
+        <p className="text-zinc-500 leading-relaxed">
+          相对工作区的路径，或后端可解析的绝对路径（与 <code className="text-zinc-400">/api/file</code> 一致）。
+        </p>
+        <input
+          className="w-full rounded-md bg-zinc-900 border border-zinc-700 px-2 py-1.5 text-zinc-200 outline-none focus:border-zinc-500"
+          placeholder="例如 notes/readme.md"
+          value={previewPathInput}
+          onChange={(e) => setPreviewPathInput(e.target.value)}
+        />
+        <button
+          type="button"
+          onClick={() => {
+            const t = previewPathInput.trim();
+            if (t) onPreviewPath(t);
+          }}
+          className="w-full rounded-md bg-sky-800/60 hover:bg-sky-700/70 text-zinc-100 py-1.5 text-xs"
+        >
+          打开预览
+        </button>
+      </div>
 
       <button
         type="button"

@@ -23,6 +23,7 @@
 | `nanobot/web/paths.py` | `normalize_file_query(path: str) -> str`; resolve relative paths against `Config.workspace_path` |
 | `nanobot/web/routes.py` | aiohttp route handlers: chat, approve-tool, file, CORS preflight |
 | `nanobot/web/app.py` | `create_app(config: Config, agent: AgentLoop | None, ...)` — dependency injection for tests |
+| `nanobot/web/keys.py` | aiohttp `AppKey` 定义（消除 string key 警告） |
 | `nanobot/cli/commands.py` | New command `agui` (name TBD): load config, build AgentLoop (Step 1: `agent=None` or stub), `web.run_app` |
 | `tests/web/test_sse.py` | Unit tests for SSE framing |
 | `tests/web/test_api_chat.py` | Integration: POST `/api/chat` returns SSE sequence; 409 on double same thread |
@@ -34,13 +35,13 @@
 ### Task 1: Step 1 — Backend API shell, fake SSE, CORS, 409
 
 **Files:**
-- Create: `nanobot/web/__init__.py`, `nanobot/web/sse.py`, `nanobot/web/run_registry.py`, `nanobot/web/routes.py`, `nanobot/web/app.py`
+- Create: `nanobot/web/__init__.py`, `nanobot/web/sse.py`, `nanobot/web/run_registry.py`, `nanobot/web/keys.py`, `nanobot/web/routes.py`, `nanobot/web/app.py`
 - Modify: [`pyproject.toml`](../../../pyproject.toml), [`nanobot/cli/commands.py`](../../../nanobot/cli/commands.py)
 - Test: `tests/web/test_sse.py`, `tests/web/test_api_chat.py`
 
 **Contract (frozen):** Success stream ends with `RunFinished` **without** `error` key. Error streams: `Error` then `RunFinished` **with** `error: {code, message}`.
 
-- [ ] **Step 1.1: Write failing test for SSE framing**
+- [x] **Step 1.1: Write failing test for SSE framing**
 
 ```python
 # tests/web/test_sse.py
@@ -56,15 +57,15 @@ def test_format_sse_single_event():
 Run: `pytest tests/web/test_sse.py::test_format_sse_single_event -v`  
 Expected: **FAIL** (import/module missing).
 
-- [ ] **Step 1.2: Implement `format_sse`** in `nanobot/web/sse.py` using `json.dumps(..., ensure_ascii=False, separators=(",", ":"))` and UTF-8.
+- [x] **Step 1.2: Implement `format_sse`** in `nanobot/web/sse.py` using `json.dumps(..., ensure_ascii=False, separators=(",", ":"))` and UTF-8.
 
 Run: `pytest tests/web/test_sse.py -v` → **PASS**.
 
-- [ ] **Step 1.3: Write failing integration test** `tests/web/test_api_chat.py`: create app with **no** real agent; POST `/api/chat` with JSON `{"threadId":"t1","runId":"r1","messages":[],"humanInTheLoop":false}`; read body; assert sequence contains `RunStarted`, `TextMessageContent`, `RunFinished`.
+- [x] **Step 1.3: Write failing integration test** `tests/web/test_api_chat.py`: create app with **no** real agent; POST `/api/chat` with JSON `{"threadId":"t1","runId":"r1","messages":[],"humanInTheLoop":false}`; read body; assert sequence contains `RunStarted`, `TextMessageContent`, `RunFinished`.
 
 Run: `pytest tests/web/test_api_chat.py -v` → **FAIL**.
 
-- [ ] **Step 1.4: Implement minimal aiohttp app** in `app.py` + `routes.py`:
+- [x] **Step 1.4: Implement minimal aiohttp app** in `app.py` + `routes.py`:
   - `POST /api/chat`: response **`Content-Type: text/event-stream`** (spec §4.1); validate `threadId`, `runId` present; **run_registry** register `threadId` → fail with **409** if already active; yield fake `RunStarted`, 2× `TextMessageContent`, `RunFinished`; unregister in `finally`.
   - `OPTIONS` + `Access-Control-Allow-Origin: http://localhost:3000` (and configurable list via env `NANOBOT_AGUI_CORS_ORIGINS` comma-separated, default dev origin), `Allow-Methods`, `Allow-Headers: Content-Type`.
   - `POST /api/approve-tool`: **501** JSON stub body `{"detail":"not implemented"}`.
@@ -72,15 +73,15 @@ Run: `pytest tests/web/test_api_chat.py -v` → **FAIL**.
 
 Run: `pytest tests/web/test_api_chat.py -v` → **PASS**.
 
-- [ ] **Step 1.5: Add test for 409**: two concurrent POSTs same `threadId` — second returns 409 before SSE body (or assert 409 with JSON — pick one and document in handler).
+- [x] **Step 1.5: Add test for 409**: two concurrent POSTs same `threadId` — second returns 409 before SSE body (or assert 409 with JSON — pick one and document in handler).
 
 Run: `pytest tests/web/test_api_chat.py -v` → **PASS**.
 
-- [ ] **Step 1.6: Typer command** e.g. `nanobot agui --port 8765` calling `aiohttp.web.run_app` on `create_app(...)`. Step 1: pass `agent_loop=None`; fake stream only.
+- [x] **Step 1.6: Typer command** e.g. `nanobot agui --port 8765` calling `aiohttp.web.run_app` on `create_app(...)`. Step 1: pass `agent_loop=None`; fake stream only.
 
 Run manual: `nanobot agui -p 8765` then `curl -N -X POST http://127.0.0.1:8765/api/chat -H "Content-Type: application/json" -d "{\"threadId\":\"a\",\"runId\":\"b\",\"messages\":[],\"humanInTheLoop\":false}"` — expect SSE lines.
 
-- [ ] **Step 1.7: Commit** — `feat(web): aiohttp AGUI stub with fake SSE, CORS, 409`
+- [x] **Step 1.7: Commit** — `feat(web): aiohttp AGUI stub with fake SSE, CORS, 409`
 
 ---
 

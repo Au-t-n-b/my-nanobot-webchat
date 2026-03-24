@@ -682,6 +682,22 @@ def gateway(
     asyncio.run(run())
 
 
+@app.command("agui")
+def agui(
+    port: int = typer.Option(8765, "--port", "-p", help="AGUI HTTP listen port"),
+    host: str = typer.Option("0.0.0.0", "--host", help="Bind address"),
+):
+    """Start AGUI aiohttp API (SSE /api/chat stub; use with Next.js frontend)."""
+    from aiohttp import web
+
+    from nanobot.web.app import create_app
+
+    app = create_app(agent_loop=None, config=None)
+    console.print(
+        f"{__logo__} AGUI on http://{host}:{port} "
+        f"(CORS: {os.environ.get('NANOBOT_AGUI_CORS_ORIGINS', 'http://localhost:3000')})"
+    )
+    web.run_app(app, host=host, port=port, print=lambda *_args, **_kw: None)
 
 
 # ============================================================================

@@ -1,13 +1,16 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Bot, Cpu, ExternalLink, FileText, RefreshCw, Sparkles } from "lucide-react";
+import { Bot, Cpu, ExternalLink, FileText, RefreshCw, Sparkles, Trash2 } from "lucide-react";
+import type { AgentMessage } from "@/hooks/useAgentChat";
+import { extractIndexedFiles } from "@/lib/fileIndex";
 
 type Props = {
   threadId: string;
   apiBase: string;
   onClear: () => void;
   onPreviewPath: (path: string) => void;
+  messages: AgentMessage[];
 };
 
 type SkillItem = {
@@ -26,16 +29,34 @@ function apiPath(path: string, apiBase: string): string {
   return path;
 }
 
-export function Sidebar({ threadId, apiBase, onClear, onPreviewPath }: Props) {
+type TrashModalState = {
+  open: boolean;
+  mode: "one" | "all";
+  targets: string[];
+};
+
+export function Sidebar({ threadId, apiBase, onClear, onPreviewPath, messages }: Props) {
   const [skills, setSkills] = useState<SkillItem[]>([]);
   const [skillsLoading, setSkillsLoading] = useState(false);
   const [skillsError, setSkillsError] = useState<string | null>(null);
   const [selectedSkillName, setSelectedSkillName] = useState<string | null>(null);
+  const [removedPaths, setRemovedPaths] = useState<Set<string>>(new Set());
+  const [trashError, setTrashError] = useState<string | null>(null);
+  const [trashBusy, setTrashBusy] = useState(false);
+  const [trashModal, setTrashModal] = useState<TrashModalState>({
+    open: false,
+    mode: "one",
+    targets: [],
+  });
 
   const selected = useMemo(
     () => skills.find((s) => s.name === selectedSkillName) ?? null,
     [skills, selectedSkillName],
   );
+  const indexedFiles = useMemo(() => {
+    const all = extractIndexedFiles(messages);
+    return all.filter((f) => !removedPaths.has(f.path));
+  }, [messages, removedPaths]);
 
   const loadSkills = useCallback(async () => {
     setSkillsLoading(true);
@@ -78,6 +99,50 @@ export function Sidebar({ threadId, apiBase, onClear, onPreviewPath }: Props) {
       setSkillsError(e instanceof Error ? e.message : String(e));
     }
   }, [apiBase, selected]);
+
+  const submitTrash = useCallback(async () => {
+    if (!trashModal.targets.length) return;
+    setTrashBusy(true);
+    setTrashError(null);
+    try {
+      const res = await fetch(apiPath("/api/trash-files", apiBase), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ paths: trashModal.targets }),
+      });
+      const txt = await res.text();
+      let payload: {
+        ok?: boolean;
+        deleted?: string[];
+        failed?: Array<{ path?: string; reason?: string }>;
+        error?: { message?: string };
+      } = {};
+      try {
+        payload = txt ? (JSON.parse(txt) as typeof payload) : {};
+      } catch {
+        payload = {};
+      }
+      if (!res.ok) {
+        throw new Error(payload.error?.message || txt || `HTTP ${res.status}`);
+      }
+      const deleted = payload.deleted ?? [];
+      const failed = payload.failed ?? [];
+      setRemovedPaths((prev) => {
+        const next = new Set(prev);
+        for (const p of deleted) next.add(p);
+        return next;
+      });
+      if (failed.length > 0) {
+        setTrashError(`已删 ${deleted.length} 项，失败 ${failed.length} 项（失败项保留）。`);
+      } else {
+        setTrashModal({ open: false, mode: "one", targets: [] });
+      }
+    } catch (e) {
+      setTrashError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setTrashBusy(false);
+    }
+  }, [apiBase, trashModal.targets]);
 
   return (
     <aside className="h-full rounded-xl border border-zinc-800 bg-zinc-900/60 p-4 flex flex-col gap-4">
@@ -157,6 +222,85 @@ export function Sidebar({ threadId, apiBase, onClear, onPreviewPath }: Props) {
           打开文件夹
         </button>
       </section>
+
+      <section className="rounded-md border border-zinc-800 bg-zinc-950/40 p-2 flex flex-col gap-2 min-h-0">
+        <div className="flex items-center justify-between text-xs text-zinc-300">
+          <span>文件索引</span>
+          <button
+            type="button"
+            disabled={indexedFiles.length === 0}
+            onClick={() => {
+              setTrashError(null);
+              setTrashModal({ open: true, mode: "all", targets: indexedFiles.map((f) => f.path) });
+            }}
+            className="inline-flex items-center gap-1 rounded px-1.5 py-1 hover:bg-zinc-800 text-zinc-400 disabled:opacity-40"
+            aria-label="清空文件索引并移入回收站"
+          >
+            <Trash2 size={12} />
+            清空
+          </button>
+        </div>
+
+        <div className="max-h-44 overflow-auto space-y-1 pr-1">
+          {indexedFiles.length === 0 ? (
+            <p className="text-[11px] text-zinc-500">暂无从会话中识别出的文件链接。</p>
+          ) : (
+            indexedFiles.map((f) => (
+              <div key={f.path} className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => onPreviewPath(f.path)}
+                  className="flex-1 text-left text-xs rounded px-2 py-1.5 border border-zinc-800 hover:border-zinc-700 text-zinc-300 truncate"
+                  title={f.path}
+                >
+                  {f.fileName}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTrashError(null);
+                    setTrashModal({ open: true, mode: "one", targets: [f.path] });
+                  }}
+                  className="rounded p-1.5 border border-zinc-800 hover:border-zinc-700 text-zinc-400"
+                  aria-label={`删除 ${f.fileName}`}
+                  title={`删除 ${f.fileName}`}
+                >
+                  <Trash2 size={12} />
+                </button>
+              </div>
+            ))
+          )}
+        </div>
+      </section>
+
+      {trashModal.open && (
+        <div className="rounded-md border border-amber-800 bg-amber-950/40 p-2 text-xs text-amber-100 space-y-2">
+          <p>
+            {trashModal.mode === "all"
+              ? `确认将 ${trashModal.targets.length} 个文件移入回收站？`
+              : "确认将该文件移入回收站？"}
+          </p>
+          {trashError && <p className="text-red-300 break-all">{trashError}</p>}
+          <div className="flex gap-2">
+            <button
+              type="button"
+              disabled={trashBusy}
+              onClick={() => void submitTrash()}
+              className="rounded bg-amber-700/70 hover:bg-amber-700 px-2 py-1 disabled:opacity-50"
+            >
+              {trashBusy ? "处理中..." : "确认"}
+            </button>
+            <button
+              type="button"
+              disabled={trashBusy}
+              onClick={() => setTrashModal({ open: false, mode: "one", targets: [] })}
+              className="rounded bg-zinc-700/70 hover:bg-zinc-700 px-2 py-1"
+            >
+              取消
+            </button>
+          </div>
+        </div>
+      )}
 
       <button
         type="button"

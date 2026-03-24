@@ -49,6 +49,7 @@ export default function Home() {
             apiBase={apiBase}
             onClear={clearChat}
             onPreviewPath={openFilePreview}
+            messages={messages}
           />
         </div>
 

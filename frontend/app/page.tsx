@@ -44,7 +44,12 @@ export default function Home() {
       />
       <div className="h-full grid grid-cols-12 gap-4">
         <div className="col-span-12 md:col-span-3">
-          <Sidebar threadId={threadId} apiBase={apiBase} onClear={clearChat} />
+          <Sidebar
+            threadId={threadId}
+            apiBase={apiBase}
+            onClear={clearChat}
+            onPreviewPath={openFilePreview}
+          />
         </div>
 
         <div className={previewOpen ? "col-span-12 md:col-span-6" : "col-span-12 md:col-span-9"}>

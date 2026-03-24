@@ -686,18 +686,55 @@ def gateway(
 def agui(
     port: int = typer.Option(8765, "--port", "-p", help="AGUI HTTP listen port"),
     host: str = typer.Option("0.0.0.0", "--host", help="Bind address"),
+    workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
+    config: str | None = typer.Option(None, "--config", "-c", help="Config file path"),
+    fake: bool = typer.Option(
+        False,
+        "--fake",
+        help="Fake SSE only (no AgentLoop; for frontend dev without API keys)",
+    ),
 ):
-    """Start AGUI aiohttp API (SSE /api/chat stub; use with Next.js frontend)."""
+    """Start AGUI aiohttp API (SSE /api/chat; use with Next.js frontend)."""
     from aiohttp import web
 
     from nanobot.web.app import create_app
 
-    app = create_app(agent_loop=None, config=None)
-    console.print(
-        f"{__logo__} AGUI on http://{host}:{port} "
-        f"(CORS: {os.environ.get('NANOBOT_AGUI_CORS_ORIGINS', 'http://localhost:3000')})"
-    )
-    web.run_app(app, host=host, port=port, print=lambda *_args, **_kw: None)
+    if fake:
+        aio_app = create_app(agent_loop=None, config=None)
+        mode = "fake SSE"
+    else:
+        from nanobot.agent.loop import AgentLoop
+        from nanobot.bus.queue import MessageBus
+        from nanobot.config.paths import get_cron_dir
+        from nanobot.cron.service import CronService
+
+        cfg = _load_runtime_config(config, workspace)
+        sync_workspace_templates(cfg.workspace_path)
+        bus = MessageBus()
+        provider = _make_provider(cfg)
+        cron_store_path = get_cron_dir() / "jobs.json"
+        cron = CronService(cron_store_path)
+        agent_loop = AgentLoop(
+            bus=bus,
+            provider=provider,
+            workspace=cfg.workspace_path,
+            model=cfg.agents.defaults.model,
+            max_iterations=cfg.agents.defaults.max_tool_iterations,
+            context_window_tokens=cfg.agents.defaults.context_window_tokens,
+            web_search_config=cfg.tools.web.search,
+            web_proxy=cfg.tools.web.proxy or None,
+            exec_config=cfg.tools.exec,
+            cron_service=cron,
+            restrict_to_workspace=cfg.tools.restrict_to_workspace,
+            mcp_servers=cfg.tools.mcp_servers,
+            channels_config=cfg.channels,
+        )
+        aio_app = create_app(agent_loop=agent_loop, config=cfg)
+        mode = f"model={agent_loop.model}"
+
+    cors = os.environ.get("NANOBOT_AGUI_CORS_ORIGINS", "http://localhost:3000")
+    console.print(f"{__logo__} AGUI on http://{host}:{port} ({mode}; CORS: {cors})")
+    web.run_app(aio_app, host=host, port=port, print=lambda *_args, **_kw: None)
 
 
 # ============================================================================

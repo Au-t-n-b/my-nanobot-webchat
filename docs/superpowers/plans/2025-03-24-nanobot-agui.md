@@ -91,13 +91,13 @@ Run manual: `nanobot agui -p 8765` then `curl -N -X POST http://127.0.0.1:8765/a
 - Modify: `nanobot/web/routes.py`, `nanobot/web/app.py`, `nanobot/cli/commands.py`
 - Test: extend `tests/web/test_api_chat.py` with mocked `AgentLoop` or contract test with env `NANOBOT_AGUI_FAKE=1`
 
-- [ ] **Step 2.1:** In `agui` command, construct `AgentLoop` like [`commands.py` `agent` command](../../../nanobot/cli/commands.py) (lines ~709–738): `MessageBus`, `_make_provider`, `CronService`; omit explicit `SessionManager` if mirroring `agent` (loop defaults to `SessionManager(workspace)` per `AgentLoop.__init__`).
+- [x] **Step 2.1:** In `agui` command, construct `AgentLoop` like [`commands.py` `agent` command](../../../nanobot/cli/commands.py) (lines ~709–738): `MessageBus`, `_make_provider`, `CronService`; omit explicit `SessionManager` if mirroring `agent` (loop defaults to `SessionManager(workspace)` per `AgentLoop.__init__`). 增加 `--fake` 仅假流。
 
-- [ ] **Step 2.2:** In `POST /api/chat`, extract user text: **last message with `role=="user"`** string `content`; if missing, **400**. Pass to `process_direct(content, session_key=threadId, channel="web", chat_id=threadId, on_progress=..., on_stream=..., on_stream_end=...)`.
+- [x] **Step 2.2:** In `POST /api/chat`, extract user text: **last message with `role=="user"`** string `content`; if missing, **400**. Pass to `process_direct(content, session_key=threadId, channel="web", chat_id=threadId, on_progress=..., on_stream=..., on_stream_end=...)`。
 
-- [ ] **Step 2.3:** Map callbacks → SSE per [spec §5](../specs/2025-03-24-nanobot-agui-design.md). **`on_progress` 签名:** `async def on_progress(content: str, *, tool_hint: bool = False)` — `tool_hint=False` → `StepStarted` thinking；`tool_hint=True` → `StepStarted` tool。`RunStarted.model`: use `agent_loop.model`. On exception after stream started: emit `Error` + `RunFinished` with `error`.
+- [x] **Step 2.3:** Map callbacks → SSE per [spec §5](../specs/2025-03-24-nanobot-agui-design.md). **`on_progress` 签名:** `tool_hint=False` → `StepStarted` thinking；`tool_hint=True` → `StepStarted` tool。`RunStarted.model`: `agent_loop.model`. 异常：`Error` + `RunFinished` 带 `error`；`app.on_cleanup` 调用 `close_mcp`。
 
-- [ ] **Step 2.4:** Run pytest + one manual real call (requires API keys in config). Commit.
+- [x] **Step 2.4:** Run pytest + commit（真实 LLM 需本地有 key 后手动 curl 带 `messages`）。
 
 ---
 

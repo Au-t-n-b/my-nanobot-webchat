@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from aiohttp.test_utils import TestClient, TestServer
@@ -140,3 +141,106 @@ async def test_cors_second_configured_origin(monkeypatch: pytest.MonkeyPatch) ->
         )
         assert resp.status == 204
         assert resp.headers.get("Access-Control-Allow-Origin") == "http://127.0.0.1:3000"
+
+
+@pytest.mark.asyncio
+async def test_post_chat_requires_user_message_when_agent() -> None:
+    agent = MagicMock()
+    agent.model = "m1"
+    agent.process_direct = AsyncMock(return_value=None)
+    agent.close_mcp = AsyncMock()
+    app = create_app(agent_loop=agent)
+    async with TestClient(TestServer(app)) as client:
+        resp = await client.post(
+            "/api/chat",
+            json={
+                "threadId": "t1",
+                "runId": "r1",
+                "messages": [],
+                "humanInTheLoop": False,
+            },
+        )
+        assert resp.status == 400
+
+
+@pytest.mark.asyncio
+async def test_post_chat_with_agent_maps_sse() -> None:
+    from nanobot.bus.events import OutboundMessage
+
+    agent = MagicMock()
+    agent.model = "m1"
+
+    async def pd(
+        content,
+        session_key="x",
+        channel="x",
+        chat_id="x",
+        on_progress=None,
+        on_stream=None,
+        on_stream_end=None,
+    ):
+        assert content == "hi"
+        assert session_key == "t1"
+        assert channel == "web"
+        assert chat_id == "t1"
+        if on_progress:
+            await on_progress("thinking", tool_hint=False)
+        if on_stream:
+            await on_stream("A")
+        return OutboundMessage(channel="web", chat_id=session_key, content="A")
+
+    agent.process_direct = AsyncMock(side_effect=pd)
+    agent.close_mcp = AsyncMock()
+
+    app = create_app(agent_loop=agent)
+    async with TestClient(TestServer(app)) as client:
+        resp = await client.post(
+            "/api/chat",
+            json={
+                "threadId": "t1",
+                "runId": "r1",
+                "messages": [{"role": "user", "content": "hi"}],
+                "humanInTheLoop": False,
+            },
+        )
+        assert resp.status == 200
+        body = await resp.text()
+        assert "event: RunStarted" in body
+        rs = _sse_event_payload(body, "RunStarted")
+        assert rs is not None
+        assert rs.get("model") == "m1"
+        assert "event: StepStarted" in body
+        assert "event: TextMessageContent" in body
+        fin = _sse_event_payload(body, "RunFinished")
+        assert fin is not None
+        assert fin.get("message") == "A"
+        assert "error" not in fin
+
+
+@pytest.mark.asyncio
+async def test_post_chat_agent_error_emits_error_events() -> None:
+    agent = MagicMock()
+    agent.model = "m1"
+    agent.process_direct = AsyncMock(side_effect=RuntimeError("boom"))
+    agent.close_mcp = AsyncMock()
+    app = create_app(agent_loop=agent)
+    async with TestClient(TestServer(app)) as client:
+        resp = await client.post(
+            "/api/chat",
+            json={
+                "threadId": "t1",
+                "runId": "r1",
+                "messages": [{"role": "user", "content": "x"}],
+                "humanInTheLoop": False,
+            },
+        )
+        assert resp.status == 200
+        body = await resp.text()
+        assert "event: Error" in body
+        err = _sse_event_payload(body, "Error")
+        assert err is not None
+        assert err.get("code") == "RuntimeError"
+        fin = _sse_event_payload(body, "RunFinished")
+        assert fin is not None
+        assert "error" in fin
+        assert fin["error"]["code"] == "RuntimeError"

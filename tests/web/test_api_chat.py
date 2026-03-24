@@ -259,3 +259,57 @@ async def test_post_chat_agent_error_emits_error_events() -> None:
         assert fin is not None
         assert "error" in fin
         assert fin["error"]["code"] == "RuntimeError"
+
+
+@pytest.mark.asyncio
+async def test_post_chat_includes_choices_on_run_finished() -> None:
+    from nanobot.bus.events import OutboundMessage
+
+    class ToolCall:
+        def __init__(self) -> None:
+            self.id = "tool_1"
+            self.name = "present_choices"
+            self.arguments = {
+                "choices": [
+                    {"label": "A", "value": "a"},
+                    {"label": "B", "value": "b"},
+                ]
+            }
+
+    class FakeAgent:
+        def __init__(self) -> None:
+            self.model = "m1"
+            self._cb = None
+            self.close_mcp = AsyncMock()
+
+        def set_tool_approval_callback(self, cb):
+            self._cb = cb
+            return "tok"
+
+        def reset_tool_approval_callback(self, _token):
+            self._cb = None
+
+        async def process_direct(self, *_args, **_kwargs):
+            assert self._cb is not None
+            await self._cb(ToolCall())
+            return OutboundMessage(channel="web", chat_id="t1", content="done")
+
+    app = create_app(agent_loop=FakeAgent())
+    async with TestClient(TestServer(app)) as client:
+        resp = await client.post(
+            "/api/chat",
+            json={
+                "threadId": "t1",
+                "runId": "r1",
+                "messages": [{"role": "user", "content": "pick one"}],
+                "humanInTheLoop": False,
+            },
+        )
+        assert resp.status == 200
+        body = await resp.text()
+        fin = _sse_event_payload(body, "RunFinished")
+        assert fin is not None
+        assert fin.get("choices") == [
+            {"label": "A", "value": "a"},
+            {"label": "B", "value": "b"},
+        ]

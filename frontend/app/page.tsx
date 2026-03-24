@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { ChatArea } from "@/components/ChatArea";
+import { ChoicesModal } from "@/components/ChoicesModal";
 import { PreviewPanel } from "@/components/PreviewPanel";
 import { Sidebar } from "@/components/Sidebar";
 import { useAgentChat } from "@/hooks/useAgentChat";
@@ -17,6 +18,7 @@ export default function Home() {
     pendingChoices,
     sendMessage,
     approveTool,
+    clearPendingChoices,
     clearChat,
   } = useAgentChat();
   const [input, setInput] = useState("");
@@ -26,6 +28,14 @@ export default function Home() {
 
   return (
     <main className="h-screen bg-zinc-950 text-zinc-100 p-4">
+      <ChoicesModal
+        choices={pendingChoices}
+        onSelect={(choice) => {
+          clearPendingChoices();
+          void sendMessage(choice.value);
+        }}
+        onClose={clearPendingChoices}
+      />
       <div className="h-full grid grid-cols-12 gap-4">
         <div className="col-span-12 md:col-span-3">
           <Sidebar threadId={threadId} apiBase={apiBase} onClear={clearChat} />

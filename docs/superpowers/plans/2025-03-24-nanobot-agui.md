@@ -150,8 +150,8 @@ Run manual: `nanobot agui -p 8765` then `curl -N -X POST http://127.0.0.1:8765/a
 - Modify: agent/tooling — 仓库内可能尚无 `present_choices`：**新增**工具或等价机制，在需选择题时把 `choices` 写入当次 `RunFinished`（与蓝图一致）
 - Create: `frontend/components/ChoicesModal.tsx`
 
-- [ ] **Step 6.1:** 后端：注册 `present_choices`（或命名一致的工具），在 loop 结束路径将 `choices` 附加到 `RunFinished`。
-- [ ] **Step 6.2:** 前端：解析 `RunFinished.choices`；Tailwind 居中 Modal；点选后作为下一条 user 消息再走 `useAgentChat`。 Commit。
+- [x] **Step 6.1:** 后端：注册 `present_choices`（或命名一致的工具），在 loop 结束路径将 `choices` 附加到 `RunFinished`。
+- [x] **Step 6.2:** 前端：解析 `RunFinished.choices`；Tailwind 居中 Modal；点选后作为下一条 user 消息再走 `useAgentChat`。 Commit。
 
 ---
 
@@ -190,5 +190,6 @@ cd frontend && npm run build && npm run lint
 
 - **2025-03-24:** Initial plan from approved spec + CURSOR_REFACTOR_PLAN.
 - **2025-03-24:** Plan review **Approved**; merged advisory (SSE `Content-Type`, `on_progress`/`tool_hint`, HITL Future-only, `present_choices` sub-steps, `threadId` persistence, `humanInTheLoop` note).
+
 
 

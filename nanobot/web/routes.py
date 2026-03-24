@@ -168,6 +168,7 @@ async def handle_chat(request: web.Request) -> web.StreamResponse | web.Response
             )
 
             streamed_chunks: list[str] = []
+            run_choices: list[dict[str, str]] = []
 
             async def on_progress(content: str, *, tool_hint: bool = False) -> None:
                 if not (content or "").strip():
@@ -190,6 +191,22 @@ async def handle_chat(request: web.Request) -> web.StreamResponse | web.Response
                 arguments_str = (
                     arguments if isinstance(arguments, str) else json.dumps(arguments, ensure_ascii=False)
                 )
+                if tool_name == "present_choices":
+                    args_obj = arguments if isinstance(arguments, dict) else {}
+                    raw_choices = args_obj.get("choices", [])
+                    if isinstance(raw_choices, list):
+                        normalized: list[dict[str, str]] = []
+                        for item in raw_choices:
+                            if not isinstance(item, dict):
+                                continue
+                            label = str(item.get("label", "")).strip()
+                            value = str(item.get("value", "")).strip()
+                            if label and value:
+                                normalized.append({"label": label, "value": value})
+                        if normalized:
+                            run_choices.clear()
+                            run_choices.extend(normalized)
+                    return True
                 fut = await approvals.create(thread_id, run_id, tool_call_id)
                 await safe_write(
                     "ToolPending",
@@ -222,6 +239,7 @@ async def handle_chat(request: web.Request) -> web.StreamResponse | web.Response
                         "threadId": thread_id,
                         "runId": run_id,
                         "message": final,
+                        "choices": run_choices,
                     },
                 )
             except Exception as e:

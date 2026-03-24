@@ -92,6 +92,10 @@ export function useAgentChat() {
     setPendingChoices(null);
   }, []);
 
+  const clearPendingChoices = useCallback(() => {
+    setPendingChoices(null);
+  }, []);
+
   const approveTool = useCallback(
     async (approved: boolean) => {
       if (!pendingTool) return;
@@ -262,6 +266,7 @@ export function useAgentChat() {
     pendingChoices,
     sendMessage,
     approveTool,
+    clearPendingChoices,
     clearChat,
   };
 }

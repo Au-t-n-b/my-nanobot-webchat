@@ -138,9 +138,9 @@ Run manual: `nanobot agui -p 8765` then `curl -N -X POST http://127.0.0.1:8765/a
 
 **`humanInTheLoop`：** 请求体字段在 Step 1 已解析；Step 5 需写明首版是否读取该布尔（例如仅当 `true` 时对标记为敏感的工具挂起），若忽略则文档注明「当前未使用，默认行为为…」以免与产品预期偏差。
 
-- [ ] **Step 5.1:** Backend: on sensitive tool, pause and emit `ToolPending`; store Future in registry; `/api/approve-tool` resolves Future; **404** if no pending (spec).
+- [x] **Step 5.1:** Backend: on sensitive tool, pause and emit `ToolPending`; store Future in registry; `/api/approve-tool` resolves Future; **404** if no pending (spec).
 
-- [ ] **Step 5.2:** Frontend: render card; POST approve; resume stream consumption. Tests + commit.
+- [x] **Step 5.2:** Frontend: render card; POST approve; resume stream consumption. Tests + commit.
 
 ---
 
@@ -190,4 +190,5 @@ cd frontend && npm run build && npm run lint
 
 - **2025-03-24:** Initial plan from approved spec + CURSOR_REFACTOR_PLAN.
 - **2025-03-24:** Plan review **Approved**; merged advisory (SSE `Content-Type`, `on_progress`/`tool_hint`, HITL Future-only, `present_choices` sub-steps, `threadId` persistence, `humanInTheLoop` note).
+
 

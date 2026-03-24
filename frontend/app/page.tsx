@@ -16,6 +16,7 @@ export default function Home() {
     pendingTool,
     pendingChoices,
     sendMessage,
+    approveTool,
     clearChat,
   } = useAgentChat();
   const [input, setInput] = useState("");
@@ -44,6 +45,9 @@ export default function Home() {
               const v = input;
               setInput("");
               void sendMessage(v);
+            }}
+            onApproveTool={(approved) => {
+              void approveTool(approved);
             }}
             disabled={isLoading || !threadId}
           />

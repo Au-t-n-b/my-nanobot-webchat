@@ -40,6 +40,7 @@ async def test_post_chat_fake_sse_sequence() -> None:
     async with TestClient(TestServer(app)) as client:
         resp = await client.post(
             "/api/chat",
+            headers={"Origin": "http://localhost:3000"},
             json={
                 "threadId": "t1",
                 "runId": "r1",
@@ -48,6 +49,7 @@ async def test_post_chat_fake_sse_sequence() -> None:
             },
         )
         assert resp.status == 200
+        assert resp.headers.get("Access-Control-Allow-Origin") == "http://localhost:3000"
         assert resp.headers.get("Content-Type", "").startswith("text/event-stream")
         body = await resp.text()
         assert "event: RunStarted" in body
@@ -135,6 +137,21 @@ async def test_cors_preflight_chat() -> None:
         )
         assert resp.status == 204
         assert resp.headers.get("Access-Control-Allow-Origin") == "http://localhost:3000"
+
+
+@pytest.mark.asyncio
+async def test_cors_preflight_127_default() -> None:
+    app = create_app()
+    async with TestClient(TestServer(app)) as client:
+        resp = await client.options(
+            "/api/chat",
+            headers={
+                "Origin": "http://127.0.0.1:3000",
+                "Access-Control-Request-Method": "POST",
+            },
+        )
+        assert resp.status == 204
+        assert resp.headers.get("Access-Control-Allow-Origin") == "http://127.0.0.1:3000"
 
 
 @pytest.mark.asyncio

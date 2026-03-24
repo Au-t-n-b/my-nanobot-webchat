@@ -23,26 +23,30 @@ if TYPE_CHECKING:
 
 
 def _allowed_origins() -> list[str]:
-    raw = os.environ.get("NANOBOT_AGUI_CORS_ORIGINS", "http://localhost:3000")
+    raw = os.environ.get(
+        "NANOBOT_AGUI_CORS_ORIGINS",
+        "http://localhost:3000,http://127.0.0.1:3000",
+    )
     out = [o.strip() for o in raw.split(",") if o.strip()]
-    return out if out else ["http://localhost:3000"]
+    return out if out else ["http://localhost:3000", "http://127.0.0.1:3000"]
 
 
 def _cors_headers(request: web.Request) -> dict[str, str]:
+    """Reflect ``Access-Control-Allow-Origin`` only when ``Origin`` is in the allow-list.
+
+    Browsers require the response value to **exactly** match the request ``Origin``;
+    sending the first allow-list entry when they differ causes a CORS failure.
+    """
     origin = request.headers.get("Origin")
     allowed = _allowed_origins()
-    if origin and origin in allowed:
-        acao = origin
-    elif allowed:
-        acao = allowed[0]
-    else:
-        acao = "*"
-    return {
-        "Access-Control-Allow-Origin": acao,
+    headers: dict[str, str] = {
         "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
         "Access-Control-Allow-Headers": "Content-Type",
         "Access-Control-Max-Age": "86400",
     }
+    if origin and origin in allowed:
+        headers["Access-Control-Allow-Origin"] = origin
+    return headers
 
 
 @web.middleware
@@ -126,15 +130,17 @@ async def handle_chat(request: web.Request) -> web.StreamResponse | web.Response
             status=409,
         )
 
-    response = web.StreamResponse(
-        status=200,
-        headers={
-            "Content-Type": "text/event-stream",
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
-        },
-    )
+    # CORS must be on the first response bytes. Middleware runs after the handler
+    # returns; for SSE the handler returns only when the stream ends, *after*
+    # ``prepare()`` — so the browser never sees ACAO unless we attach it here.
+    stream_headers = {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+        "X-Accel-Buffering": "no",
+    }
+    stream_headers.update(_cors_headers(request))
+    response = web.StreamResponse(status=200, headers=stream_headers)
 
     write_lock = asyncio.Lock()
 

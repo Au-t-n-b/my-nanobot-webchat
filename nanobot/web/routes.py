@@ -20,7 +20,8 @@ if TYPE_CHECKING:
 
 def _allowed_origins() -> list[str]:
     raw = os.environ.get("NANOBOT_AGUI_CORS_ORIGINS", "http://localhost:3000")
-    return [o.strip() for o in raw.split(",") if o.strip()]
+    out = [o.strip() for o in raw.split(",") if o.strip()]
+    return out if out else ["http://localhost:3000"]
 
 
 def _cors_headers(request: web.Request) -> dict[str, str]:
@@ -66,13 +67,15 @@ async def handle_chat(request: web.Request) -> web.StreamResponse | web.Response
 
     thread_id = data.get("threadId")
     run_id = data.get("runId")
-    if not thread_id or not run_id:
+    if thread_id is None or run_id is None or thread_id == "" or run_id == "":
         return web.json_response(
             {"detail": "threadId and runId are required"},
             status=400,
         )
+    thread_id = str(thread_id)
+    run_id = str(run_id)
 
-    if not await registry.try_begin(str(thread_id), str(run_id)):
+    if not await registry.try_begin(thread_id, run_id):
         return web.json_response(
             {"detail": "Thread already has an active chat run"},
             status=409,
@@ -112,7 +115,7 @@ async def handle_chat(request: web.Request) -> web.StreamResponse | web.Response
             },
         )
     finally:
-        await registry.end(str(thread_id))
+        await registry.end(thread_id)
 
     return response
 

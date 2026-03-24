@@ -3,11 +3,29 @@
 from __future__ import annotations
 
 import asyncio
+import json
 
 import pytest
 from aiohttp.test_utils import TestClient, TestServer
 
 from nanobot.web.app import create_app
+
+
+def _sse_event_payload(body: str, event_name: str) -> dict | None:
+    """Parse first ``data:`` JSON after ``event: <name>``."""
+    blocks = body.split("\n\n")
+    for block in blocks:
+        lines = [ln.strip() for ln in block.strip().split("\n") if ln.strip()]
+        ev = None
+        data_line = None
+        for ln in lines:
+            if ln.startswith("event:"):
+                ev = ln[len("event:") :].strip()
+            elif ln.startswith("data:"):
+                data_line = ln[len("data:") :].strip()
+        if ev == event_name and data_line:
+            return json.loads(data_line)
+    return None
 
 
 @pytest.fixture(autouse=True)
@@ -34,6 +52,9 @@ async def test_post_chat_fake_sse_sequence() -> None:
         assert "event: RunStarted" in body
         assert "event: TextMessageContent" in body
         assert "event: RunFinished" in body
+        finished_payload = _sse_event_payload(body, "RunFinished")
+        assert finished_payload is not None
+        assert "error" not in finished_payload
 
 
 @pytest.mark.asyncio
@@ -100,3 +121,22 @@ async def test_cors_preflight_chat() -> None:
         )
         assert resp.status == 204
         assert resp.headers.get("Access-Control-Allow-Origin") == "http://localhost:3000"
+
+
+@pytest.mark.asyncio
+async def test_cors_second_configured_origin(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(
+        "NANOBOT_AGUI_CORS_ORIGINS",
+        "http://localhost:3000,http://127.0.0.1:3000",
+    )
+    app = create_app()
+    async with TestClient(TestServer(app)) as client:
+        resp = await client.options(
+            "/api/chat",
+            headers={
+                "Origin": "http://127.0.0.1:3000",
+                "Access-Control-Request-Method": "POST",
+            },
+        )
+        assert resp.status == 204
+        assert resp.headers.get("Access-Control-Allow-Origin") == "http://127.0.0.1:3000"

@@ -15,6 +15,7 @@ type Props = {
   input: string;
   setInput: (v: string) => void;
   onSend: () => void;
+  onApproveTool: (approved: boolean) => void;
   disabled: boolean;
 };
 
@@ -28,6 +29,7 @@ export function ChatArea({
   input,
   setInput,
   onSend,
+  onApproveTool,
   disabled,
 }: Props) {
   return (
@@ -40,7 +42,24 @@ export function ChatArea({
 
       {pendingTool && (
         <div className="rounded-md border border-amber-800 bg-amber-950/40 text-amber-100 text-sm px-3 py-2">
-          [ToolPending] {pendingTool.toolName} - Step 4 将接 /api/approve-tool
+          <div className="font-medium">[ToolPending] {pendingTool.toolName}</div>
+          <div className="text-amber-200/80 mt-1 break-all">{pendingTool.arguments}</div>
+          <div className="mt-2 flex gap-2">
+            <button
+              type="button"
+              onClick={() => onApproveTool(true)}
+              className="rounded bg-emerald-700/70 hover:bg-emerald-700 px-2 py-1 text-xs"
+            >
+              运行
+            </button>
+            <button
+              type="button"
+              onClick={() => onApproveTool(false)}
+              className="rounded bg-zinc-700/70 hover:bg-zinc-700 px-2 py-1 text-xs"
+            >
+              取消
+            </button>
+          </div>
         </div>
       )}
 

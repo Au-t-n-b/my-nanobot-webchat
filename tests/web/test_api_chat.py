@@ -71,10 +71,25 @@ async def test_approve_and_file_stubs() -> None:
     app = create_app()
     async with TestClient(TestServer(app)) as client:
         r1 = await client.post("/api/approve-tool", json={})
-        assert r1.status == 501
-        assert (await r1.json()).get("detail") == "not implemented"
+        assert r1.status == 400
         r2 = await client.get("/api/file", params={"path": "/x"})
         assert r2.status == 501
+
+
+@pytest.mark.asyncio
+async def test_approve_not_found_returns_404() -> None:
+    app = create_app()
+    async with TestClient(TestServer(app)) as client:
+        r = await client.post(
+            "/api/approve-tool",
+            json={
+                "threadId": "t1",
+                "runId": "r1",
+                "toolCallId": "tool_x",
+                "approved": True,
+            },
+        )
+        assert r.status == 404
 
 
 @pytest.mark.asyncio

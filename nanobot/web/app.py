@@ -6,9 +6,9 @@ from typing import TYPE_CHECKING
 
 from aiohttp import web
 
-from nanobot.web.keys import AGENT_LOOP_KEY, CONFIG_KEY, RUN_REGISTRY_KEY
+from nanobot.web.keys import AGENT_LOOP_KEY, APPROVAL_REGISTRY_KEY, CONFIG_KEY, RUN_REGISTRY_KEY
 from nanobot.web.routes import cors_middleware, setup_routes
-from nanobot.web.run_registry import RunRegistry
+from nanobot.web.run_registry import ApprovalRegistry, RunRegistry
 
 if TYPE_CHECKING:
     from nanobot.agent.loop import AgentLoop
@@ -32,6 +32,7 @@ def create_app(
     app[AGENT_LOOP_KEY] = agent_loop
     app[CONFIG_KEY] = config
     app[RUN_REGISTRY_KEY] = run_registry or RunRegistry()
+    app[APPROVAL_REGISTRY_KEY] = ApprovalRegistry()
     app.on_cleanup.append(_agui_cleanup)
     setup_routes(app)
     return app

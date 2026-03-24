@@ -11,8 +11,8 @@ from typing import TYPE_CHECKING, Any
 
 from aiohttp import web
 
-from nanobot.web.keys import AGENT_LOOP_KEY, RUN_REGISTRY_KEY
-from nanobot.web.run_registry import RunRegistry
+from nanobot.web.keys import AGENT_LOOP_KEY, APPROVAL_REGISTRY_KEY, RUN_REGISTRY_KEY
+from nanobot.web.run_registry import ApprovalRegistry, RunRegistry
 from nanobot.web.sse import format_sse
 
 if TYPE_CHECKING:
@@ -89,6 +89,7 @@ def _last_user_text(messages: Any) -> str | None:
 
 async def handle_chat(request: web.Request) -> web.StreamResponse | web.Response:
     registry: RunRegistry = request.app[RUN_REGISTRY_KEY]
+    approvals: ApprovalRegistry = request.app[APPROVAL_REGISTRY_KEY]
     agent: AgentLoop | None = request.app[AGENT_LOOP_KEY]
 
     try:
@@ -182,6 +183,27 @@ async def handle_chat(request: web.Request) -> web.StreamResponse | web.Response
             async def on_stream_end(*, resuming: bool = False) -> None:
                 del resuming  # reserved for future SSE boundaries
 
+            async def on_tool_approval(tc: Any) -> bool:
+                tool_call_id = str(getattr(tc, "id", ""))
+                tool_name = str(getattr(tc, "name", ""))
+                arguments = getattr(tc, "arguments", {})
+                arguments_str = (
+                    arguments if isinstance(arguments, str) else json.dumps(arguments, ensure_ascii=False)
+                )
+                fut = await approvals.create(thread_id, run_id, tool_call_id)
+                await safe_write(
+                    "ToolPending",
+                    {
+                        "threadId": thread_id,
+                        "runId": run_id,
+                        "toolCallId": tool_call_id,
+                        "toolName": tool_name,
+                        "arguments": arguments_str,
+                    },
+                )
+                return await fut
+
+            token = agent.set_tool_approval_callback(on_tool_approval)
             try:
                 assert user_text is not None
                 out = await agent.process_direct(
@@ -227,14 +249,36 @@ async def handle_chat(request: web.Request) -> web.StreamResponse | web.Response
                         "error": {"code": code, "message": msg},
                     },
                 )
+            finally:
+                agent.reset_tool_approval_callback(token)
     finally:
+        await approvals.clear_run(thread_id, run_id)
         await registry.end(thread_id)
 
     return response
 
 
-async def handle_approve_stub(_request: web.Request) -> web.Response:
-    return web.json_response({"detail": "not implemented"}, status=501)
+async def handle_approve(request: web.Request) -> web.Response:
+    approvals: ApprovalRegistry = request.app[APPROVAL_REGISTRY_KEY]
+    try:
+        data = await request.json()
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return web.json_response({"detail": "Invalid JSON body"}, status=400)
+
+    thread_id = str(data.get("threadId", ""))
+    run_id = str(data.get("runId", ""))
+    tool_call_id = str(data.get("toolCallId", ""))
+    approved = data.get("approved")
+    if not thread_id or not run_id or not tool_call_id or not isinstance(approved, bool):
+        return web.json_response(
+            {"detail": "threadId, runId, toolCallId, approved(bool) are required"},
+            status=400,
+        )
+
+    ok = await approvals.resolve(thread_id, run_id, tool_call_id, approved)
+    if not ok:
+        return web.json_response({"detail": "No pending tool approval found"}, status=404)
+    return web.json_response({"ok": True})
 
 
 async def handle_file_stub(_request: web.Request) -> web.Response:
@@ -243,7 +287,7 @@ async def handle_file_stub(_request: web.Request) -> web.Response:
 
 def setup_routes(app: web.Application) -> None:
     app.router.add_post("/api/chat", handle_chat)
-    app.router.add_post("/api/approve-tool", handle_approve_stub)
+    app.router.add_post("/api/approve-tool", handle_approve)
     app.router.add_get("/api/file", handle_file_stub)
     app.router.add_options("/api/chat", handle_options)
     app.router.add_options("/api/approve-tool", handle_options)

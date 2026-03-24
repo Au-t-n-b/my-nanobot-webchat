@@ -8,6 +8,7 @@ import re
 import os
 import time
 from contextlib import AsyncExitStack, nullcontext
+from contextvars import ContextVar, Token
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
@@ -33,6 +34,12 @@ from nanobot.session.manager import Session, SessionManager
 if TYPE_CHECKING:
     from nanobot.config.schema import ChannelsConfig, ExecToolConfig, WebSearchConfig
     from nanobot.cron.service import CronService
+
+ToolApprovalCallback = Callable[[Any], Awaitable[bool]]
+_APPROVAL_CALLBACK: ContextVar[ToolApprovalCallback | None] = ContextVar(
+    "nanobot_tool_approval_cb",
+    default=None,
+)
 
 
 class AgentLoop:
@@ -123,6 +130,13 @@ class AgentLoop:
         self._register_default_tools()
         self.commands = CommandRouter()
         register_builtin_commands(self.commands)
+
+    def set_tool_approval_callback(self, callback: ToolApprovalCallback | None) -> Token:
+        """Bind per-request HITL callback in context-local storage."""
+        return _APPROVAL_CALLBACK.set(callback)
+
+    def reset_tool_approval_callback(self, token: Token) -> None:
+        _APPROVAL_CALLBACK.reset(token)
 
     def _register_default_tools(self) -> None:
         """Register the default set of tools."""
@@ -289,16 +303,33 @@ class AgentLoop:
                 # concurrent sessions don't clobber each other's routing.
                 self._set_tool_context(channel, chat_id, message_id)
 
-                # Execute all tool calls concurrently — the LLM batches
+                approval_cb = _APPROVAL_CALLBACK.get()
+                approved_calls = []
+                result_by_id: dict[str, Any] = {}
+
+                for tc in response.tool_calls:
+                    approved = True
+                    if approval_cb is not None:
+                        approved = await approval_cb(tc)
+                    if approved:
+                        approved_calls.append(tc)
+                    else:
+                        result_by_id[tc.id] = "Tool call cancelled by user approval."
+
+                # Execute approved tool calls concurrently — the LLM batches
                 # independent calls in a single response on purpose.
                 # return_exceptions=True ensures all results are collected
                 # even if one tool is cancelled or raises BaseException.
-                results = await asyncio.gather(*(
-                    self.tools.execute(tc.name, tc.arguments)
-                    for tc in response.tool_calls
-                ), return_exceptions=True)
+                if approved_calls:
+                    results = await asyncio.gather(*(
+                        self.tools.execute(tc.name, tc.arguments)
+                        for tc in approved_calls
+                    ), return_exceptions=True)
+                    for tc, result in zip(approved_calls, results):
+                        result_by_id[tc.id] = result
 
-                for tool_call, result in zip(response.tool_calls, results):
+                for tool_call in response.tool_calls:
+                    result = result_by_id.get(tool_call.id, "Tool call cancelled by user approval.")
                     if isinstance(result, BaseException):
                         result = f"Error: {type(result).__name__}: {result}"
                     messages = self.context.add_tool_result(

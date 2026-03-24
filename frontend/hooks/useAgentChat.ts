@@ -92,6 +92,35 @@ export function useAgentChat() {
     setPendingChoices(null);
   }, []);
 
+  const approveTool = useCallback(
+    async (approved: boolean) => {
+      if (!pendingTool) return;
+      const res = await fetch(`${apiBase}/api/approve-tool`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          threadId: pendingTool.threadId,
+          runId: pendingTool.runId,
+          toolCallId: pendingTool.toolCallId,
+          approved,
+        }),
+      });
+      if (!res.ok) {
+        let msg = `HTTP ${res.status}`;
+        try {
+          const j = (await res.json()) as { detail?: string };
+          if (j?.detail) msg = j.detail;
+        } catch {
+          // ignore
+        }
+        setError(msg);
+      } else {
+        setPendingTool(null);
+      }
+    },
+    [apiBase, pendingTool],
+  );
+
   const sendMessage = useCallback(
     async (text: string) => {
       const trimmed = text.trim();
@@ -135,7 +164,7 @@ export function useAgentChat() {
             threadId,
             runId,
             messages: bodyMessages,
-            humanInTheLoop: false,
+            humanInTheLoop: true,
           }),
         });
 
@@ -232,7 +261,7 @@ export function useAgentChat() {
     pendingTool,
     pendingChoices,
     sendMessage,
+    approveTool,
     clearChat,
   };
 }
-

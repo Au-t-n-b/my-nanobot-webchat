@@ -16,6 +16,7 @@ from aiohttp import web
 from nanobot.web.keys import AGENT_LOOP_KEY, APPROVAL_REGISTRY_KEY, CONFIG_KEY, RUN_REGISTRY_KEY
 from nanobot.web.paths import normalize_file_query, resolve_file_target
 from nanobot.web.run_registry import ApprovalRegistry, RunRegistry
+from nanobot.web.skills import list_skills
 from nanobot.web.sse import format_sse
 
 if TYPE_CHECKING:
@@ -64,6 +65,20 @@ async def cors_middleware(
 
 async def handle_options(_request: web.Request) -> web.Response:
     return web.Response(status=204, headers=_cors_headers(_request))
+
+
+def _error(code: str, message: str, *, detail: str | None = None, status: int) -> web.Response:
+    payload: dict[str, dict[str, str]] = {"error": {"code": code, "message": message}}
+    if detail:
+        payload["error"]["detail"] = detail
+    return web.json_response(payload, status=status)
+
+
+async def handle_skills(_request: web.Request) -> web.Response:
+    try:
+        return web.json_response({"items": list_skills()})
+    except Exception as e:
+        return _error("internal_error", "Failed to list skills", detail=str(e), status=500)
 
 
 def _text_from_user_content(content: Any) -> str | None:
@@ -359,6 +374,8 @@ def setup_routes(app: web.Application) -> None:
     app.router.add_post("/api/chat", handle_chat)
     app.router.add_post("/api/approve-tool", handle_approve)
     app.router.add_get("/api/file", handle_file)
+    app.router.add_get("/api/skills", handle_skills)
     app.router.add_options("/api/chat", handle_options)
     app.router.add_options("/api/approve-tool", handle_options)
     app.router.add_options("/api/file", handle_options)
+    app.router.add_options("/api/skills", handle_options)

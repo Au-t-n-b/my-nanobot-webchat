@@ -107,13 +107,13 @@ Run manual: `nanobot agui -p 8765` then `curl -N -X POST http://127.0.0.1:8765/a
 - Create: `frontend/` via `npx create-next-app@latest frontend --typescript --tailwind --eslint --app --src-dir=false` (adjust flags to match repo convention; **no** src dir if plan prefers `app/` at root of frontend).
 - Create: `frontend/hooks/useAgentChat.ts`, `frontend/.env.local.example`
 
-- [ ] **Step 3.1:** `create-next-app` (offline mirror / private registry per org policy).
+- [x] **Step 3.1:** `create-next-app` (offline mirror / private registry per org policy).
 
-- [ ] **Step 3.2:** Implement `useAgentChat`: `fetch(API_BASE + '/api/chat', { method:'POST', headers:{'Content-Type':'application/json'}, body })`; parse SSE with `response.body.getReader()` + TextDecoder, split on `\n\n`, handle `event:` / `data:` lines; accumulate `TextMessageContent.delta`; set state for `pendingTool` / `pendingChoices` when events arrive (stub handlers OK).
+- [x] **Step 3.2:** Implement `useAgentChat`: `fetch(API_BASE + '/api/chat', { method:'POST', headers:{'Content-Type':'application/json'}, body })`; parse SSE with `response.body.getReader()` + TextDecoder, split on `\n\n`, handle `event:` / `data:` lines; accumulate `TextMessageContent.delta`; set state for `pendingTool` / `pendingChoices` when events arrive (stub handlers OK).
 
-- [ ] **Step 3.3:** `NEXT_PUBLIC_API_BASE=http://127.0.0.1:8765` in `.env.local.example`.
+- [x] **Step 3.3:** `NEXT_PUBLIC_API_BASE=http://127.0.0.1:8765` in `.env.local.example`.
 
-- [ ] **Step 3.4:** 持久化 `threadId`（如 `localStorage`）以符合 spec D2 与多刷新场景；最小页面证明 SSE 文本展示。 Commit。
+- [x] **Step 3.4:** 持久化 `threadId`（如 `localStorage`）以符合 spec D2 与多刷新场景；最小页面证明 SSE 文本展示。 Commit。
 
 ---
 

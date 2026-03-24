@@ -67,13 +67,11 @@ async def test_post_chat_requires_thread_and_run() -> None:
 
 
 @pytest.mark.asyncio
-async def test_approve_and_file_stubs() -> None:
+async def test_approve_stub_bad_body() -> None:
     app = create_app()
     async with TestClient(TestServer(app)) as client:
         r1 = await client.post("/api/approve-tool", json={})
         assert r1.status == 400
-        r2 = await client.get("/api/file", params={"path": "/x"})
-        assert r2.status == 501
 
 
 @pytest.mark.asyncio

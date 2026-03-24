@@ -162,9 +162,9 @@ Run manual: `nanobot agui -p 8765` then `curl -N -X POST http://127.0.0.1:8765/a
 - Modify: `nanobot/web/routes.py` — implement `GET /api/file` using `normalize_file_query`; absolute as-is; relative → `Path(config.workspace_path) / path` with `resolve()`; **no** sandbox beyond spec D6 (PoC)
 - Modify: `frontend/components/PreviewPanel.tsx` + link interception: iframe/img, `srcDoc` HTML, react-markdown, xlsx, mammoth, mermaid (**all npm deps**, no CDN)
 
-- [ ] **Step 7.1:** Backend file handler + content-type mapping + tests.
+- [x] **Step 7.1:** Backend file handler + content-type mapping + tests.
 
-- [ ] **Step 7.2:** Frontend preview by extension. Commit.
+- [x] **Step 7.2:** Frontend preview by extension. Commit.
 
 ---
 

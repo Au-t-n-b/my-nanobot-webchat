@@ -23,8 +23,14 @@ export default function Home() {
   } = useAgentChat();
   const [input, setInput] = useState("");
   const [previewOpen, setPreviewOpen] = useState(true);
+  const [previewPath, setPreviewPath] = useState<string | null>(null);
 
   const apiBase = process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8765";
+
+  const openFilePreview = (path: string) => {
+    setPreviewPath(path);
+    setPreviewOpen(true);
+  };
 
   return (
     <main className="h-screen bg-zinc-950 text-zinc-100 p-4">
@@ -59,12 +65,20 @@ export default function Home() {
             onApproveTool={(approved) => {
               void approveTool(approved);
             }}
+            onPreviewPath={openFilePreview}
             disabled={isLoading || !threadId}
           />
         </div>
 
         <div className="col-span-12 md:col-span-3">
-          <PreviewPanel visible={previewOpen} onToggle={() => setPreviewOpen((v) => !v)} />
+          <PreviewPanel
+            visible={previewOpen}
+            onToggle={() => setPreviewOpen((v) => !v)}
+            apiBase={apiBase}
+            filePath={previewPath}
+            onClearFile={() => setPreviewPath(null)}
+            onOpenPath={openFilePreview}
+          />
         </div>
       </div>
     </main>

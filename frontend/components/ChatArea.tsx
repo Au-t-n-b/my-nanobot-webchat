@@ -16,6 +16,7 @@ type Props = {
   setInput: (v: string) => void;
   onSend: () => void;
   onApproveTool: (approved: boolean) => void;
+  onPreviewPath?: (path: string) => void;
   disabled: boolean;
 };
 
@@ -30,6 +31,7 @@ export function ChatArea({
   setInput,
   onSend,
   onApproveTool,
+  onPreviewPath,
   disabled,
 }: Props) {
   return (
@@ -70,7 +72,7 @@ export function ChatArea({
       )}
 
       <StepLogs stepLogs={stepLogs} />
-      <MessageList messages={messages} isLoading={isLoading} />
+      <MessageList messages={messages} isLoading={isLoading} onPreviewPath={onPreviewPath} />
       <ChatInput
         value={input}
         onChange={setInput}

@@ -4,14 +4,17 @@ from __future__ import annotations
 
 import asyncio
 import json
+import mimetypes
 import os
 import traceback
 from collections.abc import Awaitable, Callable
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from aiohttp import web
 
-from nanobot.web.keys import AGENT_LOOP_KEY, APPROVAL_REGISTRY_KEY, RUN_REGISTRY_KEY
+from nanobot.web.keys import AGENT_LOOP_KEY, APPROVAL_REGISTRY_KEY, CONFIG_KEY, RUN_REGISTRY_KEY
+from nanobot.web.paths import normalize_file_query, resolve_file_target
 from nanobot.web.run_registry import ApprovalRegistry, RunRegistry
 from nanobot.web.sse import format_sse
 
@@ -299,14 +302,57 @@ async def handle_approve(request: web.Request) -> web.Response:
     return web.json_response({"ok": True})
 
 
-async def handle_file_stub(_request: web.Request) -> web.Response:
-    return web.json_response({"detail": "not implemented"}, status=501)
+def _agui_workspace_root(config: Any | None) -> Path:
+    if config is not None:
+        return Path(config.workspace_path).resolve()
+    env = os.environ.get("NANOBOT_AGUI_WORKSPACE", "").strip()
+    if env:
+        return Path(env).expanduser().resolve()
+    return Path.cwd().resolve()
+
+
+def _content_type_for_file(path: Path) -> str:
+    guessed, _enc = mimetypes.guess_type(path.name)
+    if guessed:
+        return guessed
+    return "application/octet-stream"
+
+
+async def handle_file(request: web.Request) -> web.Response:
+    raw = request.rel_url.query.get("path")
+    if raw is None or not str(raw).strip():
+        return web.json_response({"detail": "path query parameter is required"}, status=400)
+
+    normalized = normalize_file_query(str(raw))
+    if not normalized:
+        return web.json_response({"detail": "invalid path"}, status=400)
+
+    cfg = request.app[CONFIG_KEY]
+    workspace = _agui_workspace_root(cfg)
+
+    try:
+        target = resolve_file_target(normalized, workspace)
+    except ValueError as e:
+        return web.json_response({"detail": str(e)}, status=400)
+
+    if not target.is_file():
+        return web.json_response({"detail": "file not found"}, status=404)
+
+    try:
+        body = target.read_bytes()
+    except PermissionError:
+        return web.json_response({"detail": "permission denied"}, status=403)
+    except OSError as e:
+        return web.json_response({"detail": str(e)}, status=500)
+
+    ctype = _content_type_for_file(target)
+    return web.Response(body=body, content_type=ctype)
 
 
 def setup_routes(app: web.Application) -> None:
     app.router.add_post("/api/chat", handle_chat)
     app.router.add_post("/api/approve-tool", handle_approve)
-    app.router.add_get("/api/file", handle_file_stub)
+    app.router.add_get("/api/file", handle_file)
     app.router.add_options("/api/chat", handle_options)
     app.router.add_options("/api/approve-tool", handle_options)
     app.router.add_options("/api/file", handle_options)

@@ -22,14 +22,16 @@ class CustomProvider(LLMProvider):
         default_model: str = "default",
         extra_headers: dict[str, str] | None = None,
         proxy: str | None = None,
+        ssl_verify: bool = True,
     ):
         super().__init__(api_key, api_base)
         self.default_model = default_model
-        http_client = (
-            httpx.AsyncClient(proxies=proxy, timeout=60.0)
-            if proxy
-            else httpx.AsyncClient(timeout=60.0)
-        )
+        http_client_kwargs: dict = {"timeout": 60.0}
+        if proxy:
+            http_client_kwargs["proxies"] = proxy
+        if not ssl_verify:
+            http_client_kwargs["verify"] = False
+        http_client = httpx.AsyncClient(**http_client_kwargs)
         self._client = AsyncOpenAI(
             api_key=api_key,
             base_url=api_base,

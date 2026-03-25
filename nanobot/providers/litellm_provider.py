@@ -42,6 +42,7 @@ class LiteLLMProvider(LLMProvider):
         extra_headers: dict[str, str] | None = None,
         provider_name: str | None = None,
         proxy: str | None = None,
+        ssl_verify: bool = True,
     ):
         super().__init__(api_key, api_base)
         self.default_model = default_model
@@ -54,6 +55,9 @@ class LiteLLMProvider(LLMProvider):
 
         if proxy:
             self._setup_proxy_env(proxy)
+
+        if not ssl_verify:
+            litellm.ssl_verify = False
 
         # Configure environment variables
         if api_key:

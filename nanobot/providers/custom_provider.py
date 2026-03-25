@@ -7,6 +7,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 import json_repair
+import httpx
 from openai import AsyncOpenAI
 
 from nanobot.providers.base import LLMProvider, LLMResponse, ToolCallRequest
@@ -20,12 +21,19 @@ class CustomProvider(LLMProvider):
         api_base: str = "http://localhost:8000/v1",
         default_model: str = "default",
         extra_headers: dict[str, str] | None = None,
+        proxy: str | None = None,
     ):
         super().__init__(api_key, api_base)
         self.default_model = default_model
+        http_client = (
+            httpx.AsyncClient(proxies=proxy, timeout=60.0)
+            if proxy
+            else httpx.AsyncClient(timeout=60.0)
+        )
         self._client = AsyncOpenAI(
             api_key=api_key,
             base_url=api_base,
+            http_client=http_client,
             default_headers={
                 "x-session-affinity": uuid.uuid4().hex,
                 **(extra_headers or {}),

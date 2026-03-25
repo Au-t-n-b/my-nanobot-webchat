@@ -41,6 +41,7 @@ class LiteLLMProvider(LLMProvider):
         default_model: str = "anthropic/claude-opus-4-5",
         extra_headers: dict[str, str] | None = None,
         provider_name: str | None = None,
+        proxy: str | None = None,
     ):
         super().__init__(api_key, api_base)
         self.default_model = default_model
@@ -50,6 +51,9 @@ class LiteLLMProvider(LLMProvider):
         # provider_name (from config key) is the primary signal;
         # api_key / api_base are fallback for auto-detection.
         self._gateway = find_gateway(provider_name, api_key, api_base)
+
+        if proxy:
+            self._setup_proxy_env(proxy)
 
         # Configure environment variables
         if api_key:
@@ -64,6 +68,15 @@ class LiteLLMProvider(LLMProvider):
         litellm.drop_params = True
 
         self._langsmith_enabled = bool(os.getenv("LANGSMITH_API_KEY"))
+
+    @staticmethod
+    def _setup_proxy_env(proxy: str) -> None:
+        """Configure process-level HTTP proxy for LiteLLM/http clients."""
+        # Most HTTP stacks (httpx, requests, aiohttp) respect these env vars.
+        os.environ.setdefault("HTTP_PROXY", proxy)
+        os.environ.setdefault("HTTPS_PROXY", proxy)
+        os.environ.setdefault("http_proxy", proxy)
+        os.environ.setdefault("https_proxy", proxy)
 
     def _setup_env(self, api_key: str, api_base: str | None, model: str) -> None:
         """Set environment variables based on detected provider."""

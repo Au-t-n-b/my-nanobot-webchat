@@ -384,6 +384,7 @@ def _make_provider(config: Config):
     model = config.agents.defaults.model
     provider_name = config.get_provider_name(model)
     p = config.get_provider(model)
+    llm_proxy = (p.proxy if p else None) or (config.tools.web.proxy or None)
 
     # OpenAI Codex (OAuth)
     if provider_name == "openai_codex" or model.startswith("openai-codex/"):
@@ -396,6 +397,7 @@ def _make_provider(config: Config):
             api_base=config.get_api_base(model) or "http://localhost:8000/v1",
             default_model=model,
             extra_headers=p.extra_headers if p else None,
+            proxy=llm_proxy,
         )
     # Azure OpenAI: direct Azure OpenAI endpoint with deployment name
     elif provider_name == "azure_openai":
@@ -416,6 +418,7 @@ def _make_provider(config: Config):
             api_key=p.api_key if p else "no-key",
             api_base=config.get_api_base(model) or "http://localhost:8000/v3",
             default_model=model,
+            proxy=llm_proxy,
         )
     else:
         from nanobot.providers.litellm_provider import LiteLLMProvider
@@ -431,6 +434,7 @@ def _make_provider(config: Config):
             default_model=model,
             extra_headers=p.extra_headers if p else None,
             provider_name=provider_name,
+            proxy=llm_proxy,
         )
 
     defaults = config.agents.defaults

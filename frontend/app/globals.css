@@ -1,26 +1,262 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/* ─────────────────────────────────────────────
+   深夜场景 — 防眩光，消除蓝紫光污染
+   背景 zinc-950，文字 zinc-300，暖琥珀 accent
+   ───────────────────────────────────────────── */
+:root,
+[data-theme="dark"] {
+  --surface-0: #09090b;
+  --surface-1: #18181b;
+  --surface-2: #1c1c1f;
+  --surface-3: #27272a;
+  --border-subtle: #27272a;
+  --border-strong: #3f3f46;
+  --text-primary: #d4d4d8;
+  --text-secondary: #a1a1aa;
+  --text-muted: #71717a;
+  --accent: #f59e0b;
+  --accent-soft: rgba(245, 158, 11, 0.15);
+  --success: #34d399;
+  --warning: #fbbf24;
+  --danger: #f87171;
+  --shadow-panel: 0 16px 40px rgba(0, 0, 0, 0.55);
+  --shadow-card: none;
+  --scrollbar-thumb: rgba(113, 113, 122, 0.5);
+}
+
+/* ─────────────────────────────────────────────
+   白日场景 — 高清晰，抗环境光反射
+   背景 slate-50，文字 slate-900，强阴影分层
+   ───────────────────────────────────────────── */
+[data-theme="light"] {
+  --surface-0: #f8fafc;
+  --surface-1: #ffffff;
+  --surface-2: #f8fafc;
+  --surface-3: #f1f5f9;
+  --border-subtle: #e2e8f0;
+  --border-strong: #cbd5e1;
+  --text-primary: #0f172a;
+  --text-secondary: #334155;
+  --text-muted: #64748b;
+  --accent: #2563eb;
+  --accent-soft: rgba(37, 99, 235, 0.10);
+  --success: #059669;
+  --warning: #d97706;
+  --danger: #dc2626;
+  --shadow-panel: 0 4px 16px rgba(15, 23, 42, 0.09), 0 1px 4px rgba(15, 23, 42, 0.06);
+  --shadow-card: 0 1px 3px rgba(15, 23, 42, 0.06), 0 1px 2px rgba(15, 23, 42, 0.04);
+  --scrollbar-thumb: rgba(100, 116, 139, 0.40);
+}
+
+/* ─────────────────────────────────────────────
+   护眼场景 — 零蓝光，仿纸质 Sepia 阅读体验
+   背景暖米色，文字 stone-700，暖棕 accent
+   ───────────────────────────────────────────── */
+[data-theme="soft"] {
+  --surface-0: #f4efe6;
+  --surface-1: #fafaf9;
+  --surface-2: #f5f5f4;
+  --surface-3: #e7e5e4;
+  --border-subtle: #e7e5e4;
+  --border-strong: #d6d3d1;
+  --text-primary: #44403c;
+  --text-secondary: #78716c;
+  --text-muted: #a8a29e;
+  --accent: #b45309;
+  --accent-soft: rgba(180, 83, 9, 0.12);
+  --success: #4d7c0f;
+  --warning: #92400e;
+  --danger: #b91c1c;
+  --shadow-panel: 0 4px 20px rgba(68, 64, 60, 0.10), 0 1px 4px rgba(68, 64, 60, 0.06);
+  --shadow-card: 0 1px 3px rgba(68, 64, 60, 0.07);
+  --scrollbar-thumb: rgba(168, 162, 158, 0.55);
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
   --font-sans: ui-sans-serif, system-ui, sans-serif;
   --font-mono: ui-monospace, monospace;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html,
+body {
+  background: var(--surface-0);
+  color: var(--text-primary);
+  font-family: Arial, Helvetica, sans-serif;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  min-height: 100vh;
+}
+
+.ui-panel {
+  background: var(--surface-1);
+  border: 1px solid var(--border-subtle);
+  box-shadow: var(--shadow-panel);
+}
+
+.ui-card {
+  background: var(--surface-2);
+  border: 1px solid var(--border-subtle);
+  box-shadow: var(--shadow-card, none);
+}
+
+.ui-subtle {
+  background: var(--surface-3);
+  border: 1px solid var(--border-strong);
+}
+
+.ui-input {
+  background: var(--surface-3);
+  border: 1px solid var(--border-strong);
+  color: var(--text-primary);
+}
+
+.ui-btn-ghost {
+  color: var(--text-secondary);
+}
+
+.ui-btn-ghost:hover {
+  background: var(--surface-3);
+  color: var(--text-primary);
+}
+
+.ui-btn-accent {
+  background: var(--accent);
+  color: #fff;
+}
+
+.ui-btn-accent:hover {
+  filter: brightness(1.05);
+}
+
+.ui-text-primary {
+  color: var(--text-primary);
+}
+
+.ui-text-secondary {
+  color: var(--text-secondary);
+}
+
+.ui-text-muted {
+  color: var(--text-muted);
+}
+
+.ui-link {
+  color: var(--accent);
+}
+
+.ui-link:hover {
+  text-decoration: underline;
+}
+
+.ui-divider {
+  border-color: var(--border-subtle);
+}
+
+.ui-status-running {
+  color: var(--accent);
+}
+
+.ui-status-success {
+  color: var(--success);
+}
+
+.ui-status-warning {
+  color: var(--warning);
+}
+
+.ui-status-danger {
+  color: var(--danger);
+}
+
+/* Compatibility layer while older components are migrated off zinc classes. */
+[data-theme] .bg-zinc-950 {
+  background-color: var(--surface-0) !important;
+}
+[data-theme] .bg-zinc-900,
+[data-theme] .bg-zinc-900\/60,
+[data-theme] .bg-zinc-900\/40,
+[data-theme] .bg-zinc-900\/30 {
+  background-color: var(--surface-1) !important;
+}
+[data-theme] .bg-zinc-800 {
+  background-color: var(--surface-2) !important;
+}
+[data-theme] .bg-zinc-700 {
+  background-color: var(--surface-3) !important;
+}
+[data-theme] .border-zinc-800,
+[data-theme] .border-zinc-700 {
+  border-color: var(--border-subtle) !important;
+}
+[data-theme] .text-zinc-100,
+[data-theme] .text-zinc-200 {
+  color: var(--text-primary) !important;
+}
+[data-theme] .text-zinc-300,
+[data-theme] .text-zinc-400 {
+  color: var(--text-secondary) !important;
+}
+[data-theme] .text-zinc-500,
+[data-theme] .text-zinc-600 {
+  color: var(--text-muted) !important;
+}
+[data-theme] pre,
+[data-theme] code {
+  border-color: var(--border-subtle) !important;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--scrollbar-thumb) 68%, transparent 32%);
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--scrollbar-thumb) 84%, white 8%);
+}
+
+/* Hover emphasis: container scrollbar becomes slightly clearer */
+:hover::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--scrollbar-thumb) 78%, white 6%);
+}
+
+/* ── 输入框聚焦态：使用主题 accent 色描边 ── */
+.ui-input-focusable {
+  outline: none;
+  transition: box-shadow 0.15s ease;
+}
+.ui-input-focusable:focus {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 38%, transparent);
+}
+
+/* ── 主题平滑过渡：切换深夜/白日/护眼时防硬闪 ── */
+html {
+  transition: background-color 0.25s ease, color 0.25s ease;
+}
+
+body,
+.ui-panel,
+.ui-card,
+.ui-subtle,
+.ui-input,
+.ui-btn-ghost,
+.ui-btn-accent,
+.ui-link,
+.ui-divider {
+  transition-property: background-color, color, border-color, box-shadow;
+  transition-duration: 0.25s;
+  transition-timing-function: ease;
 }

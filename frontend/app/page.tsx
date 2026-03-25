@@ -1,29 +1,52 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Menu, X } from "lucide-react";
 import { ChatArea } from "@/components/ChatArea";
 import { ChoicesModal } from "@/components/ChoicesModal";
+import { ErrorToast } from "@/components/ErrorToast";
 import { PreviewPanel } from "@/components/PreviewPanel";
+import { SearchOverlay } from "@/components/SearchOverlay";
 import { Sidebar } from "@/components/Sidebar";
 import { useAgentChat } from "@/hooks/useAgentChat";
+
+const SIDEBAR_MIN = 200;
+const SIDEBAR_MAX = 560;
+const SIDEBAR_DEFAULT = 280;
 
 export default function Home() {
   const {
     threadId,
+    sessions,
     messages,
     stepLogs,
     isLoading,
     error,
     pendingTool,
     pendingChoices,
+    runStatus,
+    statusMessage,
     sendMessage,
     approveTool,
     clearPendingChoices,
     clearChat,
+    createSession,
+    switchSession,
   } = useAgentChat();
   const [input, setInput] = useState("");
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [previewPath, setPreviewPath] = useState<string | null>(null);
+  const [toastDismissed, setToastDismissed] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [leftWidth, setLeftWidth] = useState(SIDEBAR_DEFAULT);
+  const [rightWidth, setRightWidth] = useState(SIDEBAR_DEFAULT);
+  const lastInputRef = useRef("");
+  const draggingRef = useRef<null | "left" | "right">(null);
+  const dragStartX = useRef(0);
+  const dragStartWidth = useRef(0);
 
   const apiBase = process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8765";
 
@@ -32,8 +55,80 @@ export default function Home() {
     setIsPreviewOpen(true);
   };
 
+  const handleSend = useCallback(() => {
+    const v = input;
+    lastInputRef.current = v;
+    setInput("");
+    setToastDismissed(false);
+    void sendMessage(v);
+  }, [input, sendMessage]);
+
+  const handleRetry = useCallback(() => {
+    if (!lastInputRef.current) return;
+    setToastDismissed(false);
+    void sendMessage(lastInputRef.current);
+  }, [sendMessage]);
+
+  const showError = error && !toastDismissed;
+
+  const startDrag = (side: "left" | "right", e: React.MouseEvent) => {
+    draggingRef.current = side;
+    dragStartX.current = e.clientX;
+    dragStartWidth.current = side === "left" ? leftWidth : rightWidth;
+    e.preventDefault();
+  };
+
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      if (!draggingRef.current) return;
+      const dx = e.clientX - dragStartX.current;
+      if (draggingRef.current === "left") {
+        setLeftWidth(Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, dragStartWidth.current + dx)));
+      } else {
+        setRightWidth(Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, dragStartWidth.current - dx)));
+      }
+    };
+    const onUp = () => { draggingRef.current = null; };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+  }, []);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "f") {
+        e.preventDefault();
+        setSearchOpen(true);
+      }
+      if (e.key === "Escape") {
+        setSearchOpen(false);
+        setSearchQuery("");
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+
   return (
-    <main className="h-screen bg-zinc-950 text-zinc-100 p-4">
+    <main className="h-dvh overflow-hidden p-4" style={{ background: "var(--surface-0)", color: "var(--text-primary)" }}>
+      {showError && (
+        <ErrorToast
+          message={error}
+          onRetry={handleRetry}
+          onClose={() => setToastDismissed(true)}
+        />
+      )}
+      {searchOpen && (
+        <SearchOverlay
+          query={searchQuery}
+          onQueryChange={setSearchQuery}
+          onClose={() => { setSearchOpen(false); setSearchQuery(""); }}
+          messages={messages}
+        />
+      )}
       <ChoicesModal
         choices={pendingChoices}
         onSelect={(choice) => {
@@ -42,52 +137,165 @@ export default function Home() {
         }}
         onClose={clearPendingChoices}
       />
-      <div className="h-full grid grid-cols-12 gap-4">
-        <div className="col-span-12 md:col-span-3">
+
+      {/* Mobile hamburger */}
+      <button
+        type="button"
+        onClick={() => setSidebarOpen(true)}
+        aria-label="打开侧栏"
+        aria-expanded={sidebarOpen}
+        className="md:hidden fixed top-3 left-3 z-40 rounded-lg ui-panel p-2 ui-text-secondary"
+      >
+        <Menu size={16} />
+      </button>
+
+      {/* Mobile sidebar overlay */}
+      {sidebarOpen && (
+        <div
+          className="md:hidden fixed inset-0 z-30 bg-black/60"
+          onClick={() => setSidebarOpen(false)}
+          aria-hidden="true"
+        />
+      )}
+      {sidebarOpen && (
+        <div className="md:hidden fixed inset-y-0 left-0 z-40 w-[21rem] p-3">
+          <button
+            type="button"
+            onClick={() => setSidebarOpen(false)}
+            aria-label="关闭侧栏"
+            className="absolute top-4 right-4 z-50 rounded p-1 ui-text-secondary hover:text-[var(--text-primary)]"
+          >
+            <X size={16} />
+          </button>
           <Sidebar
             threadId={threadId}
             apiBase={apiBase}
             onClear={clearChat}
             onPreviewPath={openFilePreview}
             messages={messages}
+            sessions={sessions}
+            onCreateSession={createSession}
+            onSelectSession={(id) => {
+              setSidebarOpen(false);
+              switchSession(id);
+            }}
           />
         </div>
+      )}
 
-        <div className={isPreviewOpen ? "col-span-12 md:col-span-6" : "col-span-12 md:col-span-9"}>
-          <ChatArea
-            messages={messages}
-            stepLogs={stepLogs}
-            isLoading={isLoading}
-            error={error}
-            pendingTool={pendingTool}
-            pendingChoices={pendingChoices}
-            input={input}
-            setInput={setInput}
-            onSend={() => {
-              const v = input;
-              setInput("");
-              void sendMessage(v);
-            }}
-            onApproveTool={(approved) => {
-              void approveTool(approved);
-            }}
-            onFileLinkClick={openFilePreview}
-            previewPanelOpen={isPreviewOpen}
-            onOpenPreviewPanel={() => setIsPreviewOpen(true)}
-            disabled={isLoading || !threadId}
-          />
-        </div>
+      {/* Desktop layout: flex with resizable panels */}
+      <div className="hidden md:flex h-full min-h-0 gap-0">
+        {/* Left sidebar */}
+        {!sidebarCollapsed && (
+          <>
+            <div className="min-h-0 shrink-0" style={{ width: leftWidth }}>
+              <Sidebar
+                threadId={threadId}
+                apiBase={apiBase}
+                onClear={clearChat}
+                onPreviewPath={openFilePreview}
+                messages={messages}
+                sessions={sessions}
+                onCreateSession={createSession}
+                onSelectSession={switchSession}
+              />
+            </div>
+            {/* Left drag handle */}
+            <div
+              className="w-3 shrink-0 cursor-col-resize flex items-center justify-center group"
+              onMouseDown={(e) => startDrag("left", e)}
+              title="拖拽调整左侧栏宽度"
+            >
+              <div className="w-0.5 h-12 rounded-full transition-colors group-hover:bg-[var(--accent)]" style={{ background: "var(--border-subtle)" }} />
+            </div>
+          </>
+        )}
 
-        {isPreviewOpen && (
-          <div className="col-span-12 md:col-span-3">
-            <PreviewPanel
-              onClose={() => setIsPreviewOpen(false)}
-              filePath={previewPath}
-              onClearFile={() => setPreviewPath(null)}
-              onOpenPath={openFilePreview}
+        {/* Chat area */}
+        <div className="flex-1 min-w-0 min-h-0 flex flex-col">
+          {/* Top control bar */}
+          <div className="flex items-center justify-end gap-1.5 mb-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => setSidebarCollapsed((v) => !v)}
+              aria-label={sidebarCollapsed ? "展开左侧栏" : "收起左侧栏"}
+              className="rounded-lg p-2 ui-text-secondary hover:bg-[var(--surface-3)] hover:ui-text-primary transition-colors border border-transparent hover:border-[var(--border-subtle)]"
+              title={sidebarCollapsed ? "展开左侧栏" : "收起左侧栏"}
+            >
+              {sidebarCollapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsPreviewOpen((v) => !v)}
+              aria-label={isPreviewOpen ? "收起右侧预览" : "展开右侧预览"}
+              className="rounded-lg p-2 ui-text-secondary hover:bg-[var(--surface-3)] hover:ui-text-primary transition-colors border border-transparent hover:border-[var(--border-subtle)]"
+              title={isPreviewOpen ? "收起右侧预览" : "展开右侧预览"}
+            >
+              {isPreviewOpen ? <PanelRightClose size={17} /> : <PanelRightOpen size={17} />}
+            </button>
+          </div>
+
+          <div className="flex-1 min-h-0">
+            <ChatArea
+              messages={messages}
+              stepLogs={stepLogs}
+              isLoading={isLoading}
+              runStatus={runStatus}
+              statusMessage={statusMessage}
+              pendingTool={pendingTool}
+              pendingChoices={pendingChoices}
+              input={input}
+              setInput={setInput}
+              onSend={handleSend}
+              onApproveTool={(approved) => { void approveTool(approved); }}
+              onFileLinkClick={openFilePreview}
+              searchQuery={searchQuery}
+              disabled={isLoading || !threadId}
             />
           </div>
+        </div>
+
+        {/* Right preview panel */}
+        {isPreviewOpen && (
+          <>
+            {/* Right drag handle */}
+            <div
+              className="w-3 shrink-0 cursor-col-resize flex items-center justify-center group"
+              onMouseDown={(e) => startDrag("right", e)}
+              title="拖拽调整右侧栏宽度"
+            >
+              <div className="w-0.5 h-12 rounded-full transition-colors group-hover:bg-[var(--accent)]" style={{ background: "var(--border-subtle)" }} />
+            </div>
+            <div className="min-h-0 shrink-0" style={{ width: rightWidth }}>
+              <PreviewPanel
+                onClose={() => setIsPreviewOpen(false)}
+                filePath={previewPath}
+                onClearFile={() => setPreviewPath(null)}
+                onOpenPath={openFilePreview}
+              />
+            </div>
+          </>
         )}
+      </div>
+
+      {/* Mobile layout */}
+      <div className="md:hidden h-full min-h-0">
+        <ChatArea
+          messages={messages}
+          stepLogs={stepLogs}
+          isLoading={isLoading}
+          runStatus={runStatus}
+          statusMessage={statusMessage}
+          pendingTool={pendingTool}
+          pendingChoices={pendingChoices}
+          input={input}
+          setInput={setInput}
+          onSend={handleSend}
+          onApproveTool={(approved) => { void approveTool(approved); }}
+          onFileLinkClick={openFilePreview}
+          searchQuery={searchQuery}
+          disabled={isLoading || !threadId}
+        />
       </div>
     </main>
   );

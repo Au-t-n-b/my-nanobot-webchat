@@ -732,7 +732,10 @@ def agui(
         aio_app = create_app(agent_loop=agent_loop, config=cfg)
         mode = f"model={agent_loop.model}"
 
-    cors = os.environ.get("NANOBOT_AGUI_CORS_ORIGINS", "http://localhost:3000")
+    cors = os.environ.get(
+        "NANOBOT_AGUI_CORS_ORIGINS",
+        "http://localhost:3000,http://127.0.0.1:3000",
+    )
     console.print(f"{__logo__} AGUI on http://{host}:{port} ({mode}; CORS: {cors})")
     web.run_app(aio_app, host=host, port=port, print=lambda *_args, **_kw: None)
 

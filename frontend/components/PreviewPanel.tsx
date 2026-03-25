@@ -1,17 +1,15 @@
 "use client";
 
 import { useEffect, useId, useMemo, useState } from "react";
-import { Eye, EyeOff, FileQuestion, Loader2 } from "lucide-react";
+import { Check, Copy, FileQuestion, FolderOpen, Loader2, X } from "lucide-react";
 import * as XLSX from "xlsx";
 import mammoth from "mammoth/mammoth.browser.js";
 import { AgentMarkdown } from "@/components/AgentMarkdown";
-import { buildFileUrl } from "@/lib/apiFile";
+import { buildProxiedFileUrl, openLocation } from "@/lib/apiFile";
 import { previewKindFromPath, type PreviewKind } from "@/lib/previewKind";
 
 type Props = {
-  visible: boolean;
-  onToggle: () => void;
-  apiBase: string;
+  onClose: () => void;
   filePath: string | null;
   onClearFile: () => void;
   onOpenPath: (path: string) => void;
@@ -25,20 +23,74 @@ type PreviewState =
   | { status: "text"; text: string; markdown: boolean }
   | { status: "html"; html: string }
   | { status: "table"; rows: string[][] }
-  | { status: "mermaid"; svg: string }
+  | { status: "mermaid"; svg: string; source: string }
   | { status: "binary"; url: string; name: string };
 
+function displayPreviewPath(fullPath: string): string {
+  const normalized = fullPath.replace(/\\/g, "/");
+  const marker = "/.nanobot/workspace/";
+  const idx = normalized.toLowerCase().indexOf(marker);
+  if (idx >= 0) return `./workspace/${normalized.slice(idx + marker.length)}`;
+  return normalized;
+}
+
+function CopySourceBar({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = () => {
+    void navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  };
+  return (
+    <div className="flex justify-end mb-1">
+      <button
+        type="button"
+        onClick={copy}
+        aria-label="复制源码"
+        className="inline-flex items-center gap-1 rounded-md border border-[var(--border-subtle)] px-2 py-0.5 text-[11px] ui-text-secondary hover:bg-[var(--surface-3)] transition-colors"
+      >
+        {copied ? <Check size={10} /> : <Copy size={10} />}
+        {copied ? "已复制" : "复制源码"}
+      </button>
+    </div>
+  );
+}
+
+function ImageEmbed({ url, path }: { url: string; path: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = () => {
+    void navigator.clipboard.writeText(path).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  };
+  return (
+    <div className="flex flex-col items-center gap-2">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={url} alt="" className="max-w-full object-contain mx-auto" />
+      <button
+        type="button"
+        onClick={copy}
+        aria-label="复制文件路径"
+        className="inline-flex items-center gap-1 rounded-md border border-[var(--border-subtle)] px-2 py-1 text-xs ui-text-secondary hover:bg-[var(--surface-3)] transition-colors"
+      >
+        {copied ? <Check size={10} /> : <Copy size={10} />}
+        {copied ? "已复制路径" : "复制路径"}
+      </button>
+    </div>
+  );
+}
+
 function FilePreviewBody({
-  apiBase,
   path,
   onOpenPath,
 }: {
-  apiBase: string;
   path: string;
   onOpenPath: (path: string) => void;
 }) {
   const [state, setState] = useState<PreviewState>({ status: "loading" });
-  const url = useMemo(() => buildFileUrl(apiBase, path), [apiBase, path]);
+  const url = useMemo(() => buildProxiedFileUrl(path), [path]);
   const kind: PreviewKind = useMemo(() => previewKindFromPath(path), [path]);
   const mermaidId = useId().replace(/:/g, "");
 
@@ -76,7 +128,7 @@ function FilePreviewBody({
               securityLevel: "strict",
             });
             const { svg } = await m.default.render(`mmd-${mermaidId}`, text);
-            if (!cancelled) setState({ status: "mermaid", svg });
+            if (!cancelled) setState({ status: "mermaid", svg, source: text });
             return;
           }
           if (kind === "md") {
@@ -116,20 +168,20 @@ function FilePreviewBody({
     return () => {
       cancelled = true;
     };
-  }, [apiBase, path, url, kind, mermaidId]);
+  }, [path, url, kind, mermaidId]);
 
   if (state.status === "loading") {
     return (
       <div className="flex items-center justify-center gap-2 text-zinc-400 text-sm py-8">
         <Loader2 className="animate-spin" size={18} />
-        加载中…
+        <span className="ui-text-muted">加载中…</span>
       </div>
     );
   }
 
   if (state.status === "error") {
     return (
-      <div className="rounded-md border border-red-900/60 bg-red-950/30 text-red-200 text-sm p-3 whitespace-pre-wrap">
+      <div className="rounded-xl text-sm p-3 whitespace-pre-wrap" style={{ border: "1px solid rgba(239,107,115,0.24)", background: "rgba(239,107,115,0.08)", color: "var(--danger)" }}>
         {state.message}
       </div>
     );
@@ -137,38 +189,45 @@ function FilePreviewBody({
 
   if (state.status === "embed") {
     if (state.kind === "image") {
-      // eslint-disable-next-line @next/next/no-img-element
-      return <img src={state.url} alt="" className="max-w-full max-h-[min(70vh,800px)] object-contain mx-auto" />;
+      return <ImageEmbed url={state.url} path={path} />;
     }
     return (
-      <iframe
-        title="preview"
-        src={state.url}
-        className="w-full flex-1 min-h-[min(70vh,800px)] rounded border border-zinc-700 bg-white"
-      />
+      <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-3)] p-2 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.04)]">
+        <iframe
+          title="preview"
+          src={state.url}
+          className={
+            "w-full min-h-[500px] rounded-lg border border-[var(--border-subtle)] bg-white"
+          }
+        />
+      </div>
     );
   }
 
   if (state.status === "text" && state.markdown) {
     return (
-      <div className="max-w-none overflow-auto text-sm">
-        <AgentMarkdown content={state.text} onPreviewPath={onOpenPath} />
+      <div className="max-w-none text-sm">
+        <CopySourceBar text={state.text} />
+        <AgentMarkdown content={state.text} onFileLinkClick={onOpenPath} />
       </div>
     );
   }
 
   if (state.status === "text") {
     return (
-      <pre className="text-xs text-zinc-300 overflow-auto whitespace-pre-wrap font-mono p-2 rounded border border-zinc-800 bg-zinc-950/80 max-h-[min(70vh,800px)]">
-        {state.text}
-      </pre>
+      <div className="flex flex-col gap-1">
+        <CopySourceBar text={state.text} />
+        <pre className="text-xs ui-text-secondary whitespace-pre-wrap font-mono p-2 rounded-xl ui-subtle">
+          {state.text}
+        </pre>
+      </div>
     );
   }
 
   if (state.status === "html") {
     return (
       <div
-        className="max-w-none overflow-auto text-sm text-zinc-200 p-2 border border-zinc-800 rounded bg-zinc-950/50 max-h-[min(70vh,800px)] [&_a]:text-sky-400 [&_p]:mb-2"
+        className="max-w-none text-sm ui-text-primary p-2 rounded-xl ui-subtle [&_a]:ui-link [&_p]:mb-2"
         dangerouslySetInnerHTML={{ __html: state.html }}
       />
     );
@@ -176,13 +235,13 @@ function FilePreviewBody({
 
   if (state.status === "table") {
     return (
-      <div className="overflow-auto max-h-[min(70vh,800px)] border border-zinc-800 rounded">
-        <table className="text-xs text-zinc-200 border-collapse w-full">
+      <div className="overflow-auto border border-[var(--border-subtle)] rounded-xl">
+        <table className="text-xs ui-text-primary border-collapse w-full">
           <tbody>
             {state.rows.map((row, i) => (
-              <tr key={i} className="border-b border-zinc-800">
+              <tr key={i} className="border-b border-[var(--border-subtle)]">
                 {row.map((cell, j) => (
-                  <td key={j} className="border-r border-zinc-800 px-2 py-1 align-top">
+                  <td key={j} className="border-r border-[var(--border-subtle)] px-2 py-1 align-top">
                     {String(cell)}
                   </td>
                 ))}
@@ -196,22 +255,25 @@ function FilePreviewBody({
 
   if (state.status === "mermaid") {
     return (
-      <div
-        className="overflow-auto flex justify-center items-start p-2 max-h-[min(70vh,800px)]"
-        dangerouslySetInnerHTML={{ __html: state.svg }}
-      />
+      <div className="flex flex-col gap-1">
+        <CopySourceBar text={state.source} />
+        <div
+          className="overflow-auto p-2 [&_svg]:max-w-full [&_svg]:h-auto"
+          dangerouslySetInnerHTML={{ __html: state.svg }}
+        />
+      </div>
     );
   }
 
   if (state.status === "binary") {
     return (
-      <div className="text-sm text-zinc-400 flex flex-col gap-3 items-start">
-        <FileQuestion size={32} className="text-zinc-500" />
+      <div className="text-sm ui-text-secondary flex flex-col gap-3 items-start">
+        <FileQuestion size={32} className="ui-text-muted" />
         <p>无法内联预览此类型，可通过下方链接下载。</p>
         <a
           href={state.url}
           download={state.name}
-          className="rounded-md bg-sky-700/80 hover:bg-sky-600 px-3 py-1.5 text-zinc-100"
+          className="ui-btn-accent rounded-md px-3 py-1.5"
         >
           打开 / 下载 {state.name}
         </a>
@@ -222,54 +284,72 @@ function FilePreviewBody({
   return null;
 }
 
-export function PreviewPanel({
-  visible,
-  onToggle,
-  apiBase,
-  filePath,
-  onClearFile,
-  onOpenPath,
-}: Props) {
-  if (!visible) {
-    return (
-      <button
-        type="button"
-        onClick={onToggle}
-        className="h-full rounded-xl border border-zinc-800 bg-zinc-900/40 text-zinc-400 text-sm px-3"
-      >
-        <span className="inline-flex items-center gap-2">
-          <Eye size={14} /> 打开预览栏
-        </span>
-      </button>
-    );
-  }
-
+export function PreviewPanel({ onClose, filePath, onClearFile, onOpenPath }: Props) {
+  const [copiedPath, setCopiedPath] = useState(false);
+  const copyPath = () => {
+    if (!filePath) return;
+    void navigator.clipboard.writeText(filePath).then(() => {
+      setCopiedPath(true);
+      setTimeout(() => setCopiedPath(false), 1200);
+    });
+  };
+  const handleOpenLocation = () => {
+    if (!filePath) return;
+    void openLocation(filePath);
+  };
   return (
-    <aside className="h-full rounded-xl border border-zinc-800 bg-zinc-900/60 p-4 flex flex-col gap-3 min-h-0">
+    <aside className="ui-panel h-full rounded-2xl p-4 flex flex-col gap-3 min-h-0">
       <div className="flex items-center justify-between gap-2 shrink-0">
-        <h2 className="text-sm font-medium text-zinc-200 truncate">预览</h2>
-        <div className="flex items-center gap-2 shrink-0">
-          {filePath && (
-            <button type="button" onClick={onClearFile} className="text-xs text-zinc-500 hover:text-zinc-300">
-              清除
-            </button>
-          )}
-          <button type="button" onClick={onToggle} className="text-zinc-400 hover:text-zinc-200" aria-label="收起预览">
-            <EyeOff size={14} />
-          </button>
-        </div>
+        <span className="text-[11px] font-semibold uppercase tracking-wider ui-text-secondary">
+          预览 <span className="font-normal normal-case tracking-normal ui-text-muted">Preview</span>
+        </span>
+        <button
+          type="button"
+          onClick={onClose}
+          className="rounded-md p-1 ui-text-muted hover:text-[var(--text-primary)] hover:bg-[var(--surface-3)] transition-colors"
+          aria-label="关闭预览栏"
+        >
+          <X size={14} />
+        </button>
       </div>
       {filePath && (
-        <p className="text-xs text-zinc-500 break-all shrink-0" title={filePath}>
-          {filePath}
-        </p>
+        <div className="flex items-center gap-1.5 shrink-0 min-w-0">
+          <p className="text-xs ui-text-muted truncate min-w-0 flex-1" title={filePath}>
+            {displayPreviewPath(filePath)}
+          </p>
+          <div className="flex items-center gap-1 shrink-0">
+            <button
+              type="button"
+              onClick={copyPath}
+              aria-label="复制完整路径"
+              title={copiedPath ? "已复制！" : "复制完整路径"}
+              className="inline-flex items-center rounded-md border border-[var(--border-subtle)] p-1 ui-text-secondary hover:bg-[var(--surface-3)] transition-colors"
+            >
+              {copiedPath
+                ? <Check size={11} style={{ color: "var(--success)" }} />
+                : <Copy size={11} />}
+            </button>
+            <button
+              type="button"
+              onClick={handleOpenLocation}
+              aria-label="在文件管理器中显示"
+              title="打开所在位置"
+              className="inline-flex items-center rounded-md border border-[var(--border-subtle)] p-1 ui-text-secondary hover:bg-[var(--surface-3)] transition-colors"
+            >
+              <FolderOpen size={11} />
+            </button>
+          </div>
+        </div>
       )}
-      <div className="flex-1 min-h-0 overflow-auto rounded-md border border-zinc-800 bg-zinc-950/40 p-3">
+      <div className="flex-1 min-h-0 overflow-auto rounded-xl p-3 ui-card">
         {filePath ? (
-          <FilePreviewBody key={filePath} apiBase={apiBase} path={filePath} onOpenPath={onOpenPath} />
+          <FilePreviewBody key={filePath} path={filePath} onOpenPath={onOpenPath} />
         ) : (
-          <p className="text-zinc-500 text-sm">
-            点击对话里可识别的本地路径或文件链接，在此预览（HTML / PDF / 图片 / Markdown / Excel / Word / Mermaid）。
+          <p className="ui-text-muted text-sm">
+            点击对话里的 Markdown 文件链接（例如{" "}
+            <code className="ui-text-secondary">[文件名](/api/file?path=相对或绝对路径)</code>
+            ），或使用侧栏「高级工具」。请求经本站 <code className="ui-text-secondary">/api/file</code> 代理到
+            AGUI，避免浏览器跨域。
           </p>
         )}
       </div>

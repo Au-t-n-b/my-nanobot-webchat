@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from aiohttp import web
+from aiohttp.client_exceptions import ClientConnectionResetError
 
 from nanobot.web.fs_ops import (
     BadRequestError,
@@ -173,6 +174,7 @@ async def handle_chat(request: web.Request) -> web.StreamResponse | web.Response
     run_id = str(run_id)
 
     messages = data.get("messages")
+    human_in_the_loop = bool(data.get("humanInTheLoop", False))
     user_text: str | None = None
     if agent is not None:
         user_text = _last_user_text(messages)
@@ -201,10 +203,19 @@ async def handle_chat(request: web.Request) -> web.StreamResponse | web.Response
     response = web.StreamResponse(status=200, headers=stream_headers)
 
     write_lock = asyncio.Lock()
+    client_disconnected = False
 
     async def safe_write(event: str, payload: dict) -> None:
+        nonlocal client_disconnected
+        if client_disconnected:
+            return
         async with write_lock:
-            await response.write(format_sse(event, payload))
+            try:
+                await response.write(format_sse(event, payload))
+            except (ClientConnectionResetError, ConnectionResetError, RuntimeError):
+                # Browser tab closed / stream cancelled while server is still producing
+                # events. Treat as normal disconnect, not a run failure.
+                client_disconnected = True
 
     try:
         await response.prepare(request)
@@ -274,6 +285,8 @@ async def handle_chat(request: web.Request) -> web.StreamResponse | web.Response
                             run_choices.clear()
                             run_choices.extend(normalized)
                     return True
+                if not human_in_the_loop:
+                    return True
                 fut = await approvals.create(thread_id, run_id, tool_call_id)
                 await safe_write(
                     "ToolPending",
@@ -300,40 +313,48 @@ async def handle_chat(request: web.Request) -> web.StreamResponse | web.Response
                     on_stream_end=on_stream_end,
                 )
                 final = (out.content if out is not None else "") or "".join(streamed_chunks)
-                await safe_write(
-                    "RunFinished",
-                    {
-                        "threadId": thread_id,
-                        "runId": run_id,
-                        "message": final,
-                        "choices": run_choices,
-                    },
-                )
+                if not client_disconnected:
+                    await safe_write(
+                        "RunFinished",
+                        {
+                            "threadId": thread_id,
+                            "runId": run_id,
+                            "message": final,
+                            "choices": run_choices,
+                        },
+                    )
             except Exception as e:
                 code = type(e).__name__
                 msg = str(e) or code
                 from loguru import logger
 
-                logger.exception("AGUI /api/chat run failed: {}", msg)
-                if os.environ.get("NANOBOT_AGUI_DEBUG"):
-                    logger.debug("{}", traceback.format_exc())
-                await safe_write(
-                    "Error",
-                    {
-                        "threadId": thread_id,
-                        "runId": run_id,
-                        "code": code,
-                        "message": msg,
-                    },
-                )
-                await safe_write(
-                    "RunFinished",
-                    {
-                        "threadId": thread_id,
-                        "runId": run_id,
-                        "error": {"code": code, "message": msg},
-                    },
-                )
+                if client_disconnected:
+                    logger.info(
+                        "AGUI /api/chat stream closed by client: thread_id={}, run_id={}",
+                        thread_id,
+                        run_id,
+                    )
+                else:
+                    logger.exception("AGUI /api/chat run failed: {}", msg)
+                    if os.environ.get("NANOBOT_AGUI_DEBUG"):
+                        logger.debug("{}", traceback.format_exc())
+                    await safe_write(
+                        "Error",
+                        {
+                            "threadId": thread_id,
+                            "runId": run_id,
+                            "code": code,
+                            "message": msg,
+                        },
+                    )
+                    await safe_write(
+                        "RunFinished",
+                        {
+                            "threadId": thread_id,
+                            "runId": run_id,
+                            "error": {"code": code, "message": msg},
+                        },
+                    )
             finally:
                 agent.reset_tool_approval_callback(token)
     finally:

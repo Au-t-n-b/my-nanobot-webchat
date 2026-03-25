@@ -1,6 +1,6 @@
 "use client";
 
-import type { AgentMessage, ChoiceItem, StepLog, ToolPendingPayload } from "@/hooks/useAgentChat";
+import type { AgentMessage, ChoiceItem, RunStatus, StepLog, ToolPendingPayload } from "@/hooks/useAgentChat";
 import { MessageList } from "@/components/MessageList";
 import { StepLogs } from "@/components/StepLogs";
 import { ChatInput } from "@/components/ChatInput";
@@ -9,14 +9,16 @@ type Props = {
   messages: AgentMessage[];
   stepLogs: StepLog[];
   isLoading: boolean;
-  error: string | null;
+  runStatus: RunStatus;
+  statusMessage: string;
   pendingTool: ToolPendingPayload | null;
   pendingChoices: ChoiceItem[] | null;
   input: string;
   setInput: (v: string) => void;
   onSend: () => void;
   onApproveTool: (approved: boolean) => void;
-  onPreviewPath?: (path: string) => void;
+  onFileLinkClick?: (path: string) => void;
+  searchQuery?: string;
   disabled: boolean;
 };
 
@@ -24,40 +26,38 @@ export function ChatArea({
   messages,
   stepLogs,
   isLoading,
-  error,
+  runStatus,
+  statusMessage,
   pendingTool,
   pendingChoices,
   input,
   setInput,
   onSend,
   onApproveTool,
-  onPreviewPath,
+  onFileLinkClick,
+  searchQuery,
   disabled,
 }: Props) {
   return (
-    <section className="h-full rounded-xl border border-zinc-800 bg-zinc-900/60 p-4 flex flex-col gap-3">
-      {error && (
-        <div className="rounded-md border border-red-900 bg-red-950/50 text-red-200 text-sm px-3 py-2">
-          {error}
-        </div>
-      )}
+    <section className="ui-panel h-full min-h-0 overflow-hidden rounded-2xl p-4 flex flex-col gap-3">
 
       {pendingTool && (
-        <div className="rounded-md border border-amber-800 bg-amber-950/40 text-amber-100 text-sm px-3 py-2">
-          <div className="font-medium">[ToolPending] {pendingTool.toolName}</div>
-          <div className="text-amber-200/80 mt-1 break-all">{pendingTool.arguments}</div>
+        <div className="rounded-xl px-3 py-3 text-sm" style={{ border: "1px solid rgba(247,184,75,0.32)", background: "rgba(247,184,75,0.08)" }}>
+          <div className="font-medium ui-status-warning">等待确认工具：{pendingTool.toolName}</div>
+          <div className="ui-text-secondary mt-1 break-all">{pendingTool.arguments}</div>
           <div className="mt-2 flex gap-2">
             <button
               type="button"
               onClick={() => onApproveTool(true)}
-              className="rounded bg-emerald-700/70 hover:bg-emerald-700 px-2 py-1 text-xs"
+              className="rounded-lg px-3 py-1.5 text-xs text-white"
+              style={{ background: "var(--success)" }}
             >
               运行
             </button>
             <button
               type="button"
               onClick={() => onApproveTool(false)}
-              className="rounded bg-zinc-700/70 hover:bg-zinc-700 px-2 py-1 text-xs"
+              className="ui-btn-ghost rounded-lg px-3 py-1.5 text-xs"
             >
               取消
             </button>
@@ -66,13 +66,13 @@ export function ChatArea({
       )}
 
       {pendingChoices && pendingChoices.length > 0 && (
-        <div className="rounded-md border border-violet-800 bg-violet-950/40 text-violet-100 text-sm px-3 py-2">
-          [choices] Step 5 Modal - {pendingChoices.map((c) => c.label).join(", ")}
+        <div className="rounded-xl px-3 py-2 text-sm" style={{ border: "1px solid rgba(124,196,250,0.22)", background: "rgba(124,196,250,0.08)" }}>
+          <span className="ui-text-secondary">系统已生成下一步选项：</span> {pendingChoices.map((c) => c.label).join("、")}
         </div>
       )}
 
-      <StepLogs stepLogs={stepLogs} />
-      <MessageList messages={messages} isLoading={isLoading} onPreviewPath={onPreviewPath} />
+      <StepLogs stepLogs={stepLogs} runStatus={runStatus} statusMessage={statusMessage} />
+      <MessageList messages={messages} isLoading={isLoading} onFileLinkClick={onFileLinkClick} searchQuery={searchQuery} />
       <ChatInput
         value={input}
         onChange={setInput}

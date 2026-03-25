@@ -1,6 +1,6 @@
 "use client";
 
-import { Send } from "lucide-react";
+import { Loader2, Send } from "lucide-react";
 
 type Props = {
   value: string;
@@ -11,28 +11,33 @@ type Props = {
 };
 
 export function ChatInput({ value, disabled, loading, onChange, onSubmit }: Props) {
+  const trimmed = value.trim();
+  const sendActive = trimmed.length > 0 && !loading && !disabled;
+
   return (
     <form
-      className="flex gap-2"
+      className="flex gap-2 items-center"
       onSubmit={(e) => {
         e.preventDefault();
-        onSubmit();
+        if (sendActive) onSubmit();
       }}
     >
       <input
-        className="flex-1 rounded-md bg-zinc-900 border border-zinc-700 px-3 py-2 text-sm outline-none focus:border-zinc-500"
-        placeholder="输入消息..."
+        className="ui-input ui-input-focusable flex-1 rounded-xl px-3 py-2.5 text-sm"
+        placeholder="输入消息…"
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        disabled={disabled}
+        disabled={disabled || loading}
+        aria-label="消息输入"
       />
       <button
         type="submit"
-        disabled={disabled}
-        className="rounded-md bg-zinc-100 text-zinc-900 px-4 py-2 text-sm font-medium disabled:opacity-40 inline-flex items-center gap-1"
+        disabled={!sendActive}
+        className="ui-btn-accent shrink-0 rounded-xl p-2.5 disabled:opacity-30 disabled:pointer-events-none transition-colors"
+        aria-label={loading ? "发送中" : "发送"}
+        title={loading ? "发送中" : "发送"}
       >
-        <Send size={14} />
-        {loading ? "发送中" : "发送"}
+        {loading ? <Loader2 size={18} className="animate-spin" aria-hidden /> : <Send size={18} aria-hidden />}
       </button>
     </form>
   );

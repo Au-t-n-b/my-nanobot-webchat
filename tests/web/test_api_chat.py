@@ -328,3 +328,48 @@ async def test_post_chat_includes_choices_on_run_finished() -> None:
             {"label": "A", "value": "a"},
             {"label": "B", "value": "b"},
         ]
+
+
+@pytest.mark.asyncio
+async def test_post_chat_human_in_the_loop_false_skips_tool_pending() -> None:
+    from nanobot.bus.events import OutboundMessage
+
+    class ToolCall:
+        def __init__(self) -> None:
+            self.id = "tool_1"
+            self.name = "write_file"
+            self.arguments = {"path": "a.txt", "content": "x"}
+
+    class FakeAgent:
+        def __init__(self) -> None:
+            self.model = "m1"
+            self._cb = None
+            self.close_mcp = AsyncMock()
+
+        def set_tool_approval_callback(self, cb):
+            self._cb = cb
+            return "tok"
+
+        def reset_tool_approval_callback(self, _token):
+            self._cb = None
+
+        async def process_direct(self, *_args, **_kwargs):
+            assert self._cb is not None
+            approved = await self._cb(ToolCall())
+            assert approved is True
+            return OutboundMessage(channel="web", chat_id="t1", content="done")
+
+    app = create_app(agent_loop=FakeAgent())
+    async with TestClient(TestServer(app)) as client:
+        resp = await client.post(
+            "/api/chat",
+            json={
+                "threadId": "t1",
+                "runId": "r2",
+                "messages": [{"role": "user", "content": "write file"}],
+                "humanInTheLoop": False,
+            },
+        )
+        assert resp.status == 200
+        body = await resp.text()
+        assert "event: ToolPending" not in body

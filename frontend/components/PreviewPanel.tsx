@@ -1,10 +1,15 @@
 "use client";
 
-import { useEffect, useId, useMemo, useState } from "react";
-import { Check, Copy, FileQuestion, FolderOpen, Loader2, X } from "lucide-react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { Check, Copy, FileQuestion, FolderOpen, Loader2, Play, Sparkles, X } from "lucide-react";
 import * as XLSX from "xlsx";
 import mammoth from "mammoth/mammoth.browser.js";
+// PrismAsyncLight handles language loading internally and is Turbopack-safe:
+// no manual registerLanguage calls needed, no SSR/HMR registration conflicts.
+import { PrismAsyncLight as SyntaxHighlighter } from "react-syntax-highlighter";
+import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { AgentMarkdown } from "@/components/AgentMarkdown";
+import { RemoteBrowser } from "@/components/RemoteBrowser";
 import { buildProxiedFileUrl, openLocation } from "@/lib/apiFile";
 import { previewKindFromPath, type PreviewKind } from "@/lib/previewKind";
 
@@ -13,6 +18,8 @@ type Props = {
   filePath: string | null;
   onClearFile: () => void;
   onOpenPath: (path: string) => void;
+  activeSkillName?: string | null;
+  onFillInput?: (text: string) => void;
 };
 
 type PreviewState =
@@ -20,11 +27,29 @@ type PreviewState =
   | { status: "loading" }
   | { status: "error"; message: string }
   | { status: "embed"; kind: "image" | "pdf" | "html"; url: string }
-  | { status: "text"; text: string; markdown: boolean }
+  | { status: "text"; text: string; markdown: boolean; lang?: string }
   | { status: "html"; html: string }
   | { status: "table"; rows: string[][] }
   | { status: "mermaid"; svg: string; source: string }
   | { status: "binary"; url: string; name: string };
+
+// Map file extensions to Prism language names
+const EXT_TO_LANG: Record<string, string> = {
+  ts: "typescript", tsx: "typescript",
+  js: "javascript", jsx: "javascript",
+  py: "python",
+  json: "json",
+  yaml: "yaml", yml: "yaml", toml: "yaml",
+  sh: "bash", bash: "bash",
+  css: "css",
+  rs: "rust",
+  xml: "markup", html: "markup", htm: "markup",
+};
+
+function getLangFromPath(p: string): string | undefined {
+  const ext = p.split(".").pop()?.toLowerCase() ?? "";
+  return EXT_TO_LANG[ext];
+}
 
 function displayPreviewPath(fullPath: string): string {
   const normalized = fullPath.replace(/\\/g, "/");
@@ -33,6 +58,272 @@ function displayPreviewPath(fullPath: string): string {
   if (idx >= 0) return `./workspace/${normalized.slice(idx + marker.length)}`;
   return normalized;
 }
+
+// ─── Gantt hover tooltip ────────────────────────────────────────────────────
+
+type TooltipState = {
+  visible: boolean;
+  x: number;
+  y: number;
+  label: string;
+  detail: string;
+};
+
+function GanttView({ svg, source }: { svg: string; source: string }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [tooltip, setTooltip] = useState<TooltipState>({
+    visible: false, x: 0, y: 0, label: "", detail: "",
+  });
+  const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  const copySource = () => {
+    void navigator.clipboard.writeText(source).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  };
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    // Mermaid task rects have class names like "task task0 taskType0" etc.
+    const taskEls = container.querySelectorAll<SVGElement>(
+      "rect[class*='task'], .task"
+    );
+
+    let debounce: ReturnType<typeof setTimeout> | null = null;
+
+    const onEnter = (e: Event) => {
+      const ev = e as MouseEvent;
+      const el = ev.target as SVGElement;
+
+      if (debounce) clearTimeout(debounce);
+      debounce = setTimeout(() => {
+        // Try to find label: look for sibling <text> or <title> near the rect
+        let label = "";
+        let detail = "";
+
+        // Check <title> child
+        const title = el.querySelector("title");
+        if (title) label = title.textContent ?? "";
+
+        // If no title, walk up to parent g and find text elements
+        if (!label) {
+          const parentG = el.closest("g");
+          if (parentG) {
+            const texts = parentG.querySelectorAll("text");
+            texts.forEach((t) => {
+              const txt = t.textContent?.trim() ?? "";
+              if (txt && !label) label = txt;
+              else if (txt && txt !== label) detail = txt;
+            });
+          }
+        }
+
+        // Fallback: try class attribute for task id
+        if (!label) {
+          const cls = el.getAttribute("class") ?? "";
+          const match = cls.match(/task\d+/);
+          if (match) label = match[0];
+        }
+
+        if (!label) label = "任务";
+
+        setTooltip({ visible: true, x: ev.clientX, y: ev.clientY, label, detail });
+      }, 80);
+    };
+
+    const onLeave = () => {
+      if (debounce) clearTimeout(debounce);
+      if (hideTimer.current) clearTimeout(hideTimer.current);
+      hideTimer.current = setTimeout(() => setTooltip((t) => ({ ...t, visible: false })), 100);
+    };
+
+    const onMove = (e: Event) => {
+      const ev = e as MouseEvent;
+      setTooltip((t) => (t.visible ? { ...t, x: ev.clientX, y: ev.clientY } : t));
+    };
+
+    taskEls.forEach((el) => {
+      el.addEventListener("mouseenter", onEnter);
+      el.addEventListener("mouseleave", onLeave);
+      el.addEventListener("mousemove", onMove);
+    });
+
+    return () => {
+      if (debounce) clearTimeout(debounce);
+      taskEls.forEach((el) => {
+        el.removeEventListener("mouseenter", onEnter);
+        el.removeEventListener("mouseleave", onLeave);
+        el.removeEventListener("mousemove", onMove);
+      });
+    };
+  }, [svg]);
+
+  return (
+    <div className="flex flex-col gap-1">
+      <div className="flex justify-end mb-1">
+        <button
+          type="button"
+          onClick={copySource}
+          aria-label="复制源码"
+          className="inline-flex items-center gap-1 rounded-md border border-[var(--border-subtle)] px-2 py-0.5 text-[11px] ui-text-secondary hover:bg-[var(--surface-3)] transition-colors"
+        >
+          {copied ? <Check size={10} /> : <Copy size={10} />}
+          {copied ? "已复制" : "复制源码"}
+        </button>
+      </div>
+
+      <div
+        ref={containerRef}
+        className="overflow-auto p-2 [&_svg]:max-w-full [&_svg]:h-auto [&_.task]:cursor-pointer [&_.task]:transition-opacity [&_.task:hover]:opacity-80"
+        dangerouslySetInnerHTML={{ __html: svg }}
+      />
+
+      {/* Tooltip portal-like element */}
+      {tooltip.visible && (
+        <div
+          className="fixed z-50 pointer-events-none"
+          style={{ left: tooltip.x + 14, top: tooltip.y - 10 }}
+        >
+          <div className="rounded-lg border border-white/10 bg-zinc-800/90 backdrop-blur-md p-3 shadow-xl text-xs text-white max-w-[200px]">
+            <p className="font-semibold leading-snug">{tooltip.label}</p>
+            {tooltip.detail && (
+              <p className="mt-1 text-zinc-400 leading-snug">{tooltip.detail}</p>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Code Block with syntax highlighting ────────────────────────────────────
+
+function CodePreview({ code, lang, filePath }: { code: string; lang?: string; filePath: string }) {
+  const [copied, setCopied] = useState(false);
+
+  const copy = () => {
+    void navigator.clipboard.writeText(code).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+
+  const effectiveLang = lang ?? "text";
+  const isPlainText = !lang;
+
+  return (
+    <div className="relative group rounded-xl overflow-hidden border border-[var(--border-subtle)]">
+      {/* Floating toolbar */}
+      <div className="absolute top-2 right-2 z-10 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
+        <button
+          type="button"
+          onClick={copy}
+          aria-label="复制代码"
+          title="一键复制"
+          className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-white/80 hover:text-white bg-zinc-700/80 hover:bg-zinc-600/90 backdrop-blur-sm transition-colors"
+        >
+          {copied ? <Check size={10} className="text-green-400" /> : <Copy size={10} />}
+          {copied ? "已复制" : "复制"}
+        </button>
+        <button
+          type="button"
+          aria-label="运行（暂未实现）"
+          title="运行（暂未实现）"
+          className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-white/50 bg-zinc-700/60 backdrop-blur-sm cursor-not-allowed"
+          disabled
+        >
+          <Play size={10} />
+          运行
+        </button>
+      </div>
+
+      {/* File path label */}
+      <div className="px-3 py-1.5 text-[10px] font-mono ui-text-muted border-b border-[var(--border-subtle)]"
+        style={{ background: "var(--surface-3)" }}>
+        {filePath.replace(/\\/g, "/").split("/").pop()}
+        {effectiveLang !== "text" && (
+          <span className="ml-2 rounded px-1.5 py-0.5 text-[9px]"
+            style={{ background: "var(--accent-soft)", color: "var(--accent)" }}>
+            {effectiveLang}
+          </span>
+        )}
+      </div>
+
+      {isPlainText ? (
+        <pre className="text-xs ui-text-secondary whitespace-pre-wrap font-mono p-3 leading-relaxed overflow-x-auto"
+          style={{ background: "var(--surface-2)" }}>
+          {code}
+        </pre>
+      ) : (
+        <div className="[&_pre]:!m-0 [&_pre]:!rounded-none [&_pre]:!text-xs [&_.linenumber]:!text-zinc-500 [&_.linenumber]:!min-w-[2.5em] overflow-x-auto">
+          <SyntaxHighlighter
+            language={effectiveLang}
+            style={vscDarkPlus}
+            showLineNumbers
+            lineNumberStyle={{ color: "#4b5563", minWidth: "2.5em" }}
+            customStyle={{ margin: 0, borderRadius: 0, fontSize: "0.75rem", background: "#1e1e2e" }}
+            wrapLongLines={false}
+          >
+            {code}
+          </SyntaxHighlighter>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Quick Try section (for skill files) ────────────────────────────────────
+
+function QuickTrySection({
+  skillName,
+  onFillInput,
+}: {
+  skillName: string;
+  onFillInput: (text: string) => void;
+}) {
+  const prompts = [
+    `请使用 ${skillName} 技能帮我完成一个任务`,
+    `演示 ${skillName} 的使用方式和最佳实践`,
+  ];
+
+  return (
+    <div className="mt-6 pt-4 border-t border-[var(--border-subtle)]">
+      <p className="text-xs font-semibold ui-text-secondary mb-3 flex items-center gap-1.5">
+        <Sparkles size={12} style={{ color: "var(--warning)" }} />
+        💡 快速尝试 <span className="font-normal ui-text-muted">Quick Try</span>
+      </p>
+      <div className="flex flex-wrap gap-2">
+        {prompts.map((prompt) => (
+          <button
+            key={prompt}
+            type="button"
+            onClick={() => onFillInput(prompt)}
+            className="rounded-full px-3 py-1.5 text-xs border transition-colors"
+            style={{
+              borderColor: "rgba(245,158,11,0.3)",
+              color: "rgb(245,158,11)",
+              background: "transparent",
+            }}
+            onMouseEnter={(e) => {
+              (e.currentTarget as HTMLElement).style.background = "rgba(245,158,11,0.1)";
+            }}
+            onMouseLeave={(e) => {
+              (e.currentTarget as HTMLElement).style.background = "transparent";
+            }}
+          >
+            {prompt}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── CopySourceBar (unchanged helper) ──────────────────────────────────────
 
 function CopySourceBar({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
@@ -82,12 +373,18 @@ function ImageEmbed({ url, path }: { url: string; path: string }) {
   );
 }
 
+// ─── FilePreviewBody ─────────────────────────────────────────────────────────
+
 function FilePreviewBody({
   path,
   onOpenPath,
+  activeSkillName,
+  onFillInput,
 }: {
   path: string;
   onOpenPath: (path: string) => void;
+  activeSkillName?: string | null;
+  onFillInput?: (text: string) => void;
 }) {
   const [state, setState] = useState<PreviewState>({ status: "loading" });
   const url = useMemo(() => buildProxiedFileUrl(path), [path]);
@@ -95,6 +392,9 @@ function FilePreviewBody({
   const mermaidId = useId().replace(/:/g, "");
 
   useEffect(() => {
+    // Remote browser kind is handled by direct render below; skip fetch logic.
+    if (kind === "browser") return;
+
     if (kind === "binary") {
       const name = path.split(/[/\\]/).pop() ?? "file";
       setState({ status: "binary", url, name });
@@ -122,11 +422,7 @@ function FilePreviewBody({
           if (cancelled) return;
           if (kind === "mermaid") {
             const m = await import("mermaid");
-            m.default.initialize({
-              startOnLoad: false,
-              theme: "dark",
-              securityLevel: "strict",
-            });
+            m.default.initialize({ startOnLoad: false, theme: "dark", securityLevel: "strict" });
             const { svg } = await m.default.render(`mmd-${mermaidId}`, text);
             if (!cancelled) setState({ status: "mermaid", svg, source: text });
             return;
@@ -135,7 +431,8 @@ function FilePreviewBody({
             setState({ status: "text", text, markdown: true });
             return;
           }
-          setState({ status: "text", text, markdown: false });
+          const lang = getLangFromPath(path);
+          setState({ status: "text", text, markdown: false, lang });
           return;
         }
 
@@ -146,10 +443,7 @@ function FilePreviewBody({
           const sheetName = wb.SheetNames[0];
           if (!sheetName) throw new Error("empty workbook");
           const sheet = wb.Sheets[sheetName];
-          const rows = XLSX.utils.sheet_to_json<string[]>(sheet, {
-            header: 1,
-            defval: "",
-          }) as string[][];
+          const rows = XLSX.utils.sheet_to_json<string[]>(sheet, { header: 1, defval: "" }) as string[][];
           setState({ status: "table", rows });
           return;
         }
@@ -161,14 +455,23 @@ function FilePreviewBody({
           setState({ status: "html", html: value });
         }
       } catch (e) {
-        if (!cancelled) setState({ status: "error", message: e instanceof Error ? e.message : String(e) });
+        if (!cancelled)
+          setState({ status: "error", message: e instanceof Error ? e.message : String(e) });
       }
     })();
 
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [path, url, kind, mermaidId]);
+
+  const isSkillFile =
+    activeSkillName != null &&
+    (path.toLowerCase().includes("/skills/") || path.toLowerCase().replace(/\\/g, "/").includes("\\skills\\")) &&
+    path.toLowerCase().endsWith(".md");
+
+  // Remote browser – render after all hooks, before file-fetch status checks
+  if (kind === "browser") {
+    return <RemoteBrowser filePath={path} />;
+  }
 
   if (state.status === "loading") {
     return (
@@ -181,24 +484,21 @@ function FilePreviewBody({
 
   if (state.status === "error") {
     return (
-      <div className="rounded-xl text-sm p-3 whitespace-pre-wrap" style={{ border: "1px solid rgba(239,107,115,0.24)", background: "rgba(239,107,115,0.08)", color: "var(--danger)" }}>
+      <div className="rounded-xl text-sm p-3 whitespace-pre-wrap"
+        style={{ border: "1px solid rgba(239,107,115,0.24)", background: "rgba(239,107,115,0.08)", color: "var(--danger)" }}>
         {state.message}
       </div>
     );
   }
 
   if (state.status === "embed") {
-    if (state.kind === "image") {
-      return <ImageEmbed url={state.url} path={path} />;
-    }
+    if (state.kind === "image") return <ImageEmbed url={state.url} path={path} />;
     return (
       <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-3)] p-2 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.04)]">
         <iframe
           title="preview"
           src={state.url}
-          className={
-            "w-full min-h-[500px] rounded-lg border border-[var(--border-subtle)] bg-white"
-          }
+          className="w-full min-h-[500px] rounded-lg border border-[var(--border-subtle)] bg-white"
         />
       </div>
     );
@@ -209,18 +509,20 @@ function FilePreviewBody({
       <div className="max-w-none text-sm">
         <CopySourceBar text={state.text} />
         <AgentMarkdown content={state.text} onFileLinkClick={onOpenPath} />
+        {isSkillFile && onFillInput && activeSkillName && (
+          <QuickTrySection skillName={activeSkillName} onFillInput={onFillInput} />
+        )}
       </div>
     );
   }
 
   if (state.status === "text") {
     return (
-      <div className="flex flex-col gap-1">
-        <CopySourceBar text={state.text} />
-        <pre className="text-xs ui-text-secondary whitespace-pre-wrap font-mono p-2 rounded-xl ui-subtle">
-          {state.text}
-        </pre>
-      </div>
+      <CodePreview
+        code={state.text}
+        lang={state.lang}
+        filePath={path}
+      />
     );
   }
 
@@ -254,15 +556,7 @@ function FilePreviewBody({
   }
 
   if (state.status === "mermaid") {
-    return (
-      <div className="flex flex-col gap-1">
-        <CopySourceBar text={state.source} />
-        <div
-          className="overflow-auto p-2 [&_svg]:max-w-full [&_svg]:h-auto"
-          dangerouslySetInnerHTML={{ __html: state.svg }}
-        />
-      </div>
-    );
+    return <GanttView svg={state.svg} source={state.source} />;
   }
 
   if (state.status === "binary") {
@@ -270,11 +564,7 @@ function FilePreviewBody({
       <div className="text-sm ui-text-secondary flex flex-col gap-3 items-start">
         <FileQuestion size={32} className="ui-text-muted" />
         <p>无法内联预览此类型，可通过下方链接下载。</p>
-        <a
-          href={state.url}
-          download={state.name}
-          className="ui-btn-accent rounded-md px-3 py-1.5"
-        >
+        <a href={state.url} download={state.name} className="ui-btn-accent rounded-md px-3 py-1.5">
           打开 / 下载 {state.name}
         </a>
       </div>
@@ -284,19 +574,31 @@ function FilePreviewBody({
   return null;
 }
 
-export function PreviewPanel({ onClose, filePath, onClearFile, onOpenPath }: Props) {
+// ─── PreviewPanel (exported) ─────────────────────────────────────────────────
+
+export function PreviewPanel({
+  onClose,
+  filePath,
+  onClearFile,
+  onOpenPath,
+  activeSkillName,
+  onFillInput,
+}: Props) {
   const [copiedPath, setCopiedPath] = useState(false);
-  const copyPath = () => {
+
+  const copyPath = useCallback(() => {
     if (!filePath) return;
     void navigator.clipboard.writeText(filePath).then(() => {
       setCopiedPath(true);
       setTimeout(() => setCopiedPath(false), 1200);
     });
-  };
-  const handleOpenLocation = () => {
+  }, [filePath]);
+
+  const handleOpenLocation = useCallback(() => {
     if (!filePath) return;
     void openLocation(filePath);
-  };
+  }, [filePath]);
+
   return (
     <aside className="ui-panel h-full rounded-2xl p-4 flex flex-col gap-3 min-h-0">
       <div className="flex items-center justify-between gap-2 shrink-0">
@@ -312,6 +614,7 @@ export function PreviewPanel({ onClose, filePath, onClearFile, onOpenPath }: Pro
           <X size={14} />
         </button>
       </div>
+
       {filePath && (
         <div className="flex items-center gap-1.5 shrink-0 min-w-0">
           <p className="text-xs ui-text-muted truncate min-w-0 flex-1" title={filePath}>
@@ -341,9 +644,16 @@ export function PreviewPanel({ onClose, filePath, onClearFile, onOpenPath }: Pro
           </div>
         </div>
       )}
+
       <div className="flex-1 min-h-0 overflow-auto rounded-xl p-3 ui-card">
         {filePath ? (
-          <FilePreviewBody key={filePath} path={filePath} onOpenPath={onOpenPath} />
+          <FilePreviewBody
+            key={filePath}
+            path={filePath}
+            onOpenPath={onOpenPath}
+            activeSkillName={activeSkillName}
+            onFillInput={onFillInput}
+          />
         ) : (
           <p className="ui-text-muted text-sm">
             点击对话里的 Markdown 文件链接（例如{" "}

@@ -1,6 +1,6 @@
 "use client";
 
-import { Clock3, MessageSquarePlus } from "lucide-react";
+import { Clock3, MessageSquarePlus, Trash2 } from "lucide-react";
 import type { SessionSummary } from "@/hooks/useAgentChat";
 
 type Props = {
@@ -8,6 +8,7 @@ type Props = {
   sessions: SessionSummary[];
   onCreate: () => void;
   onSelect: (threadId: string) => void;
+  onDelete?: (threadId: string) => void;
 };
 
 function formatUpdatedAt(ts: number): string {
@@ -15,7 +16,7 @@ function formatUpdatedAt(ts: number): string {
   return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
-export function SessionList({ currentThreadId, sessions, onCreate, onSelect }: Props) {
+export function SessionList({ currentThreadId, sessions, onCreate, onSelect, onDelete }: Props) {
   return (
     <section className="ui-card rounded-xl p-3 flex flex-col gap-2 min-h-0">
       <div className="flex items-center justify-between gap-2">
@@ -38,12 +39,19 @@ export function SessionList({ currentThreadId, sessions, onCreate, onSelect }: P
         {sessions.map((session) => {
           const active = session.id === currentThreadId;
           return (
-            <button
+            <div
               key={session.id}
-              type="button"
               onClick={() => onSelect(session.id)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  onSelect(session.id);
+                }
+              }}
+              role="button"
+              tabIndex={0}
               className={
-                "w-full rounded-lg border px-2.5 py-2 text-left transition-colors " +
+                "group relative w-full rounded-lg border px-2.5 py-2 text-left transition-colors cursor-pointer outline-none " +
                 (active
                   ? "border-[var(--accent)] bg-[var(--accent-soft)]/70"
                   : "border-[var(--border-subtle)] bg-[var(--surface-3)] hover:border-[var(--border-strong)]")
@@ -57,7 +65,22 @@ export function SessionList({ currentThreadId, sessions, onCreate, onSelect }: P
                 </span>
               </div>
               <p className="mt-1 truncate text-[11px] ui-text-secondary">{session.preview}</p>
-            </button>
+
+              {onDelete && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (window.confirm("确定删除该会话？")) onDelete(session.id);
+                  }}
+                  className="absolute right-2 top-2 opacity-0 group-hover:opacity-100 transition-opacity rounded p-1 ui-text-muted hover:text-red-500 hover:bg-[var(--surface-2)]"
+                  aria-label="删除会话"
+                  title="删除会话"
+                >
+                  <Trash2 size={12} />
+                </button>
+              )}
+            </div>
           );
         })}
       </div>

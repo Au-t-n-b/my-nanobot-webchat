@@ -18,8 +18,10 @@ type Props = {
   onSend: () => void;
   onApproveTool: (approved: boolean) => void;
   onFileLinkClick?: (path: string) => void;
+  onDeleteMessage?: (id: string) => void;
   searchQuery?: string;
   disabled: boolean;
+  focusSignal?: number;
 };
 
 export function ChatArea({
@@ -35,8 +37,10 @@ export function ChatArea({
   onSend,
   onApproveTool,
   onFileLinkClick,
+  onDeleteMessage,
   searchQuery,
   disabled,
+  focusSignal,
 }: Props) {
   return (
     <section className="ui-panel h-full min-h-0 overflow-hidden rounded-2xl p-4 flex flex-col gap-3">
@@ -72,13 +76,14 @@ export function ChatArea({
       )}
 
       <StepLogs stepLogs={stepLogs} runStatus={runStatus} statusMessage={statusMessage} />
-      <MessageList messages={messages} isLoading={isLoading} onFileLinkClick={onFileLinkClick} searchQuery={searchQuery} />
+      <MessageList messages={messages} isLoading={isLoading} onFileLinkClick={onFileLinkClick} onDeleteMessage={onDeleteMessage} searchQuery={searchQuery} />
       <ChatInput
         value={input}
         onChange={setInput}
         onSubmit={onSend}
         disabled={disabled}
         loading={isLoading}
+        focusSignal={focusSignal}
       />
     </section>
   );

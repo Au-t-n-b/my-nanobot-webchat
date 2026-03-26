@@ -7,12 +7,20 @@ import { ChoicesModal } from "@/components/ChoicesModal";
 import { ErrorToast } from "@/components/ErrorToast";
 import { PreviewPanel } from "@/components/PreviewPanel";
 import { SearchOverlay } from "@/components/SearchOverlay";
+import { SettingsPanel } from "@/components/SettingsPanel";
 import { Sidebar } from "@/components/Sidebar";
 import { useAgentChat } from "@/hooks/useAgentChat";
+import { previewKindFromPath } from "@/lib/previewKind";
 
 const SIDEBAR_MIN = 200;
-const SIDEBAR_MAX = 560;
-const SIDEBAR_DEFAULT = 280;
+const SIDEBAR_MAX = 560;       // left panel max
+const SIDEBAR_DEFAULT = 280;   // left panel default
+const RIGHT_PANEL_DEFAULT = 460;
+const RIGHT_PANEL_MAX = typeof window !== "undefined"
+  ? Math.floor(window.innerWidth * 0.62)
+  : 900;
+
+type RightPanelMode = "preview" | "settings";
 
 export default function Home() {
   const {
@@ -30,19 +38,24 @@ export default function Home() {
     approveTool,
     clearPendingChoices,
     clearChat,
+    deleteMessage,
+    deleteSession,
     createSession,
     switchSession,
   } = useAgentChat();
   const [input, setInput] = useState("");
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [previewPath, setPreviewPath] = useState<string | null>(null);
+  const [rightPanelMode, setRightPanelMode] = useState<RightPanelMode>("preview");
+  const [activeSkillName, setActiveSkillName] = useState<string | null>(null);
+  const [inputFocusSignal, setInputFocusSignal] = useState(0);
   const [toastDismissed, setToastDismissed] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [leftWidth, setLeftWidth] = useState(SIDEBAR_DEFAULT);
-  const [rightWidth, setRightWidth] = useState(SIDEBAR_DEFAULT);
+  const [rightWidth, setRightWidth] = useState(RIGHT_PANEL_DEFAULT);
   const lastInputRef = useRef("");
   const draggingRef = useRef<null | "left" | "right">(null);
   const dragStartX = useRef(0);
@@ -50,10 +63,47 @@ export default function Home() {
 
   const apiBase = process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8765";
 
-  const openFilePreview = (path: string) => {
+  const openFilePreview = useCallback((path: string) => {
     setPreviewPath(path);
+    setRightPanelMode("preview");
     setIsPreviewOpen(true);
-  };
+  }, []);
+
+  // ── AUTO_OPEN detector ────────────────────────────────────────────────────
+  // Scans assistant messages for [AUTO_OPEN](browser://URL) markers emitted by
+  // the Agent. Each unique (messageId, URL) pair triggers exactly one auto-open
+  // so that streaming updates and re-renders don't re-fire it.
+  const autoOpenedRef = useRef(new Set<string>());
+  useEffect(() => {
+    const AUTO_OPEN_RE = /\[AUTO_OPEN\]\(browser:\/\/([^)\s]+)\)/g;
+    for (const msg of messages) {
+      if (msg.role !== "assistant") continue;
+      AUTO_OPEN_RE.lastIndex = 0;
+      let match: RegExpExecArray | null;
+      while ((match = AUTO_OPEN_RE.exec(msg.content)) !== null) {
+        const dedupeKey = `${msg.id}::${match[1]}`;
+        if (!autoOpenedRef.current.has(dedupeKey)) {
+          autoOpenedRef.current.add(dedupeKey);
+          openFilePreview(`browser://${match[1]}`);
+        }
+      }
+    }
+  }, [messages, openFilePreview]);
+  // ─────────────────────────────────────────────────────────────────────────
+
+  const openSettings = useCallback(() => {
+    setRightPanelMode("settings");
+    setIsPreviewOpen(true);
+  }, []);
+
+  const handleSkillSelect = useCallback((skillName: string) => {
+    setActiveSkillName(skillName);
+  }, []);
+
+  const handleFillInput = useCallback((text: string) => {
+    setInput(text);
+    setInputFocusSignal((n) => n + 1);
+  }, []);
 
   const handleSend = useCallback(() => {
     const v = input;
@@ -85,7 +135,7 @@ export default function Home() {
       if (draggingRef.current === "left") {
         setLeftWidth(Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, dragStartWidth.current + dx)));
       } else {
-        setRightWidth(Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, dragStartWidth.current - dx)));
+        setRightWidth(Math.max(SIDEBAR_MIN, Math.min(RIGHT_PANEL_MAX, dragStartWidth.current - dx)));
       }
     };
     const onUp = () => { draggingRef.current = null; };
@@ -111,6 +161,41 @@ export default function Home() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
+
+  const closePreview = useCallback(() => {
+    setIsPreviewOpen(false);
+    setPreviewPath(null);
+  }, []);
+
+  const sidebarProps = {
+    threadId,
+    apiBase,
+    onClear: clearChat,
+    onPreviewPath: openFilePreview,
+    currentPreviewPath: (isPreviewOpen && rightPanelMode === "preview") ? previewPath : null,
+    onClosePreview: closePreview,
+    messages,
+    sessions,
+    onCreateSession: createSession,
+    onSelectSession: switchSession,
+    onDeleteSession: deleteSession,
+    onOpenSettings: openSettings,
+    onSkillSelect: handleSkillSelect,
+  };
+
+  const rightPanel =
+    rightPanelMode === "settings" ? (
+      <SettingsPanel onClose={() => setIsPreviewOpen(false)} />
+    ) : (
+      <PreviewPanel
+        onClose={() => setIsPreviewOpen(false)}
+        filePath={previewPath}
+        onClearFile={() => setPreviewPath(null)}
+        onOpenPath={openFilePreview}
+        activeSkillName={activeSkillName}
+        onFillInput={handleFillInput}
+      />
+    );
 
   return (
     <main className="h-dvh overflow-hidden p-4" style={{ background: "var(--surface-0)", color: "var(--text-primary)" }}>
@@ -168,13 +253,7 @@ export default function Home() {
             <X size={16} />
           </button>
           <Sidebar
-            threadId={threadId}
-            apiBase={apiBase}
-            onClear={clearChat}
-            onPreviewPath={openFilePreview}
-            messages={messages}
-            sessions={sessions}
-            onCreateSession={createSession}
+            {...sidebarProps}
             onSelectSession={(id) => {
               setSidebarOpen(false);
               switchSession(id);
@@ -189,16 +268,7 @@ export default function Home() {
         {!sidebarCollapsed && (
           <>
             <div className="min-h-0 shrink-0" style={{ width: leftWidth }}>
-              <Sidebar
-                threadId={threadId}
-                apiBase={apiBase}
-                onClear={clearChat}
-                onPreviewPath={openFilePreview}
-                messages={messages}
-                sessions={sessions}
-                onCreateSession={createSession}
-                onSelectSession={switchSession}
-              />
+              <Sidebar {...sidebarProps} />
             </div>
             {/* Left drag handle */}
             <div
@@ -249,13 +319,15 @@ export default function Home() {
               onSend={handleSend}
               onApproveTool={(approved) => { void approveTool(approved); }}
               onFileLinkClick={openFilePreview}
+              onDeleteMessage={deleteMessage}
               searchQuery={searchQuery}
               disabled={isLoading || !threadId}
+              focusSignal={inputFocusSignal}
             />
           </div>
         </div>
 
-        {/* Right preview panel */}
+        {/* Right panel: preview or settings */}
         {isPreviewOpen && (
           <>
             {/* Right drag handle */}
@@ -266,13 +338,16 @@ export default function Home() {
             >
               <div className="w-0.5 h-12 rounded-full transition-colors group-hover:bg-[var(--accent)]" style={{ background: "var(--border-subtle)" }} />
             </div>
-            <div className="min-h-0 shrink-0" style={{ width: rightWidth }}>
-              <PreviewPanel
-                onClose={() => setIsPreviewOpen(false)}
-                filePath={previewPath}
-                onClearFile={() => setPreviewPath(null)}
-                onOpenPath={openFilePreview}
-              />
+            {/* Browser panels get extra width for comfortable viewing */}
+            <div
+              className="min-h-0 shrink-0"
+              style={{
+                width: previewKindFromPath(previewPath ?? "") === "browser"
+                  ? Math.max(rightWidth, Math.min(RIGHT_PANEL_MAX, Math.floor((typeof window !== "undefined" ? window.innerWidth : 1200) * 0.55)))
+                  : rightWidth,
+              }}
+            >
+              {rightPanel}
             </div>
           </>
         )}
@@ -293,8 +368,10 @@ export default function Home() {
           onSend={handleSend}
           onApproveTool={(approved) => { void approveTool(approved); }}
           onFileLinkClick={openFilePreview}
+          onDeleteMessage={deleteMessage}
           searchQuery={searchQuery}
           disabled={isLoading || !threadId}
+          focusSignal={inputFocusSignal}
         />
       </div>
     </main>

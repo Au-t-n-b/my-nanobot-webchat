@@ -53,6 +53,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+browser = [
+    "playwright>=1.40.0",
+]
 wecom = [
     "wecom-aibot-sdk-python>=0.1.5",
 ]

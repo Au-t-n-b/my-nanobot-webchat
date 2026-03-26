@@ -1,7 +1,7 @@
 "use client";
 
 import { isValidElement, useState, type ReactElement, type ReactNode } from "react";
-import ReactMarkdown from "react-markdown";
+import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import type { Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Check, ChevronDown, ChevronUp, Copy } from "lucide-react";
@@ -154,6 +154,43 @@ export function agentMarkdownComponents(options: {
 
   return {
     a: ({ href, children, ...rest }) => {
+      // browser:// custom protocol → open in right-side PreviewPanel
+      if (href?.startsWith("browser://") && onFileLinkClick) {
+        // [AUTO_OPEN] marker → render as an inviting CTA button, not a raw link
+        const label = typeof children === "string" ? children : "";
+        if (label === "AUTO_OPEN") {
+          return (
+            /* span[block] avoids <div> inside <p> hydration error while giving block layout */
+            <span className="block mt-3 mb-1">
+              <button
+                type="button"
+                onClick={() => onFileLinkClick(href)}
+                className="inline-flex items-center gap-2 px-3 py-1.5 text-sm rounded-lg transition-colors"
+                style={{
+                  background: "color-mix(in srgb, var(--accent) 10%, transparent)",
+                  color: "var(--accent)",
+                  border: "1px solid color-mix(in srgb, var(--accent) 25%, transparent)",
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.background = "color-mix(in srgb, var(--accent) 18%, transparent)")}
+                onMouseLeave={(e) => (e.currentTarget.style.background = "color-mix(in srgb, var(--accent) 10%, transparent)")}
+              >
+                🌐 点击打开网页视窗
+              </button>
+            </span>
+          );
+        }
+        return (
+          <a
+            {...rest}
+            href={href}
+            className="ui-link underline decoration-dotted"
+            onClick={(e) => { e.preventDefault(); onFileLinkClick(href); }}
+          >
+            {children}
+          </a>
+        );
+      }
+
       const path = extractLocalPreviewPath(href ?? undefined);
       if (path) {
         const displayHref = buildProxiedFileUrl(path);
@@ -203,13 +240,13 @@ export function agentMarkdownComponents(options: {
       );
     },
     p: ({ children }) => (
-      <p className="mb-2 last:mb-0">
+      <p className="mb-3 last:mb-0 leading-relaxed">
         {typeof children === "string" ? highlight(children) : children}
       </p>
     ),
-    ul: ({ children }) => <ul className="list-disc pl-4 mb-2 space-y-1">{children}</ul>,
-    ol: ({ children }) => <ol className="list-decimal pl-4 mb-2 space-y-1">{children}</ol>,
-    li: ({ children }) => <li>{children}</li>,
+    ul: ({ children }) => <ul className="list-disc pl-5 mb-3 space-y-2">{children}</ul>,
+    ol: ({ children }) => <ol className="list-decimal pl-5 mb-3 space-y-2">{children}</ol>,
+    li: ({ children }) => <li className="my-1">{children}</li>,
     code: ({ className, children, ...props }) => {
       const inline = !className;
       if (inline) {
@@ -262,6 +299,9 @@ export function AgentMarkdown({
     <div className={className ?? "ui-text-primary leading-relaxed break-words"}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
+        urlTransform={(url) =>
+          url.startsWith("browser://") ? url : defaultUrlTransform(url)
+        }
         components={agentMarkdownComponents({ onFileLinkClick, searchQuery, onToggleInline: toggleInline })}
       >
         {normalized}

@@ -256,6 +256,27 @@ export function useAgentChat() {
     setSessions(nextSessions);
   }, [messages, threadId]);
 
+  const deleteMessage = useCallback(
+    (id: string) => {
+      setMessages((prev) => {
+        const next = prev.filter((m) => m.id !== id);
+        if (threadId) {
+          const messageMap = loadMessageMap();
+          messageMap[threadId] = sanitizeMessages(next);
+          saveMessageMap(messageMap);
+          const nextSummaries = upsertSessionSummary(
+            loadSessionSummaries(),
+            deriveSessionSummary(threadId, next),
+          );
+          saveSessionSummaries(nextSummaries);
+          setSessions(nextSummaries);
+        }
+        return next;
+      });
+    },
+    [threadId],
+  );
+
   const clearChat = useCallback(() => {
     if (typeof window !== "undefined" && threadId) {
       const messageMap = loadMessageMap();
@@ -297,6 +318,48 @@ export function useAgentChat() {
     setRunStatus("idle");
     setStatusMessage("已创建新会话");
   }, []);
+
+  const deleteSession = useCallback(
+    (deleteThreadId: string) => {
+      abortRef.current?.abort();
+      if (typeof window === "undefined") return;
+
+      const messageMap = loadMessageMap();
+      delete messageMap[deleteThreadId];
+      saveMessageMap(messageMap);
+
+      const nextSessions = loadSessionSummaries().filter((s) => s.id !== deleteThreadId);
+      saveSessionSummaries(nextSessions);
+      setSessions(nextSessions);
+
+      // If deleting the active session, switch to a remaining one (or create a new empty session)
+      if (deleteThreadId === threadId) {
+        const nextThreadId = nextSessions[0]?.id ?? crypto.randomUUID();
+        localStorage.setItem(CURRENT_THREAD_STORAGE_KEY, nextThreadId);
+
+        if (!messageMap[nextThreadId]) {
+          messageMap[nextThreadId] = [];
+          saveMessageMap(messageMap);
+          const ensured = upsertSessionSummary(loadSessionSummaries(), deriveSessionSummary(nextThreadId, []));
+          saveSessionSummaries(ensured);
+          setSessions(ensured);
+        }
+
+        setThreadId(nextThreadId);
+        setMessages(messageMap[nextThreadId] ?? []);
+        setStepLogs([]);
+        setError(null);
+        setPendingTool(null);
+        setPendingChoices(null);
+        setIsLoading(false);
+        setRunStatus("idle");
+        setStatusMessage("会话已删除，已切换到其他会话");
+      } else {
+        setStatusMessage("会话已删除");
+      }
+    },
+    [threadId],
+  );
 
   const switchSession = useCallback((nextThreadId: string) => {
     abortRef.current?.abort();
@@ -542,6 +605,8 @@ export function useAgentChat() {
     approveTool,
     clearPendingChoices,
     clearChat,
+    deleteMessage,
+    deleteSession,
     createSession,
     switchSession,
   };

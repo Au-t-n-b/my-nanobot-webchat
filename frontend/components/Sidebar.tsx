@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Bot, Check, Copy, FileText, FolderOpen, RefreshCw, Trash2 } from "lucide-react";
+import { Bot, Check, Copy, FileText, FolderOpen, Globe, RefreshCw, Settings, Trash2 } from "lucide-react";
 import { SessionList } from "@/components/SessionList";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import type { AgentMessage, SessionSummary } from "@/hooks/useAgentChat";
@@ -13,10 +13,17 @@ type Props = {
   apiBase: string;
   onClear: () => void;
   onPreviewPath: (path: string) => void;
+  /** Currently open preview path (null if panel is closed). Used for toggle logic. */
+  currentPreviewPath?: string | null;
+  /** Close the preview panel without opening a new one. */
+  onClosePreview?: () => void;
   messages: AgentMessage[];
   sessions: SessionSummary[];
   onCreateSession: () => void;
   onSelectSession: (threadId: string) => void;
+  onDeleteSession?: (threadId: string) => void;
+  onOpenSettings?: () => void;
+  onSkillSelect?: (skillName: string) => void;
 };
 
 type SkillItem = {
@@ -41,11 +48,30 @@ export function Sidebar({
   apiBase,
   onClear,
   onPreviewPath,
+  currentPreviewPath,
+  onClosePreview,
   messages,
   sessions,
   onCreateSession,
   onSelectSession,
+  onDeleteSession,
+  onOpenSettings,
+  onSkillSelect,
 }: Props) {
+  /**
+   * Toggle helper: if *targetPath* is already open, close the panel;
+   * otherwise open it.
+   */
+  const togglePreview = useCallback(
+    (targetPath: string) => {
+      if (currentPreviewPath === targetPath) {
+        onClosePreview?.();
+      } else {
+        onPreviewPath(targetPath);
+      }
+    },
+    [currentPreviewPath, onClosePreview, onPreviewPath],
+  );
   const [skills, setSkills] = useState<SkillItem[]>([]);
   const [skillsLoading, setSkillsLoading] = useState(false);
   const [skillsError, setSkillsError] = useState<string | null>(null);
@@ -159,6 +185,7 @@ export function Sidebar({
         sessions={sessions}
         onCreate={onCreateSession}
         onSelect={onSelectSession}
+        onDelete={onDeleteSession}
       />
 
       <section className="ui-card rounded-xl p-3 flex flex-col gap-2 min-h-0">
@@ -189,7 +216,7 @@ export function Sidebar({
               <div key={artifact.path} className="flex items-center gap-1 rounded-lg px-2 py-1.5 hover:bg-[var(--surface-3)] transition-colors group">
                 <button
                   type="button"
-                  onClick={() => onPreviewPath(artifact.path)}
+                  onClick={() => togglePreview(artifact.path)}
                   className="flex-1 text-left flex items-center gap-1.5 min-w-0"
                   title={artifact.path}
                 >
@@ -245,16 +272,36 @@ export function Sidebar({
           <span className="text-[11px] font-semibold uppercase tracking-wider ui-text-secondary">
             技能 <span className="font-normal normal-case tracking-normal ui-text-muted">Skills</span>
           </span>
-          <button
-            type="button"
-            onClick={() => void loadSkills()}
-            className="ui-btn-ghost inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs"
-            aria-label="刷新技能列表"
-            title="刷新技能列表"
-          >
-            <RefreshCw size={12} className={skillsLoading ? "animate-spin" : ""} />
-            刷新
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => {
+                // If a browser panel is already open, toggle it closed
+                if (currentPreviewPath?.startsWith("browser://")) {
+                  onClosePreview?.();
+                  return;
+                }
+                const input = window.prompt("请输入目标网址", "https://");
+                if (!input?.trim()) return;
+                onPreviewPath("browser://" + input.trim());
+              }}
+              className="ui-btn-ghost inline-flex items-center rounded-lg p-1.5"
+              aria-label={currentPreviewPath?.startsWith("browser://") ? "关闭云端浏览器" : "打开云端浏览器"}
+              title={currentPreviewPath?.startsWith("browser://") ? "关闭云端浏览器" : "打开云端浏览器"}
+            >
+              <Globe size={12} className={currentPreviewPath?.startsWith("browser://") ? "text-[var(--accent)]" : ""} />
+            </button>
+            <button
+              type="button"
+              onClick={() => void loadSkills()}
+              className="ui-btn-ghost inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs"
+              aria-label="刷新技能列表"
+              title="刷新技能列表"
+            >
+              <RefreshCw size={12} className={skillsLoading ? "animate-spin" : ""} />
+              刷新
+            </button>
+          </div>
         </div>
 
         {skillsError && (
@@ -283,7 +330,16 @@ export function Sidebar({
               >
                 <button
                   type="button"
-                  onClick={() => { setSelectedSkillName(s.name); onPreviewPath(s.skillFile); }}
+                  onClick={() => {
+                    if (currentPreviewPath === s.skillFile) {
+                      setSelectedSkillName(null);
+                      onClosePreview?.();
+                    } else {
+                      setSelectedSkillName(s.name);
+                      onPreviewPath(s.skillFile);
+                      onSkillSelect?.(s.name);
+                    }
+                  }}
                   className="w-full text-left px-2.5 py-2 text-sm ui-text-secondary pr-16"
                   title={s.skillDir}
                 >
@@ -349,14 +405,37 @@ export function Sidebar({
         </div>
       )}
 
-      <div className="mt-auto flex items-center justify-between gap-2">
+      {/* ── Bottom control bar ── */}
+      <div
+        className="mt-auto -mx-4 px-3 pt-3 pb-1 flex items-center gap-1"
+        style={{ borderTop: "1px solid var(--border-subtle)" }}
+      >
+        {/* Clear session — ghost, destructive on hover */}
         <button
           type="button"
           onClick={onClear}
-          className="ui-btn-ghost flex-1 rounded-lg border border-[var(--border-subtle)] px-3 py-2 text-xs"
+          className="flex-1 flex flex-row items-center justify-center gap-1.5 rounded-lg px-2 py-1.5 text-xs ui-text-muted transition-colors hover:bg-[var(--surface-3)] hover:text-red-500"
+          title="清空当前会话"
         >
-          清空当前会话
+          <Trash2 size={12} className="shrink-0" />
+          <span className="whitespace-nowrap">清空会话</span>
         </button>
+
+        {/* Settings */}
+        <button
+          type="button"
+          onClick={onOpenSettings}
+          className="
+            rounded-lg p-2 ui-text-muted transition-colors shrink-0
+            hover:bg-[var(--surface-3)] hover:ui-text-primary
+          "
+          aria-label="打开设置"
+          title="设置"
+        >
+          <Settings size={13} />
+        </button>
+
+        {/* Theme toggle */}
         <ThemeToggle />
       </div>
     </aside>

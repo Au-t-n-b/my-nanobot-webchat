@@ -1,4 +1,5 @@
 export type PreviewKind =
+  | "browser"
   | "image"
   | "pdf"
   | "html"
@@ -10,6 +11,8 @@ export type PreviewKind =
   | "binary";
 
 export function previewKindFromPath(path: string): PreviewKind {
+  if (path.startsWith("browser://")) return "browser";
+
   const i = path.lastIndexOf(".");
   const ext = i >= 0 ? path.slice(i + 1).toLowerCase() : "";
   if (["png", "jpg", "jpeg", "gif", "webp", "svg"].includes(ext)) return "image";

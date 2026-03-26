@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Bot, Check, Copy, FileText, User } from "lucide-react";
+import { Bot, Check, Copy, FileText, Trash2, User } from "lucide-react";
 import type { AgentMessage } from "@/hooks/useAgentChat";
 import { AgentMarkdown } from "@/components/AgentMarkdown";
 import { extractFilesFromContent } from "@/lib/fileIndex";
@@ -10,11 +10,23 @@ type Props = {
   messages: AgentMessage[];
   isLoading: boolean;
   onFileLinkClick?: (path: string) => void;
+  onDeleteMessage?: (id: string) => void;
   searchQuery?: string;
 };
 
-function CopyMsgButton({ content }: { content: string }) {
+/**
+ * Hover action toolbar shown beneath each message bubble.
+ * Includes copy and delete actions.
+ */
+function MessageActions({
+  content,
+  onDelete,
+}: {
+  content: string;
+  onDelete?: () => void;
+}) {
   const [copied, setCopied] = useState(false);
+
   const copy = (e: React.MouseEvent) => {
     e.stopPropagation();
     void navigator.clipboard.writeText(content).then(() => {
@@ -22,23 +34,30 @@ function CopyMsgButton({ content }: { content: string }) {
       setTimeout(() => setCopied(false), 1500);
     });
   };
+
   return (
-    <button
-      type="button"
-      onClick={copy}
-      aria-label="复制消息内容"
-      title={copied ? "已复制" : "复制消息"}
-      className={
-        "opacity-0 group-hover:opacity-100 transition-opacity duration-150 " +
-        "absolute top-2 right-2 rounded-md p-1.5 " +
-        "ui-text-muted hover:text-[var(--text-secondary)]"
-      }
-      style={{ background: "color-mix(in srgb, var(--surface-3) 85%, transparent)", backdropFilter: "blur(4px)" }}
-    >
-      {copied
-        ? <Check size={11} style={{ color: "var(--success)" }} />
-        : <Copy size={11} />}
-    </button>
+    <div className="opacity-0 group-hover:opacity-100 transition-opacity duration-150 flex items-center gap-0.5 mt-1">
+      <button
+        type="button"
+        onClick={copy}
+        aria-label="复制消息"
+        title={copied ? "已复制" : "复制"}
+        className="rounded-md p-1 ui-text-muted hover:text-[var(--text-secondary)] hover:bg-[var(--surface-3)] transition-colors"
+      >
+        {copied ? <Check size={11} style={{ color: "var(--success)" }} /> : <Copy size={11} />}
+      </button>
+      {onDelete && (
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onDelete(); }}
+          aria-label="删除消息"
+          title="删除"
+          className="rounded-md p-1 ui-text-muted hover:text-red-500 hover:bg-[var(--surface-3)] transition-colors"
+        >
+          <Trash2 size={11} />
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -109,7 +128,7 @@ function Avatar({ role }: { role: "user" | "assistant" }) {
   );
 }
 
-export function MessageList({ messages, isLoading, onFileLinkClick, searchQuery }: Props) {
+export function MessageList({ messages, isLoading, onFileLinkClick, onDeleteMessage, searchQuery }: Props) {
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -117,45 +136,58 @@ export function MessageList({ messages, isLoading, onFileLinkClick, searchQuery 
   }, [messages.length, isLoading]);
 
   return (
-    <ul className="flex-1 min-h-0 flex flex-col gap-3 overflow-y-auto pr-1">
-      {messages.map((m, i) => {
-        const isLast = i === messages.length - 1;
-        const isUser = m.role === "user";
-        const assistantWaiting = !isUser && isLoading && isLast && !m.content?.trim();
+    <div className="flex-1 min-h-0 overflow-y-auto pr-1">
+      {/* Constrain ultra-wide screens for comfortable reading */}
+      <div className="w-full max-w-4xl mx-auto">
+        <ul className="flex flex-col gap-4">
+          {messages.map((m, i) => {
+            const isLast = i === messages.length - 1;
+            const isUser = m.role === "user";
+            const assistantWaiting = !isUser && isLoading && isLast && !m.content?.trim();
 
-        return (
-          <li key={m.id} className={isUser ? "flex justify-end items-start gap-2" : "flex justify-start items-start gap-2"}>
-            {!isUser && <Avatar role="assistant" />}
-            <div
-              className={
-                "relative group " +
-                (isUser
-                  ? "max-w-[82%] rounded-2xl rounded-tr-sm px-3 py-2 text-sm"
-                  : "max-w-[92%] rounded-2xl rounded-tl-sm px-3 py-2 text-sm ui-card")
-              }
-              style={isUser ? { background: "var(--accent-soft)", border: "1px solid var(--border-subtle)", color: "var(--text-primary)" } : undefined}
-            >
-              {isUser ? (
-                <span className="whitespace-pre-wrap ui-text-primary">{m.content}</span>
-              ) : assistantWaiting ? (
-                <span className="ui-text-muted text-sm">等待回复…</span>
-              ) : (
-                <>
-                  <AgentMarkdown
-                    content={m.content}
-                    onFileLinkClick={onFileLinkClick}
-                    searchQuery={searchQuery}
-                  />
-                  <FileIndexChips content={m.content} artifacts={m.artifacts} onFileLinkClick={onFileLinkClick} />
-                </>
-              )}
-              {m.content && <CopyMsgButton content={m.content} />}
-            </div>
-            {isUser && <Avatar role="user" />}
-          </li>
-        );
-      })}
-      <div ref={bottomRef} />
-    </ul>
+            return (
+              <li key={m.id} className={isUser ? "flex flex-col items-end gap-0" : "flex flex-row items-start gap-3"}>
+                {!isUser && <Avatar role="assistant" />}
+                {/* Bubble + action bar stacked vertically, wrapped in a group for hover */}
+                <div className={"group flex flex-col " + (isUser ? "items-end max-w-[92%]" : "items-start max-w-[92%]")}>
+                  <div
+                    className={
+                      isUser
+                        ? "rounded-2xl rounded-tr-sm px-5 py-4 text-base leading-relaxed"
+                        : "rounded-2xl rounded-tl-sm px-5 py-4 text-base leading-relaxed ui-card"
+                    }
+                    style={isUser ? { background: "var(--accent-soft)", border: "1px solid var(--border-subtle)", color: "var(--text-primary)" } : undefined}
+                  >
+                    {isUser ? (
+                      <span className="whitespace-pre-wrap ui-text-primary leading-relaxed">{m.content}</span>
+                    ) : assistantWaiting ? (
+                      <span className="ui-text-muted text-base leading-relaxed">等待回复…</span>
+                    ) : (
+                      <>
+                        <AgentMarkdown
+                          content={m.content}
+                          onFileLinkClick={onFileLinkClick}
+                          searchQuery={searchQuery}
+                        />
+                        <FileIndexChips content={m.content} artifacts={m.artifacts} onFileLinkClick={onFileLinkClick} />
+                      </>
+                    )}
+                  </div>
+                  {/* Hover action bar (copy + delete) */}
+                  {m.content && (
+                    <MessageActions
+                      content={m.content}
+                      onDelete={onDeleteMessage ? () => onDeleteMessage(m.id) : undefined}
+                    />
+                  )}
+                </div>
+                {isUser && <div className="shrink-0 mt-0.5"><Avatar role="user" /></div>}
+              </li>
+            );
+          })}
+        </ul>
+        <div ref={bottomRef} />
+      </div>
+    </div>
   );
 }

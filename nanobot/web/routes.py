@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any
 
 from aiohttp import web
 from aiohttp.client_exceptions import ClientConnectionResetError
+from loguru import logger
 
 from nanobot.web.fs_ops import (
     BadRequestError,
@@ -67,6 +68,11 @@ async def cors_middleware(
     if request.method == "OPTIONS":
         return web.Response(status=204, headers=_cors_headers(request))
     resp = await handler(request)
+    # WebSocketResponse headers are already sent during the HTTP-101 handshake;
+    # attempting to mutate them afterwards raises AssertionError in aiohttp 3.9+.
+    # WebSocket connections also don't require CORS response headers.
+    if isinstance(resp, web.WebSocketResponse):
+        return resp
     for k, v in _cors_headers(request).items():
         resp.headers[k] = v
     return resp
@@ -434,6 +440,142 @@ async def handle_file(request: web.Request) -> web.Response:
     return web.Response(body=body, content_type=ctype)
 
 
+async def handle_browser(request: web.Request) -> web.WebSocketResponse:
+    """WebSocket endpoint for remote browser streaming.
+
+    Query params:
+        url (str): Initial URL to navigate to (required).
+
+    Protocol (server → client):
+        {"type": "frame",  "data": "<base64_jpeg>", "url": "<current_page_url>"}
+        {"type": "error",  "message": "<human readable>"}
+
+    Protocol (client → server):
+        {"action": "browser_interaction", "type": "click",  "x_percent": float, "y_percent": float}
+        {"action": "browser_interaction", "type": "scroll", "deltaY": float}
+    """
+    from nanobot.web.browser_session import FRAME_INTERVAL, FRAME_INTERVAL_IDLE, IDLE_THRESHOLD, BrowserSession
+
+    ws = web.WebSocketResponse()
+    await ws.prepare(request)
+
+    initial_url = request.rel_url.query.get("url", "about:blank")
+    # vw/vh: container CSS pixel dimensions sent by the frontend.
+    # Backend renders at 2× DPR with exactly this aspect ratio → zero black bars.
+    def _parse_int(key: str) -> int | None:
+        raw = request.rel_url.query.get(key, "")
+        try:
+            v = int(raw)
+            return v if v > 0 else None
+        except ValueError:
+            return None
+
+    session = BrowserSession(
+        container_width=_parse_int("vw"),
+        container_height=_parse_int("vh"),
+    )
+
+    async def _send_json(payload: dict) -> None:
+        try:
+            if not ws.closed:
+                await ws.send_json(payload)
+        except Exception:
+            pass
+
+    # Start browser session – catch ALL exceptions, not just RuntimeError.
+    # Playwright raises its own error types (e.g. playwright._impl._errors.Error)
+    # when Chromium is not installed; those are not RuntimeError subclasses and
+    # would silently escape a narrower except clause, causing the server to close
+    # the WebSocket without sending an error frame to the client.
+    try:
+        await session.start(initial_url)
+    except Exception as exc:
+        await _send_json({"type": "error", "message": str(exc)})
+        await ws.close()
+        return ws
+
+    async def _frame_loop() -> None:
+        static_frames = 0  # consecutive unchanged frames
+        last_sent_url: str | None = None
+        while not ws.closed:
+            try:
+                data = await session.screenshot_b64_if_changed()
+                if data:
+                    static_frames = 0
+                    cur = session.current_url
+                    payload: dict = {"type": "frame", "data": data}
+                    # Only include url when it changes — smaller JSON + no useless React setState per frame
+                    if cur != last_sent_url:
+                        last_sent_url = cur
+                        payload["url"] = cur
+                    await _send_json(payload)
+                else:
+                    static_frames += 1
+            except asyncio.CancelledError:
+                break
+            except Exception as exc:
+                err = str(exc)
+                if any(kw in err for kw in ("Target closed", "has been closed", "Session closed")):
+                    break  # page gone — exit cleanly
+                logger.debug("Browser frame error: {}", exc)
+            # Adaptive FPS: throttle to idle rate after IDLE_THRESHOLD static frames
+            interval = FRAME_INTERVAL_IDLE if static_frames >= IDLE_THRESHOLD else FRAME_INTERVAL
+            await asyncio.sleep(interval)
+
+    frame_task = asyncio.ensure_future(_frame_loop())
+
+    try:
+        async for msg in ws:
+            if msg.type == web.WSMsgType.TEXT:
+                try:
+                    payload = json.loads(msg.data)
+                except json.JSONDecodeError:
+                    continue
+
+                action = payload.get("action")
+                if action == "browser_interaction":
+                    kind = payload.get("type")
+                    try:
+                        if kind == "click":
+                            await session.click(
+                                float(payload.get("x_percent", 0)),
+                                float(payload.get("y_percent", 0)),
+                            )
+                        elif kind == "scroll":
+                            dx = float(payload.get("delta_x", 0) or 0)
+                            dy = float(payload.get("delta_y", 0) or payload.get("deltaY", 0) or 0)
+                            await session.scroll(dx, dy)
+                        elif kind in ("keypress", "keyboard"):
+                            key = str(payload.get("key", ""))
+                            if key:
+                                await session.keyboard_input(
+                                    key,
+                                    ctrl=bool(payload.get("ctrl")),
+                                    shift=bool(payload.get("shift")),
+                                    alt=bool(payload.get("alt")),
+                                )
+                        elif kind == "insert_text":
+                            # IME composition result (e.g. Chinese input)
+                            text = str(payload.get("text", ""))
+                            if text:
+                                await session.insert_text(text)
+                        elif kind == "refresh":
+                            await session.reload()
+                    except Exception as exc:
+                        logger.debug("Browser interaction error: {}", exc)
+            elif msg.type in (web.WSMsgType.ERROR, web.WSMsgType.CLOSE):
+                break
+    finally:
+        frame_task.cancel()
+        try:
+            await frame_task
+        except asyncio.CancelledError:
+            pass
+        await session.close()
+
+    return ws
+
+
 def setup_routes(app: web.Application) -> None:
     app.router.add_post("/api/chat", handle_chat)
     app.router.add_post("/api/approve-tool", handle_approve)
@@ -441,6 +583,7 @@ def setup_routes(app: web.Application) -> None:
     app.router.add_get("/api/skills", handle_skills)
     app.router.add_post("/api/open-folder", handle_open_folder)
     app.router.add_post("/api/trash-files", handle_trash_files)
+    app.router.add_get("/api/browser", handle_browser)
     app.router.add_options("/api/chat", handle_options)
     app.router.add_options("/api/approve-tool", handle_options)
     app.router.add_options("/api/file", handle_options)

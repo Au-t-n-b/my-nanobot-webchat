@@ -57,7 +57,10 @@ export function RemoteBrowser({ filePath }: Props) {
   const wsRef = useRef<WebSocket | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const imeInputRef = useRef<HTMLInputElement>(null);
   const livePulseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Must match backend device_scale_factor=2 for crisp text.
+  const renderDprRef = useRef(2);
 
   // IME state: block individual key events while composing (e.g. Chinese pinyin)
   const isComposingRef = useRef(false);
@@ -130,8 +133,10 @@ export function RemoteBrowser({ filePath }: Props) {
       // Size the canvas to the container so drawImage fills with zero black bars
       const cvs = canvasRef.current;
       if (cvs && containerWidth > 0 && containerHeight > 0) {
-        cvs.width  = containerWidth;
-        cvs.height = containerHeight;
+        const dpr = renderDprRef.current;
+        // Internal backing store at 2× for crisp rendering, CSS stays 1×.
+        cvs.width  = Math.max(1, Math.round(containerWidth * dpr));
+        cvs.height = Math.max(1, Math.round(containerHeight * dpr));
       }
 
       const wsUrl = buildBrowserWsUrl(
@@ -244,8 +249,8 @@ export function RemoteBrowser({ filePath }: Props) {
     [status, sendAction],
   );
 
-  const handleCanvasWheel = useCallback(
-    (e: React.WheelEvent<HTMLCanvasElement>) => {
+  const handleWheel = useCallback(
+    (e: React.WheelEvent<HTMLDivElement>) => {
       if (status !== "connected") return;
       e.preventDefault();
       accumulatedScrollRef.current.deltaX += e.deltaX;
@@ -269,6 +274,83 @@ export function RemoteBrowser({ filePath }: Props) {
     },
     [status, sendAction],
   );
+
+  const focusImeProxy = useCallback(() => {
+    if (status !== "connected") return;
+    const el = imeInputRef.current;
+    if (!el) return;
+    // Avoid scrolling jumps on focus
+    el.focus({ preventScroll: true });
+  }, [status]);
+
+  const handleImeBlur = useCallback(() => {
+    // Keep focus captured so OS IME stays available while interacting with the canvas.
+    // Use a timer to avoid fighting with unmount / state transitions.
+    if (status !== "connected") return;
+    setTimeout(() => focusImeProxy(), 0);
+  }, [focusImeProxy, status]);
+
+  const handleImeCompositionStart = useCallback(() => {
+    isComposingRef.current = true;
+  }, []);
+
+  const handleImeCompositionEnd = useCallback(
+    (e: React.CompositionEvent<HTMLInputElement>) => {
+      isComposingRef.current = false;
+      if (status !== "connected") return;
+      // Some IMEs may provide the committed string via value instead of data
+      const text = (e.data ?? "") || e.currentTarget.value || "";
+      if (text) {
+        sendAction({ action: "browser_interaction", type: "insert_text", text });
+      }
+      // Clear proxy field to avoid accumulating characters
+      e.currentTarget.value = "";
+    },
+    [sendAction, status],
+  );
+
+  const handleImeKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLInputElement>) => {
+      if (status !== "connected") return;
+
+      // If IME is composing, do NOT forward partial pinyin keystrokes.
+      // Also ignore the special Process key.
+      if ((e.nativeEvent as KeyboardEvent).isComposing || e.key === "Process") {
+        return;
+      }
+
+      // Prevent host page from handling keys; always proxy to remote.
+      e.preventDefault();
+
+      // Enter: force hard submit
+      if (e.key === "Enter") {
+        sendAction({ action: "browser_interaction", type: "keyboard", key: "Enter" });
+      } else {
+        // All other printable keys (letters/numbers/symbols) and special keys
+        // are forwarded as physical key presses.
+        sendAction({
+          action: "browser_interaction",
+          type: "keyboard",
+          key: e.key,
+          shift: e.shiftKey,
+          ctrl: e.ctrlKey,
+          alt: e.altKey,
+        });
+      }
+
+      // Keep proxy field empty
+      e.currentTarget.value = "";
+    },
+    [sendAction, status],
+  );
+
+  const handleImeChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    // If not composing, clear immediately so the proxy input never accumulates visible text.
+    // While composing, do NOT clear here (it can break IME commit on some browsers).
+    const ne = e.nativeEvent as InputEvent & { isComposing?: boolean };
+    if (ne?.isComposing) return;
+    e.currentTarget.value = "";
+  }, []);
 
   /**
    * Keyboard handler — skipped entirely while an IME composition is active.
@@ -309,33 +391,6 @@ export function RemoteBrowser({ filePath }: Props) {
         shift: e.shiftKey,
         ctrl: e.ctrlKey,
         alt: e.altKey,
-      });
-    },
-    [status, sendAction],
-  );
-
-  /**
-   * IME composition start — block individual key forwarding.
-   */
-  const handleCompositionStart = useCallback(() => {
-    isComposingRef.current = true;
-  }, []);
-
-  /**
-   * IME composition end — send the composed CJK string in one shot.
-   *
-   * page.keyboard.insert_text() on the backend inserts Unicode directly
-   * without simulating key events, which is the only correct approach for
-   * multi-codepoint CJK input.
-   */
-  const handleCompositionEnd = useCallback(
-    (e: React.CompositionEvent) => {
-      isComposingRef.current = false;
-      if (status !== "connected" || !e.data) return;
-      sendAction({
-        action: "browser_interaction",
-        type: "insert_text",
-        text: e.data,
       });
     },
     [status, sendAction],
@@ -401,6 +456,9 @@ export function RemoteBrowser({ filePath }: Props) {
         ref={containerRef}
         className="relative flex-1 min-h-0 rounded-xl overflow-hidden"
         style={{ background: "var(--surface-1, #111)" }}
+        onMouseDownCapture={focusImeProxy}
+        onTouchStartCapture={focusImeProxy}
+        onWheel={handleWheel}
       >
         {/*
           <canvas> fills the container completely.
@@ -414,12 +472,25 @@ export function RemoteBrowser({ filePath }: Props) {
           ref={canvasRef}
           className="block w-full h-full outline-none"
           style={{ cursor: status === "connected" ? "crosshair" : "default" }}
-          tabIndex={status === "connected" ? 0 : -1}
+          tabIndex={-1}
           onClick={handleCanvasClick}
-          onWheel={handleCanvasWheel}
-          onKeyDown={handleKeyDown}
-          onCompositionStart={handleCompositionStart}
-          onCompositionEnd={handleCompositionEnd}
+        />
+
+        {/* IME proxy input: focusable but visually hidden (NOT display:none) */}
+        <input
+          ref={imeInputRef}
+          type="text"
+          inputMode="text"
+          autoComplete="off"
+          autoCorrect="off"
+          spellCheck={false}
+          className="absolute top-0 left-0 opacity-0 w-1 h-1 pointer-events-none"
+          tabIndex={-1}
+          onBlur={handleImeBlur}
+          onCompositionStart={handleImeCompositionStart}
+          onCompositionEnd={handleImeCompositionEnd}
+          onKeyDown={handleImeKeyDown}
+          onChange={handleImeChange}
         />
 
         {/* Non-connected state overlay */}

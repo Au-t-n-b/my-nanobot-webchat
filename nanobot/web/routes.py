@@ -494,6 +494,9 @@ async def handle_browser(request: web.Request) -> web.WebSocketResponse:
         await ws.close()
         return ws
 
+    # Wake-up event: interactions can request an immediate frame for snappier UX.
+    interaction_wake = asyncio.Event()
+
     async def _frame_loop() -> None:
         static_frames = 0  # consecutive unchanged frames
         last_sent_url: str | None = None
@@ -520,7 +523,12 @@ async def handle_browser(request: web.Request) -> web.WebSocketResponse:
                 logger.debug("Browser frame error: {}", exc)
             # Adaptive FPS: throttle to idle rate after IDLE_THRESHOLD static frames
             interval = FRAME_INTERVAL_IDLE if static_frames >= IDLE_THRESHOLD else FRAME_INTERVAL
-            await asyncio.sleep(interval)
+            try:
+                # Wait for either next interval or an interaction-triggered wakeup.
+                await asyncio.wait_for(interaction_wake.wait(), timeout=interval)
+                interaction_wake.clear()
+            except asyncio.TimeoutError:
+                pass
 
     frame_task = asyncio.ensure_future(_frame_loop())
 
@@ -541,10 +549,12 @@ async def handle_browser(request: web.Request) -> web.WebSocketResponse:
                                 float(payload.get("x_percent", 0)),
                                 float(payload.get("y_percent", 0)),
                             )
+                            interaction_wake.set()
                         elif kind == "scroll":
                             dx = float(payload.get("delta_x", 0) or 0)
                             dy = float(payload.get("delta_y", 0) or payload.get("deltaY", 0) or 0)
                             await session.scroll(dx, dy)
+                            interaction_wake.set()
                         elif kind in ("keypress", "keyboard"):
                             key = str(payload.get("key", ""))
                             if key:
@@ -554,13 +564,16 @@ async def handle_browser(request: web.Request) -> web.WebSocketResponse:
                                     shift=bool(payload.get("shift")),
                                     alt=bool(payload.get("alt")),
                                 )
+                                interaction_wake.set()
                         elif kind == "insert_text":
                             # IME composition result (e.g. Chinese input)
                             text = str(payload.get("text", ""))
                             if text:
                                 await session.insert_text(text)
+                                interaction_wake.set()
                         elif kind == "refresh":
                             await session.reload()
+                            interaction_wake.set()
                     except Exception as exc:
                         logger.debug("Browser interaction error: {}", exc)
             elif msg.type in (web.WSMsgType.ERROR, web.WSMsgType.CLOSE):

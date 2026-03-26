@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import random
 import base64
 import hashlib
 from typing import TYPE_CHECKING
@@ -165,7 +166,13 @@ class BrowserSession:
             return
         x = self._viewport_w * max(0.0, min(1.0, x_percent))
         y = self._viewport_h * max(0.0, min(1.0, y_percent))
-        await self._page.mouse.click(x, y, delay=50)
+        # Humanize: small jitter + stepped move + click(delay)
+        # NOTE: use mouse.click so the page receives a real 'click' event
+        # (mousedown/mouseup alone may not focus inputs or trigger SPA handlers).
+        jx = x + random.uniform(-1.2, 1.2)
+        jy = y + random.uniform(-1.2, 1.2)
+        await self._page.mouse.move(jx, jy, steps=10)
+        await self._page.mouse.click(jx, jy, delay=int(random.uniform(90, 150)))
 
     async def scroll(self, delta_x: float = 0.0, delta_y: float = 0.0) -> None:
         """Scroll the page by (delta_x, delta_y) pixels."""
@@ -188,6 +195,11 @@ class BrowserSession:
         combos use keyboard.press().
         """
         if self._page is None:
+            return
+
+        # Hard Enter is critical for SPA form submits/search boxes.
+        if key == "Enter":
+            await self._page.keyboard.press("Enter")
             return
 
         has_modifier = ctrl or shift or alt

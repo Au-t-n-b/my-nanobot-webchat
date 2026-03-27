@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { Bot, Check, Copy, FileText, Trash2, User } from "lucide-react";
 import type { AgentMessage } from "@/hooks/useAgentChat";
 import { AgentMarkdown } from "@/components/AgentMarkdown";
@@ -74,7 +74,7 @@ function FileIndexChips({
   artifacts?: string[];
   onFileLinkClick?: (path: string) => void;
 }) {
-  const files = (() => {
+  const files = useMemo(() => {
     const fromContent = extractFilesFromContent(content);
     const seen = new Set(fromContent);
     const merged = [...fromContent];
@@ -86,7 +86,7 @@ function FileIndexChips({
       }
     }
     return merged;
-  })();
+  }, [content, artifacts]);
   if (files.length === 0) return null;
   return (
     <div className="mt-2 flex flex-wrap gap-1.5">
@@ -128,7 +128,7 @@ function Avatar({ role }: { role: "user" | "assistant" }) {
   );
 }
 
-export function MessageList({ messages, isLoading, onFileLinkClick, onDeleteMessage, searchQuery }: Props) {
+export const MessageList = memo(function MessageList({ messages, isLoading, onFileLinkClick, onDeleteMessage, searchQuery }: Props) {
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -190,4 +190,4 @@ export function MessageList({ messages, isLoading, onFileLinkClick, onDeleteMess
       </div>
     </div>
   );
-}
+});

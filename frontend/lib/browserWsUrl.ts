@@ -17,10 +17,12 @@ export function buildBrowserWsUrl(
   containerHeight?: number,
 ): string {
   const initialUrl = filePath.replace(/^browser:\/\//, "");
-
-  const apiBase = (
-    process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8765"
-  ).replace(/\/$/, "");
+  const direct = process.env.NEXT_PUBLIC_AGUI_DIRECT === "1";
+  const configuredBase = process.env.NEXT_PUBLIC_API_BASE?.replace(/\/$/, "");
+  // Default to same-origin unless explicit direct mode is requested.
+  // This avoids hardcoded 8765 causing ws connection refused.
+  const originBase = typeof window !== "undefined" ? window.location.origin : "http://127.0.0.1:3000";
+  const apiBase = (direct ? (configuredBase ?? "http://127.0.0.1:8765") : (configuredBase ?? originBase));
 
   const wsBase = apiBase.startsWith("https://")
     ? apiBase.replace("https://", "wss://")

@@ -8,6 +8,7 @@ const SESSION_SUMMARIES_STORAGE_KEY = "nanobot_agui_sessions";
 const LEGACY_MESSAGES_STORAGE_KEY = "nanobot_agui_messages";
 const MESSAGES_CAP = 50;
 const MESSAGES_MAX_BYTES = 1.8 * 1024 * 1024;
+const STREAM_IDLE_TIMEOUT_MS = 20_000;
 
 export type AgentMessage = {
   id: string;
@@ -177,7 +178,8 @@ function parseSseRecord(raw: string): { event: string; data: Record<string, unkn
   if (!event || !dataStr) return null;
   try {
     return { event, data: JSON.parse(dataStr) as Record<string, unknown> };
-  } catch {
+  } catch (e) {
+    console.error("Failed to parse SSE data JSON:", { error: e, raw, dataStr });
     return null;
   }
 }
@@ -222,6 +224,11 @@ export function useAgentChat() {
   const [statusMessage, setStatusMessage] = useState("准备就绪");
   const abortRef = useRef<AbortController | null>(null);
   const hydratedRef = useRef(false);
+  const runStatusRef = useRef<RunStatus>("idle");
+
+  useEffect(() => {
+    runStatusRef.current = runStatus;
+  }, [runStatus]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -446,6 +453,8 @@ export function useAgentChat() {
       const rollbackNewTurn = () => {
         setMessages((prev) => prev.filter((m) => m.id !== asstId && m.id !== userId));
       };
+      let streamError = false;
+      let sawRunFinished = false;
 
       try {
         const res = await fetch(aguiRequestPath("/api/chat"), {
@@ -531,6 +540,7 @@ export function useAgentChat() {
             setRunStatus("awaitingApproval");
             setStatusMessage(`等待你确认：${String(data.toolName ?? "工具调用")}`);
           } else if (event === "RunFinished") {
+            sawRunFinished = true;
             // Persist tool-inferred file paths into the assistant message
             if (toolArtifactPaths.length > 0) {
               setMessages((prev) =>
@@ -567,23 +577,53 @@ export function useAgentChat() {
           }
         };
 
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          buffer += decoder.decode(value, { stream: true });
-          buffer = applySseBlocks(buffer, (rec) => handleRec(rec.event, rec.data));
-        }
-        if (buffer.trim()) {
-          const rec = parseSseRecord(buffer);
-          if (rec) handleRec(rec.event, rec.data);
+        try {
+          while (true) {
+            let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+            const timeoutPromise = new Promise<never>((_, reject) => {
+              timeoutHandle = setTimeout(() => reject(new Error("SSE stream idle timeout")), STREAM_IDLE_TIMEOUT_MS);
+            });
+            let readResult: ReadableStreamReadResult<Uint8Array>;
+            try {
+              readResult = await Promise.race([reader.read(), timeoutPromise]);
+            } finally {
+              if (timeoutHandle) clearTimeout(timeoutHandle);
+            }
+            const { done, value } = readResult;
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            buffer = applySseBlocks(buffer, (rec) => handleRec(rec.event, rec.data));
+          }
+          if (buffer.trim()) {
+            const rec = parseSseRecord(buffer);
+            if (rec) handleRec(rec.event, rec.data);
+          }
+        } finally {
+          try {
+            await reader.cancel();
+          } catch {
+            // ignore reader cancellation errors
+          }
         }
       } catch (e) {
-        if ((e as Error).name === "AbortError") return;
+        if ((e as Error).name === "AbortError") {
+          setRunStatus("idle");
+          setStatusMessage("请求已取消");
+          return;
+        }
+        streamError = true;
         setError(e instanceof Error ? e.message : String(e));
         setRunStatus("error");
         setStatusMessage("本轮执行被中断");
         rollbackNewTurn();
       } finally {
+        if (
+          !sawRunFinished &&
+          (runStatusRef.current === "running" || runStatusRef.current === "awaitingApproval")
+        ) {
+          setRunStatus(streamError ? "error" : "completed");
+          setStatusMessage(streamError ? "流异常结束（兜底）" : "流已结束（兜底完成）");
+        }
         setIsLoading(false);
       }
     },

@@ -154,6 +154,21 @@ export function agentMarkdownComponents(options: {
 
   return {
     a: ({ href, children, ...rest }) => {
+      // External HTTP(S) links: use native <a> WITHOUT preventDefault() to avoid passive event issues
+      if (href?.startsWith("http://") || href?.startsWith("https://")) {
+        return (
+          <a
+            {...rest}
+            className="ui-link underline"
+            href={href}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            {children}
+          </a>
+        );
+      }
+
       // browser:// custom protocol → open in right-side PreviewPanel
       if (href?.startsWith("browser://") && onFileLinkClick) {
         // [AUTO_OPEN] marker → render as an inviting CTA button, not a raw link
@@ -179,54 +194,53 @@ export function agentMarkdownComponents(options: {
             </span>
           );
         }
+        // Use <button> instead of <a> to avoid passive event listener issues
+        const btnLabel = typeof children === "string" ? children : "打开网页";
         return (
-          <a
-            {...rest}
-            href={href}
-            className="ui-link underline decoration-dotted"
-            onClick={(e) => { e.preventDefault(); onFileLinkClick(href); }}
+          <button
+            type="button"
+            className="ui-link underline decoration-dotted bg-transparent border-none cursor-pointer p-0 font-inherit"
+            onClick={() => onFileLinkClick(href)}
           >
-            {children}
-          </a>
+            {btnLabel}
+          </button>
         );
       }
 
       const path = extractLocalPreviewPath(href ?? undefined);
       if (path) {
-        const displayHref = buildProxiedFileUrl(path);
         const label = fileBasename(path);
         const inline = isInlineExt(path);
 
         if (inline && onToggleInline) {
-          // Render InlinePreviewBlock OUTSIDE the <p> (in AgentMarkdown wrapper),
-          // only toggle state here to avoid <div> inside <p> hydration error.
+          // Use <button> instead of <a> to avoid passive event listener issues
           return (
-            <a
-              {...rest}
-              href={displayHref}
+            <button
+              type="button"
               title={path}
-              className="ui-link underline decoration-dotted"
-              onClick={(e) => { e.preventDefault(); onToggleInline(path); }}
+              className="ui-link underline decoration-dotted bg-transparent border-none cursor-pointer p-0 font-inherit text-left"
+              onClick={() => onToggleInline(path)}
             >
               {label}
-            </a>
+            </button>
           );
         }
 
         if (onFileLinkClick) {
+          // Use <button> instead of <a> to avoid passive event listener issues
           return (
-            <a
-              {...rest}
-              href={displayHref}
+            <button
+              type="button"
               title={path}
-              className="ui-link underline decoration-dotted"
-              onClick={(e) => { e.preventDefault(); onFileLinkClick(path); }}
+              className="ui-link underline decoration-dotted bg-transparent border-none cursor-pointer p-0 font-inherit text-left"
+              onClick={() => onFileLinkClick(path)}
             >
               {label}
-            </a>
+            </button>
           );
         }
       }
+      // Fallback for other protocols
       return (
         <a
           {...rest}

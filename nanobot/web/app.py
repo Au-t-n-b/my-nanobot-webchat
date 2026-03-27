@@ -19,6 +19,13 @@ async def _agui_cleanup(app: web.Application) -> None:
     agent = app[AGENT_LOOP_KEY]
     if agent is not None:
         await agent.close_mcp()
+    try:
+        from nanobot.web.browser_session import close_global_browser
+
+        await close_global_browser()
+    except Exception:
+        # Browser dependency is optional; cleanup should remain best-effort.
+        pass
 
 
 def create_app(

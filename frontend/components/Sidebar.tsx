@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Bot, Check, Copy, FileText, FolderOpen, Globe, RefreshCw, Settings, Trash2 } from "lucide-react";
 import { SessionList } from "@/components/SessionList";
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -18,6 +18,7 @@ type Props = {
   /** Close the preview panel without opening a new one. */
   onClosePreview?: () => void;
   messages: AgentMessage[];
+  isLoading: boolean;
   sessions: SessionSummary[];
   onCreateSession: () => void;
   onSelectSession: (threadId: string) => void;
@@ -51,6 +52,7 @@ export function Sidebar({
   currentPreviewPath,
   onClosePreview,
   messages,
+  isLoading,
   sessions,
   onCreateSession,
   onSelectSession,
@@ -81,10 +83,18 @@ export function Sidebar({
   const [trashBusy, setTrashBusy] = useState(false);
   const [trashModal, setTrashModal] = useState<TrashModalState>({ open: false, mode: "one", targets: [] });
   const [copiedPath, setCopiedPath] = useState<string | null>(null);
-  const artifacts = useMemo(() => {
-    const all = extractIndexedFiles(messages);
-    return all.filter((f) => !removedPaths.has(f.path));
-  }, [messages, removedPaths]);
+  const stableIndexedFilesRef = useRef<ReturnType<typeof extractIndexedFiles>>([]);
+  const indexedFiles = useMemo(() => {
+    // During streaming, freeze file-index recomputation to avoid input lag.
+    if (!isLoading) {
+      stableIndexedFilesRef.current = extractIndexedFiles(messages);
+    }
+    return stableIndexedFilesRef.current;
+  }, [messages, isLoading]);
+  const artifacts = useMemo(
+    () => indexedFiles.filter((f) => !removedPaths.has(f.path)),
+    [indexedFiles, removedPaths],
+  );
 
   const loadSkills = useCallback(async () => {
     setSkillsLoading(true);

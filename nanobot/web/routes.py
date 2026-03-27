@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import mimetypes
 import os
@@ -31,6 +32,17 @@ from nanobot.web.sse import format_sse
 
 if TYPE_CHECKING:
     from nanobot.agent.loop import AgentLoop
+
+
+async def _cleanup_chat_run(
+    approvals: ApprovalRegistry,
+    registry: RunRegistry,
+    thread_id: str,
+    run_id: str,
+) -> None:
+    """Best-effort, cancellation-safe release for per-thread run state."""
+    await asyncio.shield(approvals.clear_run(thread_id, run_id))
+    await asyncio.shield(registry.end(thread_id))
 
 
 def _allowed_origins() -> list[str]:
@@ -210,6 +222,9 @@ async def handle_chat(request: web.Request) -> web.StreamResponse | web.Response
 
     write_lock = asyncio.Lock()
     client_disconnected = False
+    stream_prepared = False
+    run_finished_sent = False
+    process_task: asyncio.Task | None = None
 
     async def safe_write(event: str, payload: dict) -> None:
         nonlocal client_disconnected
@@ -222,9 +237,12 @@ async def handle_chat(request: web.Request) -> web.StreamResponse | web.Response
                 # Browser tab closed / stream cancelled while server is still producing
                 # events. Treat as normal disconnect, not a run failure.
                 client_disconnected = True
+                if process_task is not None and not process_task.done():
+                    process_task.cancel()
 
     try:
         await response.prepare(request)
+        stream_prepared = True
 
         if agent is None:
             hold = float(os.environ.get("NANOBOT_AGUI_SSE_HOLD_S", "0.15"))
@@ -244,6 +262,7 @@ async def handle_chat(request: web.Request) -> web.StreamResponse | web.Response
                     "message": "hello world",
                 },
             )
+            run_finished_sent = True
         else:
             model_name = agent.model or "unknown"
             await safe_write(
@@ -266,7 +285,21 @@ async def handle_chat(request: web.Request) -> web.StreamResponse | web.Response
                     await safe_write("TextMessageContent", {"delta": delta})
 
             async def on_stream_end(*, resuming: bool = False) -> None:
-                del resuming  # reserved for future SSE boundaries
+                nonlocal run_finished_sent
+                # Ensure frontend always receives a terminal event even if stream
+                # closes before process_direct returns.
+                if resuming or run_finished_sent:
+                    return
+                await safe_write(
+                    "RunFinished",
+                    {
+                        "threadId": thread_id,
+                        "runId": run_id,
+                        "message": "".join(streamed_chunks),
+                        "choices": run_choices,
+                    },
+                )
+                run_finished_sent = True
 
             async def on_tool_approval(tc: Any) -> bool:
                 tool_call_id = str(getattr(tc, "id", ""))
@@ -309,17 +342,20 @@ async def handle_chat(request: web.Request) -> web.StreamResponse | web.Response
             token = agent.set_tool_approval_callback(on_tool_approval)
             try:
                 assert user_text is not None
-                out = await agent.process_direct(
-                    user_text,
-                    session_key=thread_id,
-                    channel="web",
-                    chat_id=thread_id,
-                    on_progress=on_progress,
-                    on_stream=on_stream,
-                    on_stream_end=on_stream_end,
+                process_task = asyncio.create_task(
+                    agent.process_direct(
+                        user_text,
+                        session_key=thread_id,
+                        channel="web",
+                        chat_id=thread_id,
+                        on_progress=on_progress,
+                        on_stream=on_stream,
+                        on_stream_end=on_stream_end,
+                    )
                 )
+                out = await process_task
                 final = (out.content if out is not None else "") or "".join(streamed_chunks)
-                if not client_disconnected:
+                if not client_disconnected and not run_finished_sent:
                     await safe_write(
                         "RunFinished",
                         {
@@ -329,6 +365,22 @@ async def handle_chat(request: web.Request) -> web.StreamResponse | web.Response
                             "choices": run_choices,
                         },
                     )
+                    run_finished_sent = True
+            except asyncio.CancelledError:
+                if not client_disconnected:
+                    await safe_write(
+                        "RunFinished",
+                        {
+                            "threadId": thread_id,
+                            "runId": run_id,
+                            "error": {
+                                "code": "cancelled",
+                                "message": "Client disconnected; run cancelled.",
+                            },
+                        },
+                    )
+                    run_finished_sent = True
+                raise
             except Exception as e:
                 code = type(e).__name__
                 msg = str(e) or code
@@ -344,6 +396,10 @@ async def handle_chat(request: web.Request) -> web.StreamResponse | web.Response
                     logger.exception("AGUI /api/chat run failed: {}", msg)
                     if os.environ.get("NANOBOT_AGUI_DEBUG"):
                         logger.debug("{}", traceback.format_exc())
+                    # Detect HTML error responses (e.g., gateway/proxy returned HTML instead of JSON)
+                    # This typically indicates API service issues like insufficient credits or gateway blocking
+                    if "<!doctype html" in msg.lower() or "<html" in msg.lower():
+                        msg = "⚠️ API 服务异常（余额不足或网关拦截），请检查账户状态。"
                     await safe_write(
                         "Error",
                         {
@@ -361,11 +417,48 @@ async def handle_chat(request: web.Request) -> web.StreamResponse | web.Response
                             "error": {"code": code, "message": msg},
                         },
                     )
+                    run_finished_sent = True
             finally:
                 agent.reset_tool_approval_callback(token)
+    except asyncio.CancelledError:
+        client_disconnected = True
+        if process_task is not None and not process_task.done():
+            process_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await process_task
+        raise
     finally:
-        await approvals.clear_run(thread_id, run_id)
-        await registry.end(thread_id)
+        if stream_prepared and not run_finished_sent and not client_disconnected:
+            await safe_write(
+                "RunFinished",
+                {
+                    "threadId": thread_id,
+                    "runId": run_id,
+                    "error": {
+                        "code": "stream_closed",
+                        "message": "Stream closed before terminal event.",
+                    },
+                },
+            )
+            run_finished_sent = True
+        if stream_prepared and not client_disconnected:
+            try:
+                await response.write_eof()
+            except (ClientConnectionResetError, ConnectionResetError, RuntimeError):
+                pass
+        if process_task is not None and not process_task.done():
+            process_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await process_task
+        try:
+            await _cleanup_chat_run(approvals, registry, thread_id, run_id)
+        except Exception as e:
+            logger.exception(
+                "AGUI cleanup failed: thread_id={}, run_id={}, error={}",
+                thread_id,
+                run_id,
+                str(e),
+            )
 
     return response
 
@@ -427,7 +520,12 @@ async def handle_file(request: web.Request) -> web.Response:
         return web.json_response({"detail": str(e)}, status=400)
 
     if not target.is_file():
-        return web.json_response({"detail": "file not found"}, status=404)
+        # Enhanced error message with more context for debugging
+        return web.json_response({
+            "detail": f"file not found: {normalized}",
+            "resolved": str(target),
+            "workspace": str(workspace),
+        }, status=404)
 
     try:
         body = target.read_bytes()

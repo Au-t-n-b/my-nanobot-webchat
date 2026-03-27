@@ -63,6 +63,24 @@ async def _get_browser() -> Browser:
         return _browser_instance
 
 
+async def close_global_browser() -> None:
+    """Close global browser + playwright process (called on app shutdown)."""
+    global _playwright_instance, _browser_instance  # noqa: PLW0603
+    async with _browser_lock:
+        if _browser_instance is not None:
+            try:
+                await _browser_instance.close()
+            except Exception:
+                pass
+            _browser_instance = None
+        if _playwright_instance is not None:
+            try:
+                await _playwright_instance.stop()
+            except Exception:
+                pass
+            _playwright_instance = None
+
+
 def _compute_viewport(
     container_width: int | None,
     container_height: int | None = None,
@@ -244,10 +262,15 @@ class BrowserSession:
 
     async def close(self) -> None:
         """Destroy the context, wiping all session data."""
+        if self._page is not None:
+            try:
+                await self._page.close()
+            except Exception:
+                pass
+            self._page = None
         if self._context is not None:
             try:
                 await self._context.close()
             except Exception:
                 pass
             self._context = None
-            self._page = None

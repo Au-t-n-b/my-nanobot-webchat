@@ -43,7 +43,7 @@ export default function Home() {
     createSession,
     switchSession,
   } = useAgentChat();
-  const [input, setInput] = useState("");
+  const [inputPrefill, setInputPrefill] = useState("");
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [previewPath, setPreviewPath] = useState<string | null>(null);
   const [rightPanelMode, setRightPanelMode] = useState<RightPanelMode>("preview");
@@ -101,17 +101,16 @@ export default function Home() {
   }, []);
 
   const handleFillInput = useCallback((text: string) => {
-    setInput(text);
+    setInputPrefill(text);
     setInputFocusSignal((n) => n + 1);
   }, []);
 
-  const handleSend = useCallback(() => {
-    const v = input;
+  const handleSend = useCallback((v: string) => {
     lastInputRef.current = v;
-    setInput("");
+    setInputPrefill("");
     setToastDismissed(false);
     void sendMessage(v);
-  }, [input, sendMessage]);
+  }, [sendMessage]);
 
   const handleRetry = useCallback(() => {
     if (!lastInputRef.current) return;
@@ -175,6 +174,7 @@ export default function Home() {
     currentPreviewPath: (isPreviewOpen && rightPanelMode === "preview") ? previewPath : null,
     onClosePreview: closePreview,
     messages,
+    isLoading,
     sessions,
     onCreateSession: createSession,
     onSelectSession: switchSession,
@@ -314,8 +314,6 @@ export default function Home() {
               statusMessage={statusMessage}
               pendingTool={pendingTool}
               pendingChoices={pendingChoices}
-              input={input}
-              setInput={setInput}
               onSend={handleSend}
               onApproveTool={(approved) => { void approveTool(approved); }}
               onFileLinkClick={openFilePreview}
@@ -323,6 +321,7 @@ export default function Home() {
               searchQuery={searchQuery}
               disabled={isLoading || !threadId}
               focusSignal={inputFocusSignal}
+              prefillText={inputPrefill}
             />
           </div>
         </div>
@@ -363,8 +362,6 @@ export default function Home() {
           statusMessage={statusMessage}
           pendingTool={pendingTool}
           pendingChoices={pendingChoices}
-          input={input}
-          setInput={setInput}
           onSend={handleSend}
           onApproveTool={(approved) => { void approveTool(approved); }}
           onFileLinkClick={openFilePreview}
@@ -372,6 +369,7 @@ export default function Home() {
           searchQuery={searchQuery}
           disabled={isLoading || !threadId}
           focusSignal={inputFocusSignal}
+          prefillText={inputPrefill}
         />
       </div>
     </main>

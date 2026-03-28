@@ -65,6 +65,8 @@ export default function Home() {
   const draggingRef = useRef<null | "left" | "right">(null);
   const dragStartX = useRef(0);
   const dragStartWidth = useRef(0);
+  const headerRef = useRef<HTMLDivElement>(null);
+  const [headerWidth, setHeaderWidth] = useState(9999);
 
   const apiBase = process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8765";
 
@@ -172,6 +174,18 @@ export default function Home() {
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
     };
+  }, []);
+
+  // Track header width for compact mode
+  useEffect(() => {
+    const el = headerRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver((entries) => {
+      const w = entries[0]?.contentRect.width ?? 9999;
+      setHeaderWidth(w);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
   }, []);
 
   useEffect(() => {
@@ -298,33 +312,38 @@ export default function Home() {
 
       {/* Desktop layout: flex with resizable panels */}
       <div className="hidden md:flex h-full min-h-0 gap-0">
-        {/* Left sidebar */}
+        {/* Left sidebar — always present; collapses to 64 px icon strip */}
+        <div
+          className="min-h-0 shrink-0 transition-[width] duration-200"
+          style={{ width: sidebarCollapsed ? 64 : leftWidth }}
+        >
+          <Sidebar
+            {...sidebarProps}
+            isCollapsed={sidebarCollapsed}
+            onToggleCollapse={() => setSidebarCollapsed((v) => !v)}
+          />
+        </div>
+        {/* Left drag handle — hidden when collapsed */}
         {!sidebarCollapsed && (
-          <>
-            <div className="min-h-0 shrink-0" style={{ width: leftWidth }}>
-              <Sidebar {...sidebarProps} />
-            </div>
-            {/* Left drag handle */}
-            <div
-              className="w-3 shrink-0 cursor-col-resize flex items-center justify-center group"
-              onMouseDown={(e) => startDrag("left", e)}
-              title="拖拽调整左侧栏宽度"
-            >
-              <div className="w-0.5 h-12 rounded-full transition-colors group-hover:bg-[var(--accent)]" style={{ background: "var(--border-subtle)" }} />
-            </div>
-          </>
+          <div
+            className="w-3 shrink-0 cursor-col-resize flex items-center justify-center group"
+            onMouseDown={(e) => startDrag("left", e)}
+            title="拖拽调整左侧栏宽度"
+          >
+            <div className="w-0.5 h-12 rounded-full transition-colors group-hover:bg-[var(--accent)]" style={{ background: "var(--border-subtle)" }} />
+          </div>
         )}
 
         {/* Chat area */}
         <div className="flex-1 min-w-0 min-h-0 flex flex-col">
           {/* Top control bar — progress rail on left, actions on right */}
-          <div className="flex items-start gap-1.5 mb-2 shrink-0 min-w-0">
+          <div ref={headerRef} className="flex items-start gap-1.5 mb-2 shrink-0 min-w-0">
             {/* Inline progress rail — flex-1 so it fills available space */}
-            <TaskProgressBar runStatus={runStatus} />
+            <TaskProgressBar runStatus={runStatus} compact={headerWidth < 760} />
 
             {/* Right-side action buttons */}
             <div className="flex items-center gap-1.5 shrink-0">
-              <ModelSelector value={selectedModel} onChange={setSelectedModel} />
+              <ModelSelector value={selectedModel} onChange={setSelectedModel} compact={headerWidth < 760} />
               <button
                 type="button"
                 onClick={openConfig}
@@ -336,21 +355,22 @@ export default function Home() {
               </button>
               <button
                 type="button"
-                onClick={() => setSidebarCollapsed((v) => !v)}
-                aria-label={sidebarCollapsed ? "展开左侧栏" : "收起左侧栏"}
-                className="rounded-lg p-2 ui-text-secondary hover:bg-[var(--surface-3)] hover:ui-text-primary transition-colors border border-transparent hover:border-[var(--border-subtle)]"
-                title={sidebarCollapsed ? "展开左侧栏" : "收起左侧栏"}
-              >
-                {sidebarCollapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}
-              </button>
-              <button
-                type="button"
                 onClick={() => setIsPreviewOpen((v) => !v)}
                 aria-label={isPreviewOpen ? "收起右侧预览" : "展开右侧预览"}
                 className="rounded-lg p-2 ui-text-secondary hover:bg-[var(--surface-3)] hover:ui-text-primary transition-colors border border-transparent hover:border-[var(--border-subtle)]"
                 title={isPreviewOpen ? "收起右侧预览" : "展开右侧预览"}
               >
                 {isPreviewOpen ? <PanelRightClose size={17} /> : <PanelRightOpen size={17} />}
+              </button>
+              {/* Sidebar collapse toggle in header as well */}
+              <button
+                type="button"
+                onClick={() => setSidebarCollapsed((v) => !v)}
+                aria-label={sidebarCollapsed ? "展开左侧栏" : "收起左侧栏"}
+                className="rounded-lg p-2 ui-text-secondary hover:bg-[var(--surface-3)] hover:ui-text-primary transition-colors border border-transparent hover:border-[var(--border-subtle)]"
+                title={sidebarCollapsed ? "展开左侧栏" : "收起左侧栏"}
+              >
+                {sidebarCollapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}
               </button>
             </div>
           </div>

@@ -8,16 +8,17 @@ export type AvailableModel = (typeof PRESET_MODELS)[number];
 type Props = {
   value: string;
   onChange: (model: string) => void;
+  compact?: boolean;
 };
 
-export function ModelSelector({ value, onChange }: Props) {
+export function ModelSelector({ value, onChange, compact = false }: Props) {
   // If the current value is not a preset (e.g. set from config), show it as an
   // additional option at the top so the dropdown is consistent.
   const showExtra = value && !(PRESET_MODELS as readonly string[]).includes(value);
 
   return (
     <label className="inline-flex items-center gap-2 text-xs ui-text-secondary">
-      <span>模型</span>
+      {!compact && <span className="whitespace-nowrap">模型</span>}
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}

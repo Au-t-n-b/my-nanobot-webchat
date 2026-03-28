@@ -21,7 +21,7 @@ function aguiRequestPath(path: string): string {
   return path.startsWith("/") ? path : `/${path}`;
 }
 
-export function TaskProgressBar({ runStatus }: { runStatus: RunStatus }) {
+export function TaskProgressBar({ runStatus, compact = false }: { runStatus: RunStatus; compact?: boolean }) {
   const [data, setData] = useState<TaskStatusPayload | null>(null);
   const [stopped, setStopped] = useState(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -91,7 +91,7 @@ export function TaskProgressBar({ runStatus }: { runStatus: RunStatus }) {
   );
 
   return (
-    <div className="flex items-start gap-0 select-none flex-1 min-w-0 px-2 pt-0.5 pb-5">
+    <div className={`flex items-start gap-0 select-none flex-1 min-w-0 px-2 pt-0.5 ${compact ? "pb-1" : "pb-5"}`}>
       {/* Progress pill — vertically centred on the node row (top ~5px) */}
       <div className="flex items-center gap-1.5 mr-3 shrink-0 mt-[3px]">
         <span className="relative flex h-1.5 w-1.5">
@@ -156,19 +156,21 @@ export function TaskProgressBar({ runStatus }: { runStatus: RunStatus }) {
                 )}
               </div>
 
-              {/* ── Module name below node ── */}
-              <span
-                className={`mt-1.5 text-[9px] leading-tight text-center truncate w-full px-0.5 transition-colors ${
-                  module.status === "running"
-                    ? "font-semibold text-slate-800 dark:text-white"
-                    : module.status === "completed"
-                      ? "text-emerald-600 dark:text-emerald-400"
-                      : "text-slate-400 dark:text-slate-500"
-                }`}
-                style={{ maxWidth: "64px" }}
-              >
-                {module.name}
-              </span>
+              {/* ── Module name below node — hidden in compact mode ── */}
+              {!compact && (
+                <span
+                  className={`mt-1.5 text-[9px] leading-tight text-center truncate w-full px-0.5 transition-colors ${
+                    module.status === "running"
+                      ? "font-semibold text-slate-800 dark:text-white"
+                      : module.status === "completed"
+                        ? "text-emerald-600 dark:text-emerald-400"
+                        : "text-slate-400 dark:text-slate-500"
+                  }`}
+                  style={{ maxWidth: "64px" }}
+                >
+                  {module.name}
+                </span>
+              )}
 
               {/* ── Tooltip: steps detail on hover ── */}
               <div

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Check, Copy, FileText, FolderOpen, Globe, RefreshCw, Settings, Trash2 } from "lucide-react";
+import { Building2, Check, ChevronLeft, ChevronRight, Copy, FileText, FolderOpen, Globe, Plus, RefreshCw, Settings, Trash2, Zap } from "lucide-react";
 import { SessionList } from "@/components/SessionList";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import type { AgentMessage, SessionSummary } from "@/hooks/useAgentChat";
@@ -25,6 +25,9 @@ type Props = {
   onDeleteSession?: (threadId: string) => void;
   onOpenSettings?: () => void;
   onSkillSelect?: (skillName: string) => void;
+  /** When true the sidebar is in 64 px icon-only mode */
+  isCollapsed?: boolean;
+  onToggleCollapse?: () => void;
 };
 
 type SkillItem = {
@@ -63,6 +66,8 @@ export function Sidebar({
   onDeleteSession,
   onOpenSettings,
   onSkillSelect,
+  isCollapsed = false,
+  onToggleCollapse,
 }: Props) {
   /**
    * Toggle helper: if *targetPath* is already open, close the panel;
@@ -185,6 +190,62 @@ export function Sidebar({
     }
   }, [apiBase, trashModal.targets]);
 
+  // ── Mini sidebar (collapsed mode) ──────────────────────────────────────
+  if (isCollapsed) {
+    const iconBtn = "rounded-lg p-2 ui-text-muted hover:bg-[var(--surface-3)] hover:ui-text-primary transition-colors w-10 h-10 flex items-center justify-center";
+    return (
+      <aside className="ui-panel h-full min-h-0 rounded-2xl flex flex-col items-center py-3 gap-1 overflow-hidden">
+        {/* Logo */}
+        <span className="text-lg leading-none mb-0.5" aria-hidden="true">🦞</span>
+        <span className="w-1.5 h-1.5 rounded-full mb-2" style={{ background: "var(--success)" }} title="已连接" />
+
+        {/* New session */}
+        <button type="button" onClick={onCreateSession} title="新建会话" className={iconBtn}>
+          <Plus size={15} />
+        </button>
+
+        {/* Artifacts */}
+        <div className="relative" title={`产物 (${artifacts.length})`}>
+          <button type="button" className={iconBtn}>
+            <FileText size={15} />
+          </button>
+          {artifacts.length > 0 && (
+            <span className="absolute top-1 right-1 w-3.5 h-3.5 rounded-full text-[8px] font-bold flex items-center justify-center text-white" style={{ background: "var(--accent)" }}>
+              {artifacts.length > 9 ? "9+" : artifacts.length}
+            </span>
+          )}
+        </div>
+
+        {/* Skills */}
+        <button type="button" title="技能" className={iconBtn}>
+          <Zap size={15} />
+        </button>
+
+        {/* Org Assets */}
+        <button type="button" title="组织资产" className={iconBtn}>
+          <Building2 size={15} />
+        </button>
+
+        {/* Bottom */}
+        <div className="mt-auto flex flex-col items-center gap-1">
+          <button type="button" onClick={onOpenSettings} title="设置" className={iconBtn}>
+            <Settings size={13} />
+          </button>
+          <ThemeToggle />
+          <button
+            type="button"
+            onClick={onToggleCollapse}
+            title="展开侧栏"
+            className={iconBtn}
+            aria-label="展开侧栏"
+          >
+            <ChevronRight size={14} />
+          </button>
+        </div>
+      </aside>
+    );
+  }
+
   return (
     <aside className="ui-panel h-full min-h-0 overflow-y-auto rounded-2xl p-4 flex flex-col gap-4">
       <div className="flex items-center gap-2">
@@ -208,7 +269,7 @@ export function Sidebar({
 
       <section className="ui-card rounded-xl p-3 flex flex-col gap-2 min-h-0">
         <div className="flex items-center justify-between gap-2">
-          <span className="text-[11px] font-semibold uppercase tracking-wider ui-text-secondary">
+          <span className="text-[11px] font-semibold uppercase tracking-wider ui-text-secondary whitespace-nowrap">
             产物 <span className="font-normal normal-case tracking-normal ui-text-muted">Artifacts</span>
           </span>
           <button
@@ -226,7 +287,7 @@ export function Sidebar({
           </button>
         </div>
 
-        <div className="max-h-48 overflow-auto space-y-0.5">
+        <div className="max-h-[200px] overflow-auto space-y-0.5">
           {artifacts.length === 0 ? (
             <p className="text-[11px] ui-text-muted">本轮生成的文件会出现在这里，点击后统一在右侧预览。</p>
           ) : (
@@ -287,7 +348,7 @@ export function Sidebar({
 
       <section className="ui-card rounded-xl p-3 flex flex-col gap-2 min-h-0">
         <div className="flex items-center justify-between gap-2">
-          <span className="text-[11px] font-semibold uppercase tracking-wider ui-text-secondary">
+          <span className="text-[11px] font-semibold uppercase tracking-wider ui-text-secondary whitespace-nowrap">
             技能 <span className="font-normal normal-case tracking-normal ui-text-muted">Skills</span>
           </span>
           <div className="flex items-center gap-1">
@@ -409,7 +470,7 @@ export function Sidebar({
       {/* ── 组织资产 Organization Assets ── */}
       <section className="ui-card rounded-xl p-3 flex flex-col gap-2 min-h-0">
         <div className="flex items-center justify-between gap-2">
-          <span className="text-[11px] font-semibold uppercase tracking-wider ui-text-secondary">
+          <span className="text-[11px] font-semibold uppercase tracking-wider ui-text-secondary whitespace-nowrap">
             组织资产 <span className="font-normal normal-case tracking-normal ui-text-muted">Org Assets</span>
           </span>
         </div>
@@ -486,6 +547,19 @@ export function Sidebar({
 
         {/* Theme toggle */}
         <ThemeToggle />
+
+        {/* Collapse sidebar */}
+        {onToggleCollapse && (
+          <button
+            type="button"
+            onClick={onToggleCollapse}
+            className="rounded-lg p-2 ui-text-muted transition-colors shrink-0 hover:bg-[var(--surface-3)] hover:ui-text-primary"
+            aria-label="收起左侧栏"
+            title="收起左侧栏"
+          >
+            <ChevronLeft size={13} />
+          </button>
+        )}
       </div>
       {/* Fixed-position skill description tooltip — unaffected by overflow clipping */}
       {hoveredSkill?.description && tooltipPos && (

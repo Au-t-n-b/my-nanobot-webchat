@@ -10,10 +10,10 @@ const THEMES: { id: Theme; icon: React.ElementType; label: string; desc: string 
   { id: "soft",  icon: Eye,  label: "护眼", desc: "护眼模式 — 零蓝光，仿纸质阅读" },
 ];
 
-export function ThemeToggle() {
+export function ThemeToggle({ vertical = false }: { vertical?: boolean }) {
   const { theme, setTheme } = useTheme();
   return (
-    <div className="flex items-center gap-1">
+    <div className={`flex items-center gap-1 ${vertical ? "flex-col" : "flex-row"}`}>
       {THEMES.map(({ id, icon: Icon, label, desc }) => (
         <button
           key={id}

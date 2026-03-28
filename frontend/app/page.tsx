@@ -361,16 +361,7 @@ export default function Home() {
               >
                 <Settings size={17} />
               </button>
-              <button
-                type="button"
-                onClick={() => setIsPreviewOpen((v) => !v)}
-                aria-label={isPreviewOpen ? "收起右侧预览" : "展开右侧预览"}
-                className="rounded-lg p-2 ui-text-secondary hover:bg-[var(--surface-3)] hover:ui-text-primary transition-colors border border-transparent hover:border-[var(--border-subtle)]"
-                title={isPreviewOpen ? "收起右侧预览" : "展开右侧预览"}
-              >
-                {isPreviewOpen ? <PanelRightClose size={17} /> : <PanelRightOpen size={17} />}
-              </button>
-              {/* Sidebar collapse toggle in header as well */}
+              {/* Left sidebar toggle — appears before right panel toggle (left→right order) */}
               <button
                 type="button"
                 onClick={() => setSidebarCollapsed((v) => !v)}
@@ -379,6 +370,15 @@ export default function Home() {
                 title={sidebarCollapsed ? "展开左侧栏" : "收起左侧栏"}
               >
                 {sidebarCollapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsPreviewOpen((v) => !v)}
+                aria-label={isPreviewOpen ? "收起右侧预览" : "展开右侧预览"}
+                className="rounded-lg p-2 ui-text-secondary hover:bg-[var(--surface-3)] hover:ui-text-primary transition-colors border border-transparent hover:border-[var(--border-subtle)]"
+                title={isPreviewOpen ? "收起右侧预览" : "展开右侧预览"}
+              >
+                {isPreviewOpen ? <PanelRightClose size={17} /> : <PanelRightOpen size={17} />}
               </button>
             </div>
           </div>

@@ -204,25 +204,25 @@ export function Sidebar({
           <Plus size={15} />
         </button>
 
-        {/* Artifacts */}
-        <div className="relative" title={`产物 (${artifacts.length})`}>
-          <button type="button" className={iconBtn}>
+        {/* Artifacts — click to expand sidebar */}
+        <div className="relative" title={`产物 (${artifacts.length})，点击展开`}>
+          <button type="button" onClick={onToggleCollapse} className={iconBtn}>
             <FileText size={15} />
           </button>
           {artifacts.length > 0 && (
-            <span className="absolute top-1 right-1 w-3.5 h-3.5 rounded-full text-[8px] font-bold flex items-center justify-center text-white" style={{ background: "var(--accent)" }}>
+            <span className="absolute top-1 right-1 w-3.5 h-3.5 rounded-full text-[8px] font-bold flex items-center justify-center text-white pointer-events-none" style={{ background: "var(--accent)" }}>
               {artifacts.length > 9 ? "9+" : artifacts.length}
             </span>
           )}
         </div>
 
-        {/* Skills */}
-        <button type="button" title="技能" className={iconBtn}>
+        {/* Skills — click to expand sidebar */}
+        <button type="button" title="技能，点击展开" onClick={onToggleCollapse} className={iconBtn}>
           <Zap size={15} />
         </button>
 
-        {/* Org Assets */}
-        <button type="button" title="组织资产" className={iconBtn}>
+        {/* Org Assets — click to expand sidebar */}
+        <button type="button" title="组织资产，点击展开" onClick={onToggleCollapse} className={iconBtn}>
           <Building2 size={15} />
         </button>
 
@@ -231,7 +231,7 @@ export function Sidebar({
           <button type="button" onClick={onOpenSettings} title="设置" className={iconBtn}>
             <Settings size={13} />
           </button>
-          <ThemeToggle />
+          <ThemeToggle vertical />
           <button
             type="button"
             onClick={onToggleCollapse}

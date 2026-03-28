@@ -89,6 +89,10 @@ class LLMProvider(ABC):
         "connection",
         "server error",
         "temporarily unavailable",
+        # API gateway returns an HTML error page instead of JSON —
+        # treat as transient so the retry loop handles it gracefully.
+        "<!doctype html",
+        "<html",
     )
 
     _SENTINEL = object()
@@ -225,6 +229,19 @@ class LLMProvider(ABC):
         return any(marker in err for marker in cls._TRANSIENT_ERROR_MARKERS)
 
     @staticmethod
+    def _format_error_for_log(content: str | None, max_len: int = 120) -> str:
+        """Collapse HTML gateway errors to a short description for cleaner log output."""
+        import re as _re
+        if not content:
+            return "(empty)"
+        stripped = content.lstrip()
+        if stripped.lower().startswith(("<!doctype html", "<html")):
+            m = _re.search(r"<title[^>]*>(.*?)</title>", stripped, _re.IGNORECASE | _re.DOTALL)
+            title = m.group(1).strip() if m else ""
+            return f"[HTML gateway error page: {title or 'no title extracted'}]"
+        return content[:max_len].lower()
+
+    @staticmethod
     def _strip_image_content(messages: list[dict[str, Any]]) -> list[dict[str, Any]] | None:
         """Replace image_url blocks with text placeholder. Returns None if no images found."""
         found = False
@@ -333,7 +350,7 @@ class LLMProvider(ABC):
             logger.warning(
                 "LLM transient error (attempt {}/{}), retrying in {}s: {}",
                 attempt, len(self._CHAT_RETRY_DELAYS), delay,
-                (response.content or "")[:120].lower(),
+                self._format_error_for_log(response.content),
             )
             await asyncio.sleep(delay)
 
@@ -384,7 +401,7 @@ class LLMProvider(ABC):
             logger.warning(
                 "LLM transient error (attempt {}/{}), retrying in {}s: {}",
                 attempt, len(self._CHAT_RETRY_DELAYS), delay,
-                (response.content or "")[:120].lower(),
+                self._format_error_for_log(response.content),
             )
             await asyncio.sleep(delay)
 

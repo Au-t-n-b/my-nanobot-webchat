@@ -145,6 +145,17 @@ class ExecTool(Tool):
 
             return result
 
+        except asyncio.CancelledError:
+            # Task was cancelled (e.g. client disconnected); kill the child and
+            # propagate so the agent loop can clean up properly.
+            try:
+                process.kill()
+                await asyncio.wait_for(process.wait(), timeout=3.0)
+            except Exception:
+                pass
+            logger.info("exec task cancelled — child process killed")
+            raise
+
         except Exception as e:
             return f"Error executing command: {str(e)}"
 

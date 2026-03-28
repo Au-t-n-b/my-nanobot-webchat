@@ -460,6 +460,8 @@ export function useAgentChat() {
       };
       let streamError = false;
       let sawRunFinished = false;
+      // Declared outside try so the catch block can access it for diagnostics
+      let lastFragment = "";
 
       try {
         const res = await fetch(aguiRequestPath("/api/chat"), {
@@ -510,7 +512,6 @@ export function useAgentChat() {
 
       const decoder = new TextDecoder();
       let buffer = "";
-      let lastFragment = "";  // last raw bytes received — logged on stream error
       // Accumulate file paths found in tool step logs during this run
       const toolArtifactPaths: string[] = [];
 

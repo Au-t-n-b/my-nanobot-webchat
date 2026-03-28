@@ -100,21 +100,42 @@ class LLMProvider(ABC):
 
     @staticmethod
     def _sanitize_empty_content(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """Sanitize message content: fix empty blocks, strip internal _meta fields."""
+        """Sanitize message content: fix empty blocks, strip internal _meta fields.
+
+        Key invariants enforced for strict providers like GLM/Zai:
+        - tool-role messages must have string content (not dict/list)
+        - every item in a content-list must have a non-empty ``type`` field
+        - standalone dict content is serialised to a JSON string (not wrapped
+          in a list without a type, which breaks GLM/Zai validation)
+        """
         result: list[dict[str, Any]] = []
         for msg in messages:
             content = msg.get("content")
+            role = msg.get("role")
 
-            if isinstance(content, str) and not content:
+            # ── tool messages: content MUST be a plain string ──────────────
+            # PresentChoicesTool (and other tools) may return dict/list results.
+            # Wrapping them in a list without a "type" field causes
+            # "content[0].type:不能为空" errors on GLM/Zai.  Serialise to JSON.
+            if role == "tool" and isinstance(content, (dict, list)):
                 clean = dict(msg)
-                clean["content"] = None if (msg.get("role") == "assistant" and msg.get("tool_calls")) else "(empty)"
+                clean["content"] = json.dumps(content, ensure_ascii=False)
                 result.append(clean)
                 continue
 
+            # ── empty string ───────────────────────────────────────────────
+            if isinstance(content, str) and not content:
+                clean = dict(msg)
+                clean["content"] = None if (role == "assistant" and msg.get("tool_calls")) else "(empty)"
+                result.append(clean)
+                continue
+
+            # ── content list ───────────────────────────────────────────────
             if isinstance(content, list):
                 new_items: list[Any] = []
                 changed = False
                 for item in content:
+                    # drop text blocks that are empty
                     if (
                         isinstance(item, dict)
                         and item.get("type") in ("text", "input_text", "output_text")
@@ -122,25 +143,35 @@ class LLMProvider(ABC):
                     ):
                         changed = True
                         continue
+                    # strip internal _meta fields
                     if isinstance(item, dict) and "_meta" in item:
                         new_items.append({k: v for k, v in item.items() if k != "_meta"})
                         changed = True
-                    else:
-                        new_items.append(item)
+                        continue
+                    # GLM/Zai: every block must have a non-empty "type"
+                    if isinstance(item, dict) and not item.get("type"):
+                        text = item.get("text") or json.dumps(item, ensure_ascii=False)
+                        new_items.append({"type": "text", "text": text})
+                        changed = True
+                        continue
+                    new_items.append(item)
                 if changed:
                     clean = dict(msg)
                     if new_items:
                         clean["content"] = new_items
-                    elif msg.get("role") == "assistant" and msg.get("tool_calls"):
+                    elif role == "assistant" and msg.get("tool_calls"):
                         clean["content"] = None
                     else:
                         clean["content"] = "(empty)"
                     result.append(clean)
                     continue
 
+            # ── standalone dict content → serialise to string ──────────────
+            # Previously this was wrapped in a list, which produced a list
+            # item without a "type" field — invalid for strict providers.
             if isinstance(content, dict):
                 clean = dict(msg)
-                clean["content"] = [content]
+                clean["content"] = json.dumps(content, ensure_ascii=False)
                 result.append(clean)
                 continue
 

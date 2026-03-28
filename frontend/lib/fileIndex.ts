@@ -24,6 +24,12 @@ const UNIX_PATH_RE = new RegExp(
   "(?<![`\\[(\\[])(\\/(?:home|Users|tmp|var|opt|workspace)[^\\s`\\]\\)\"'\\n]{3,}\\.(?:" + FILE_EXT_RE + "))",
   "gi",
 );
+// Matches skill-project relative paths: Output/xxx.xlsx, RunTime/xxx.xlsx, Input/xxx.xlsx
+// The agent often writes these instead of full absolute paths in its replies.
+const REL_PATH_RE = new RegExp(
+  "(?<![`\\[(\\[A-Za-z0-9_/\\\\])(?:((?:Output|RunTime|Input|output|runtime|input)[/\\\\][^\\s`\\]\\)\"'\\n]{2,}\\.(?:" + FILE_EXT_RE + ")))",
+  "gi",
+);
 
 function fileNameOf(path: string): string {
   const normalized = path.replace(/\\/g, "/");
@@ -80,6 +86,9 @@ export function extractFilesFromContent(content: string): string[] {
   UNIX_PATH_RE.lastIndex = 0;
   while ((match = UNIX_PATH_RE.exec(content)) !== null) add(match[1] ?? "");
 
+  REL_PATH_RE.lastIndex = 0;
+  while ((match = REL_PATH_RE.exec(content)) !== null) add(match[1] ?? "");
+
   return paths;
 }
 
@@ -118,6 +127,12 @@ export function extractIndexedFiles(messages: AgentMessage[]): IndexedFile[] {
 
       UNIX_PATH_RE.lastIndex = 0;
       while ((match = UNIX_PATH_RE.exec(m.content)) !== null) {
+        addPath(match[1] ?? "", seen, out, meta);
+      }
+
+      // 5. Skill-project relative paths: Output/xxx.xlsx, RunTime/xxx.xlsx, etc.
+      REL_PATH_RE.lastIndex = 0;
+      while ((match = REL_PATH_RE.exec(m.content)) !== null) {
         addPath(match[1] ?? "", seen, out, meta);
       }
     }

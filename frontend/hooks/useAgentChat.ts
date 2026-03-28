@@ -146,6 +146,8 @@ const _WIN_PATH_RE = new RegExp(`([A-Za-z]:[/\\\\][^\\s\`\\]\\)"'\\n]{3,}\\.(?:$
 const _UNIX_PATH_RE = new RegExp(`(\\/(?:home|Users|tmp|var|opt|workspace|root)[^\\s\`\\]\\)"'\\n]{3,}\\.(?:${_FILE_EXT}))`, "gi");
 // Catches Python save calls: .save('path'), to_excel('path'), to_csv('path'), open('path',
 const _PY_SAVE_RE = /(?:\.save|\.to_excel|\.to_csv|\.write|open)\s*\(\s*["'`]([^"'`\n]{3,})["'`]/gi;
+// Skill-project relative paths written in tool step logs: Output/xxx.xlsx, RunTime/xxx
+const _REL_PATH_RE = new RegExp(`(?:^|[\\s(["'])((Output|RunTime|Input|output|runtime|input)[/\\\\][^\\s\`\\]\\)"'\\n]{2,}\\.(?:${_FILE_EXT}))`, "gi");
 
 function extractPathsFromToolText(text: string): string[] {
   const found = new Set<string>();
@@ -164,6 +166,8 @@ function extractPathsFromToolText(text: string): string[] {
     // only keep entries that look like file paths (have extension from our list)
     if (/\.[a-z]{2,6}$/i.test(p)) tryAdd(p);
   }
+  _REL_PATH_RE.lastIndex = 0;
+  while ((m = _REL_PATH_RE.exec(text)) !== null) tryAdd(m[1] ?? "");
   return Array.from(found);
 }
 

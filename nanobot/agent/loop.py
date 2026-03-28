@@ -497,10 +497,20 @@ class AgentLoop:
                     # Prevent large tool outputs (Excel headers, file reads, etc.)
                     # from bloating the current-turn message list and triggering
                     # gateway payload limits (413 / HTML error pages).
+                    #
+                    # Exemption: read_file results for *.md files are NOT truncated.
+                    # Skill instruction files (SKILL.md, AGENTS.md, …) contain
+                    # critical workflow directives — cutting them causes the agent
+                    # to miss tool-call requirements (e.g. present_choices) and
+                    # fall back to free-form text interaction.
                     inline_result = result
                     if isinstance(inline_result, str):
+                        _is_md_read = (
+                            tool_call.name == "read_file"
+                            and str(tool_call.arguments.get("path", "")).lower().endswith(".md")
+                        )
                         limit = self._INLINE_RESULT_MAX_CHARS
-                        if len(inline_result) > limit:
+                        if not _is_md_read and len(inline_result) > limit:
                             half = limit // 2
                             inline_result = (
                                 inline_result[:half]

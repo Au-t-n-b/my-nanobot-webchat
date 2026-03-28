@@ -306,8 +306,11 @@ class MemoryConsolidator:
     async def maybe_consolidate_by_tokens(self, session: Session) -> None:
         """Loop: archive old messages until prompt fits within safe budget.
 
-        The budget reserves space for completion tokens and a safety buffer
-        so the LLM request never exceeds the context window.
+        Consolidation triggers at 65 % of the context window (not 100 %) to
+        leave headroom for large tool outputs produced during the *current* turn.
+        Without this early trigger, a long Excel-processing session can push the
+        total request body above gateway payload limits mid-turn, returning an
+        HTML error page instead of a JSON response.
         """
         if not session.messages or self.context_window_tokens <= 0:
             return
@@ -315,16 +318,19 @@ class MemoryConsolidator:
         lock = self.get_lock(session.key)
         async with lock:
             budget = self.context_window_tokens - self.max_completion_tokens - self._SAFETY_BUFFER
+            # Trigger consolidation at 65 % to keep healthy headroom for in-turn growth.
+            trigger = int(budget * 0.65)
             target = budget // 2
             estimated, source = self.estimate_session_prompt_tokens(session)
             if estimated <= 0:
                 return
-            if estimated < budget:
+            if estimated < trigger:
                 logger.debug(
-                    "Token consolidation idle {}: {}/{} via {}",
+                    "Token consolidation idle {}: {}/{} (trigger={}) via {}",
                     session.key,
                     estimated,
                     self.context_window_tokens,
+                    trigger,
                     source,
                 )
                 return

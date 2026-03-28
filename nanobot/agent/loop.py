@@ -104,7 +104,11 @@ class AgentLoop:
     5. Sends responses back
     """
 
-    _TOOL_RESULT_MAX_CHARS = 16_000
+    _TOOL_RESULT_MAX_CHARS = 16_000   # session-persistence limit (unchanged)
+    # Per-result limit for the **in-flight** message list sent to the LLM.
+    # Smaller than _TOOL_RESULT_MAX_CHARS so that 10-20 tool iterations can
+    # coexist in one context window without blowing the gateway payload limit.
+    _INLINE_RESULT_MAX_CHARS = 6_000
 
     def __init__(
         self,
@@ -462,8 +466,23 @@ class AgentLoop:
                         if has_error:
                             result += _EXCEL_ERROR_HINT
 
+                    # ── In-flight truncation ──────────────────────────────────
+                    # Prevent large tool outputs (Excel headers, file reads, etc.)
+                    # from bloating the current-turn message list and triggering
+                    # gateway payload limits (413 / HTML error pages).
+                    inline_result = result
+                    if isinstance(inline_result, str):
+                        limit = self._INLINE_RESULT_MAX_CHARS
+                        if len(inline_result) > limit:
+                            half = limit // 2
+                            inline_result = (
+                                inline_result[:half]
+                                + f"\n\n... [⚠️ 输出过长，已截断。原长 {len(inline_result)} 字符"
+                                f"，保留首尾各 {half} 字符] ...\n\n"
+                                + inline_result[-half:]
+                            )
                     messages = self.context.add_tool_result(
-                        messages, tool_call.id, tool_call.name, result
+                        messages, tool_call.id, tool_call.name, inline_result
                     )
             else:
                 if on_stream and on_stream_end:

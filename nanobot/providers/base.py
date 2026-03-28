@@ -135,6 +135,13 @@ class LLMProvider(ABC):
                 continue
 
             # ── content list ───────────────────────────────────────────────
+            # Empty list is also invalid for strict providers — normalise it.
+            if isinstance(content, list) and len(content) == 0:
+                clean = dict(msg)
+                clean["content"] = None if (role == "assistant" and msg.get("tool_calls")) else "(empty)"
+                result.append(clean)
+                continue
+
             if isinstance(content, list):
                 new_items: list[Any] = []
                 changed = False

@@ -77,13 +77,30 @@ function FileIndexChips({
 }) {
   const files = useMemo(() => {
     const fromContent = extractFilesFromContent(content);
-    const seen = new Set(fromContent);
-    const merged = [...fromContent];
-    for (const p of artifacts ?? []) {
-      const norm = p.trim();
-      if (norm && !seen.has(norm)) {
-        seen.add(norm);
-        merged.push(norm);
+    const artifactList = (artifacts ?? []).map((p) => p.trim()).filter(Boolean);
+
+    // Build a basename → full-path map from artifacts (absolute paths take priority).
+    const basenameToFull = new Map<string, string>();
+    for (const p of artifactList) {
+      basenameToFull.set(fileBasename(p).toLowerCase(), p);
+    }
+
+    // Start with content-extracted paths, but upgrade any that have a matching
+    // artifact with the same basename (avoids filename-only paths going to /api/file).
+    const seenFull = new Set<string>();
+    const merged: string[] = [];
+    for (const p of fromContent) {
+      const upgraded = basenameToFull.get(fileBasename(p).toLowerCase()) ?? p;
+      if (!seenFull.has(upgraded)) {
+        seenFull.add(upgraded);
+        merged.push(upgraded);
+      }
+    }
+    // Add any artifact paths not already covered by content extraction.
+    for (const p of artifactList) {
+      if (!seenFull.has(p)) {
+        seenFull.add(p);
+        merged.push(p);
       }
     }
     return merged;

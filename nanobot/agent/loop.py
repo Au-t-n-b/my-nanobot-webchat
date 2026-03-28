@@ -382,8 +382,35 @@ class AgentLoop:
                     tc.to_openai_tool_call()
                     for tc in response.tool_calls
                 ]
+                # ── Truncate large tool-call arguments in the in-flight context ──
+                # write_file / edit_file calls embed full file contents as
+                # arguments (e.g. a 200-line Python script).  Those strings live
+                # in the assistant message's tool_calls[].function.arguments and
+                # are never pruned by our tool-result truncation, silently
+                # ballooning the request body and causing 504 gateway timeouts.
+                # We replace oversized argument values with a short placeholder
+                # so the LLM still sees the call structure but not the bulk payload.
+                _ARG_INLINE_LIMIT = 400  # chars; full script visible in actual file
+                inline_tool_call_dicts: list[dict] = []
+                for tcd in tool_call_dicts:
+                    func = tcd.get("function", {})
+                    raw_args = func.get("arguments", "{}")
+                    if isinstance(raw_args, str) and len(raw_args) > _ARG_INLINE_LIMIT:
+                        try:
+                            parsed = json.loads(raw_args)
+                            for k, v in parsed.items():
+                                if isinstance(v, str) and len(v) > _ARG_INLINE_LIMIT:
+                                    parsed[k] = (
+                                        f"[内容已省略 ({len(v)} 字符)，工具已收到完整内容]"
+                                    )
+                            compacted = {**tcd, "function": {**func, "arguments": json.dumps(parsed, ensure_ascii=False)}}
+                        except Exception:
+                            compacted = tcd
+                        inline_tool_call_dicts.append(compacted)
+                    else:
+                        inline_tool_call_dicts.append(tcd)
                 messages = self.context.add_assistant_message(
-                    messages, response.content, tool_call_dicts,
+                    messages, response.content, inline_tool_call_dicts,
                     reasoning_content=response.reasoning_content,
                     thinking_blocks=response.thinking_blocks,
                 )

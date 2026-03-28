@@ -33,6 +33,8 @@ def list_skills() -> list[dict[str, object]]:
                 "skillDir": str(child.resolve()),
                 "skillFile": str(skill_file.resolve()),
                 "mtimeMs": int(st.st_mtime * 1000),
+                # "workspace" = user-local skill; future values: "remote", "builtin"
+                "source": "workspace",
             }
         )
 

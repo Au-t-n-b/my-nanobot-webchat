@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Bot, Check, Copy, FileText, FolderOpen, Globe, RefreshCw, Settings, Trash2 } from "lucide-react";
+import { Check, Copy, FileText, FolderOpen, Globe, RefreshCw, Settings, Trash2 } from "lucide-react";
 import { SessionList } from "@/components/SessionList";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import type { AgentMessage, SessionSummary } from "@/hooks/useAgentChat";
@@ -32,6 +32,8 @@ type SkillItem = {
   skillDir: string;
   skillFile: string;
   mtimeMs: number;
+  /** "workspace" = user-local; future values: "remote", "builtin" */
+  source?: string;
 };
 
 type SkillsResp = { items: SkillItem[] };
@@ -182,9 +184,11 @@ export function Sidebar({
   return (
     <aside className="ui-panel h-full min-h-0 overflow-y-auto rounded-2xl p-4 flex flex-col gap-4">
       <div className="flex items-center gap-2">
-        <Bot size={16} className="ui-text-secondary shrink-0" />
-        <span className="font-semibold text-sm ui-text-primary">Nanobot AGUI</span>
-        <span className="ml-auto w-2 h-2 rounded-full" style={{ background: "var(--success)" }} title="已连接" />
+        <span className="text-base leading-none shrink-0" aria-hidden="true">🦞</span>
+        <span className="font-semibold text-sm ui-text-primary leading-tight">
+          AI应用使能 <span className="text-[var(--accent)]">交付claw</span>
+        </span>
+        <span className="ml-auto w-2 h-2 rounded-full shrink-0" style={{ background: "var(--success)" }} title="已连接" />
       </div>
       <p className="text-[10px] font-mono ui-text-muted truncate -mt-2 select-all" title={threadId || "尚未建立会话"}>
         {threadId ? threadId.slice(0, 8) + "…" + threadId.slice(-4) : "—"}
@@ -350,10 +354,15 @@ export function Sidebar({
                       onSkillSelect?.(s.name);
                     }
                   }}
-                  className="w-full text-left px-2.5 py-2 text-sm ui-text-secondary pr-16"
+                  className="w-full text-left px-2.5 py-2 text-sm ui-text-secondary pr-16 flex items-center gap-1.5 min-w-0"
                   title={s.skillDir}
                 >
-                  {s.name}
+                  <span className="truncate">{s.name}</span>
+                  {s.source === "workspace" && (
+                    <span className="shrink-0 rounded px-1 py-0.5 text-[9px] font-medium leading-none ui-text-muted border border-[var(--border-subtle)]">
+                      local
+                    </span>
+                  )}
                 </button>
                 {/* 悬浮操作组：复制路径 / 打开位置 */}
                 <div className="absolute right-1 top-0 bottom-0 flex items-center gap-0.5 pr-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -383,6 +392,24 @@ export function Sidebar({
           })}
         </div>
 
+      </section>
+
+      {/* ── 中心资产 Center Assets ── */}
+      <section className="ui-card rounded-xl p-3 flex flex-col gap-2 min-h-0">
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-[11px] font-semibold uppercase tracking-wider ui-text-secondary">
+            中心资产 <span className="font-normal normal-case tracking-normal ui-text-muted">Center Assets</span>
+          </span>
+        </div>
+        <div className="flex flex-col items-center justify-center gap-1.5 py-4 rounded-lg border border-dashed"
+          style={{ borderColor: "var(--border-subtle)", background: "var(--surface-2)" }}>
+          <span className="text-xl" aria-hidden="true">🏛️</span>
+          <p className="text-[11px] ui-text-muted text-center leading-relaxed px-2">
+            中心资产库即将接入
+            <br />
+            <span className="text-[10px]">Center asset integration coming soon</span>
+          </p>
+        </div>
       </section>
 
       {trashModal.open && (

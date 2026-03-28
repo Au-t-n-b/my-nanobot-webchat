@@ -251,6 +251,27 @@ class BrowserSession:
             return
         await self._page.keyboard.insert_text(text)
 
+    async def double_click(self, x_percent: float, y_percent: float) -> None:
+        """Double-click at a position expressed as fractions of the viewport."""
+        if self._page is None:
+            return
+        x = self._viewport_w * max(0.0, min(1.0, x_percent))
+        y = self._viewport_h * max(0.0, min(1.0, y_percent))
+        jx = x + random.uniform(-1.0, 1.0)
+        jy = y + random.uniform(-1.0, 1.0)
+        await self._page.mouse.move(jx, jy, steps=6)
+        await self._page.mouse.dblclick(jx, jy, delay=int(random.uniform(60, 100)))
+
+    async def get_selection(self) -> str:
+        """Return the currently selected text on the page (empty string if none)."""
+        if self._page is None:
+            return ""
+        try:
+            result = await self._page.evaluate("() => window.getSelection()?.toString() ?? ''")
+            return str(result) if result else ""
+        except Exception:
+            return ""
+
     async def reload(self) -> None:
         """Reload the current page."""
         if self._page is None:

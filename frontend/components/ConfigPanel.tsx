@@ -13,7 +13,7 @@ function aguiRequestPath(path: string): string {
 
 type Status = "idle" | "loading" | "saving" | "success" | "error";
 
-export function ConfigPanel({ onClose }: { onClose: () => void }) {
+export function ConfigPanel({ onClose, onSaved }: { onClose: () => void; onSaved?: () => void }) {
   const [text, setText] = useState("");
   const [originalText, setOriginalText] = useState("");
   const [status, setStatus] = useState<Status>("loading");
@@ -72,6 +72,7 @@ export function ConfigPanel({ onClose }: { onClose: () => void }) {
       setText(formatted);
       setOriginalText(formatted);
       setStatus("success");
+      onSaved?.();
       setTimeout(() => setStatus("idle"), 2500);
     } catch (e) {
       setStatus("error");

@@ -90,27 +90,53 @@ export function TaskProgressBar({ runStatus }: { runStatus: RunStatus }) {
     [data],
   );
 
-  // Inline compact mode: nodes + connecting lines in a single flex row
   return (
-    <div className="flex items-center gap-0 select-none flex-1 min-w-0 px-2">
-      {/* Progress pill */}
-      <div className="flex items-center gap-1.5 mr-3 shrink-0">
+    <div className="flex items-start gap-0 select-none flex-1 min-w-0 px-2 pt-0.5 pb-5">
+      {/* Progress pill — vertically centred on the node row (top ~5px) */}
+      <div className="flex items-center gap-1.5 mr-3 shrink-0 mt-[3px]">
         <span className="relative flex h-1.5 w-1.5">
           <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75" />
           <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-blue-500" />
         </span>
-        <span className="text-[10px] font-semibold tracking-widest text-slate-500 dark:text-slate-400 tabular-nums">
+        <span className="text-[10px] font-semibold tracking-widest text-slate-500 dark:text-slate-400 tabular-nums whitespace-nowrap">
           {overall.doneCount}/{overall.totalCount}
         </span>
       </div>
 
-      {/* Rail: nodes + connectors */}
-      <div className="flex items-center flex-1 min-w-0">
-        {modules.map((module, index) => (
-          <div key={module.id} className="flex items-center flex-1 min-w-0">
-            {/* Node with tooltip */}
-            <div className="relative group shrink-0" style={{ zIndex: 10 }}>
-              {/* Node circle */}
+      {/* Rail: nodes + connectors + labels */}
+      {/* The outer div is `relative` so absolute-positioned connectors/baseline stay inside it */}
+      <div className="flex-1 min-w-0 relative">
+        {/* ── Static grey baseline: spans full width minus first/last node radius (12 px) ── */}
+        <div
+          className="absolute h-[3px] rounded-full bg-slate-200 dark:bg-slate-700"
+          style={{ top: "11px", left: "calc(8.333% + 0px)", right: "calc(8.333% + 0px)", zIndex: 0 }}
+        />
+
+        <div className="flex items-start">
+          {modules.map((module, index) => (
+            <div
+              key={module.id}
+              className="relative group flex-1 flex flex-col items-center"
+            >
+              {/* ── Coloured connector from centre of this node → centre of next ── */}
+              {index < modules.length - 1 && (
+                <div
+                  className="absolute h-[3px]"
+                  style={{ top: "11px", left: "50%", right: "-50%", zIndex: 1 }}
+                >
+                  <div
+                    className={`h-full w-full rounded-r-full transition-all duration-700 ease-in-out ${
+                      module.status === "completed"
+                        ? "bg-emerald-500"
+                        : module.status === "running"
+                          ? "bg-gradient-to-r from-emerald-500 via-blue-500/60 to-transparent"
+                          : "bg-transparent"
+                    }`}
+                  />
+                </div>
+              )}
+
+              {/* ── Node circle ── */}
               <div
                 className={`w-6 h-6 rounded-full flex items-center justify-center transition-all duration-500 cursor-default ${
                   module.status === "completed"
@@ -119,31 +145,46 @@ export function TaskProgressBar({ runStatus }: { runStatus: RunStatus }) {
                       ? "bg-blue-600 text-white shadow-[0_0_12px_rgba(37,99,235,0.7)] ring-2 ring-blue-500/40 animate-pulse"
                       : "bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-400"
                 }`}
+                style={{ zIndex: 10 }}
               >
                 {module.status === "completed" && <Check size={11} strokeWidth={3} />}
-                {module.status === "running" && <Loader2 size={11} strokeWidth={3} className="animate-spin" />}
+                {module.status === "running" && (
+                  <Loader2 size={11} strokeWidth={3} className="animate-spin" />
+                )}
                 {module.status === "pending" && (
                   <span className="text-[9px] font-bold">{index + 1}</span>
                 )}
               </div>
 
-              {/* Tooltip — rendered in a portal-like fixed layer via high z-index */}
-              {/* Uses fixed positioning relative to viewport to escape any overflow:hidden parent */}
+              {/* ── Module name below node ── */}
+              <span
+                className={`mt-1.5 text-[9px] leading-tight text-center truncate w-full px-0.5 transition-colors ${
+                  module.status === "running"
+                    ? "font-semibold text-slate-800 dark:text-white"
+                    : module.status === "completed"
+                      ? "text-emerald-600 dark:text-emerald-400"
+                      : "text-slate-400 dark:text-slate-500"
+                }`}
+                style={{ maxWidth: "64px" }}
+              >
+                {module.name}
+              </span>
+
+              {/* ── Tooltip: steps detail on hover ── */}
               <div
                 className="absolute opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-150 pointer-events-none"
                 style={{
-                  top: "calc(100% + 8px)",
+                  top: "calc(100% + 6px)",
                   left: "50%",
                   transform: "translateX(-50%)",
                   zIndex: 9999,
                   width: "200px",
                 }}
               >
-                {/* Arrow */}
                 <div className="flex justify-center mb-[-1px]">
                   <div className="w-2 h-2 rotate-45 border-l border-t border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900" />
                 </div>
-                <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md shadow-[0_8px_32px_rgba(0,0,0,0.18)] dark:shadow-[0_8px_32px_rgba(0,0,0,0.6)] p-3 text-xs">
+                <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white/96 dark:bg-slate-900/96 backdrop-blur-md shadow-[0_8px_32px_rgba(0,0,0,0.15)] dark:shadow-[0_8px_32px_rgba(0,0,0,0.6)] p-3 text-xs">
                   <div className="font-semibold mb-1.5 pb-1.5 border-b border-slate-100 dark:border-slate-700/50 text-slate-800 dark:text-slate-100">
                     {module.name}
                   </div>
@@ -153,14 +194,21 @@ export function TaskProgressBar({ runStatus }: { runStatus: RunStatus }) {
                     <div className="space-y-1.5">
                       {module.steps.map((step) => (
                         <div key={step.id} className="flex items-start justify-between gap-2">
-                          <span className={`leading-snug text-[11px] ${step.done ? "text-slate-600 dark:text-slate-300" : "text-slate-400 dark:text-slate-500"}`}>
+                          <span
+                            className={`leading-snug text-[11px] ${
+                              step.done
+                                ? "text-slate-600 dark:text-slate-300"
+                                : "text-slate-400 dark:text-slate-500"
+                            }`}
+                          >
                             {step.name}
                           </span>
                           <span className="shrink-0 mt-0.5">
-                            {step.done
-                              ? <CheckCircle2 size={11} className="text-emerald-500" />
-                              : <Circle size={11} className="text-slate-300 dark:text-slate-600" />
-                            }
+                            {step.done ? (
+                              <CheckCircle2 size={11} className="text-emerald-500" />
+                            ) : (
+                              <Circle size={11} className="text-slate-300 dark:text-slate-600" />
+                            )}
                           </span>
                         </div>
                       ))}
@@ -169,23 +217,8 @@ export function TaskProgressBar({ runStatus }: { runStatus: RunStatus }) {
                 </div>
               </div>
             </div>
-
-            {/* Connector line to next node */}
-            {index < modules.length - 1 && (
-              <div className="flex-1 h-[3px] mx-0.5 rounded-full overflow-hidden bg-slate-200 dark:bg-slate-700 min-w-0">
-                <div
-                  className={`h-full transition-all duration-700 ease-in-out rounded-full ${
-                    module.status === "completed"
-                      ? "w-full bg-emerald-500"
-                      : module.status === "running"
-                        ? "w-full bg-gradient-to-r from-emerald-500 to-transparent"
-                        : "w-0"
-                  }`}
-                />
-              </div>
-            )}
-          </div>
-        ))}
+          ))}
+        </div>
       </div>
     </div>
   );

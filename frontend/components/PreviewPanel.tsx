@@ -379,11 +379,13 @@ function FilePreviewBody({
   onOpenPath,
   activeSkillName,
   onFillInput,
+  onClosePanel,
 }: {
   path: string;
   onOpenPath: (path: string) => void;
   activeSkillName?: string | null;
   onFillInput?: (text: string) => void;
+  onClosePanel?: () => void;
 }) {
   const [state, setState] = useState<PreviewState>({ status: "loading" });
   const url = useMemo(() => buildProxiedFileUrl(path), [path]);
@@ -469,7 +471,7 @@ function FilePreviewBody({
 
   // Remote browser – render after all hooks, before file-fetch status checks
   if (kind === "browser") {
-    return <RemoteBrowser filePath={path} />;
+    return <RemoteBrowser filePath={path} onClosePanel={onClosePanel} />;
   }
 
   if (state.status === "loading") {
@@ -651,6 +653,7 @@ export function PreviewPanel({
             onOpenPath={onOpenPath}
             activeSkillName={activeSkillName}
             onFillInput={onFillInput}
+            onClosePanel={onClose}
           />
         ) : (
           <p className="ui-text-muted text-sm">

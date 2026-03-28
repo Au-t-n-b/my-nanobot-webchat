@@ -748,6 +748,15 @@ async def handle_browser(request: web.Request) -> web.WebSocketResponse:
                             if text:
                                 await session.insert_text(text)
                                 interaction_wake.set()
+                        elif kind == "double_click":
+                            await session.double_click(
+                                float(payload.get("x_percent", 0)),
+                                float(payload.get("y_percent", 0)),
+                            )
+                            interaction_wake.set()
+                        elif kind == "get_selection":
+                            text = await session.get_selection()
+                            await _send_json({"type": "selection", "text": text})
                         elif kind == "refresh":
                             await session.reload()
                             interaction_wake.set()

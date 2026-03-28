@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Globe, Loader2, RefreshCw, WifiOff } from "lucide-react";
+import { Clipboard, ClipboardCopy, ExternalLink, Globe, LayoutTemplate, Loader2, RefreshCw, Send, WifiOff, X } from "lucide-react";
 import { buildBrowserWsUrl } from "@/lib/browserWsUrl";
 
 type ConnectionStatus = "connecting" | "connected" | "error" | "closed";
@@ -9,6 +9,8 @@ type ConnectionStatus = "connecting" | "connected" | "error" | "closed";
 type Props = {
   /** Full preview path, e.g. "browser://https://example.com" */
   filePath: string;
+  /** Called after opening the split window so the panel can close itself */
+  onClosePanel?: () => void;
 };
 
 /**
@@ -46,13 +48,20 @@ async function paintJpegBase64ToCanvas(
   }
 }
 
-export function RemoteBrowser({ filePath }: Props) {
+export function RemoteBrowser({ filePath, onClosePanel }: Props) {
   const [status, setStatus] = useState<ConnectionStatus>("connecting");
   const [hasFrame, setHasFrame] = useState(false);
   const [currentUrl, setCurrentUrl] = useState<string>("");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   // True for ~300 ms after each new frame arrives — drives the live-pulse dot
   const [isLive, setIsLive] = useState(false);
+  // Ripple effects on click / double-click
+  const [ripples, setRipples] = useState<{ id: number; x: number; y: number; isDouble: boolean }[]>([]);
+  const rippleIdRef = useRef(0);
+  // Clipboard panel
+  const [clipboardOpen, setClipboardOpen] = useState(false);
+  const [clipText, setClipText] = useState("");
+  // (split-screen state removed – handled by direct window.open)
 
   const wsRef = useRef<WebSocket | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -187,6 +196,13 @@ export function RemoteBrowser({ filePath }: Props) {
               lastUrlForCompareRef.current = msg.url;
               setCurrentUrl(msg.url);
             }
+          } else if (msg.type === "selection") {
+            const sel = (msg as { type: string; text?: string }).text ?? "";
+            if (sel) {
+              setClipText(sel);
+              setClipboardOpen(true);
+              navigator.clipboard.writeText(sel).catch(() => {});
+            }
           } else if (msg.type === "error") {
             setErrorMsg(msg.message ?? "Unknown error");
             setStatus("error");
@@ -228,12 +244,21 @@ export function RemoteBrowser({ filePath }: Props) {
     }
   }, []);
 
+  /** Spawn a ripple at canvas-relative CSS coords, auto-remove after animation. */
+  const spawnRipple = useCallback(
+    (e: React.MouseEvent<HTMLCanvasElement>, isDouble: boolean) => {
+      const rect = e.currentTarget.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      const id = ++rippleIdRef.current;
+      setRipples((prev) => [...prev, { id, x, y, isDouble }]);
+      setTimeout(() => setRipples((prev) => prev.filter((r) => r.id !== id)), 600);
+    },
+    [],
+  );
+
   /**
    * Canvas click → (x_percent, y_percent) in [0,1]².
-   *
-   * The canvas fills the container at the same aspect ratio as the remote
-   * viewport (both set to container dimensions at connect time), so click
-   * coordinates map directly — no letterbox compensation needed.
    */
   const handleCanvasClick = useCallback(
     (e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -245,8 +270,24 @@ export function RemoteBrowser({ filePath }: Props) {
         x_percent: (e.clientX - rect.left) / rect.width,
         y_percent: (e.clientY - rect.top)  / rect.height,
       });
+      spawnRipple(e, false);
     },
-    [status, sendAction],
+    [status, sendAction, spawnRipple],
+  );
+
+  const handleCanvasDoubleClick = useCallback(
+    (e: React.MouseEvent<HTMLCanvasElement>) => {
+      if (status !== "connected") return;
+      const rect = e.currentTarget.getBoundingClientRect();
+      sendAction({
+        action: "browser_interaction",
+        type: "double_click",
+        x_percent: (e.clientX - rect.left) / rect.width,
+        y_percent: (e.clientY - rect.top)  / rect.height,
+      });
+      spawnRipple(e, true);
+    },
+    [status, sendAction, spawnRipple],
   );
 
   const handleWheel = useCallback(
@@ -400,10 +441,33 @@ export function RemoteBrowser({ filePath }: Props) {
     sendAction({ action: "browser_interaction", type: "refresh" });
   }, [sendAction]);
 
+  const handleSendClipText = useCallback(() => {
+    if (!clipText.trim()) return;
+    sendAction({ action: "browser_interaction", type: "insert_text", text: clipText });
+    setClipText("");
+  }, [sendAction, clipText]);
+
+  const handleGetSelection = useCallback(() => {
+    sendAction({ action: "browser_interaction", type: "get_selection" });
+  }, [sendAction]);
+
+  const handleOpenSplit = useCallback(() => {
+    if (!currentUrl) return;
+    const w = Math.floor(screen.width / 2);
+    window.open(currentUrl, "_blank", `width=${w},height=${screen.height},left=${w},top=0,noopener,noreferrer`);
+    onClosePanel?.();
+  }, [currentUrl, onClosePanel]);
+
   // ── Render ───────────────────────────────────────────────────────────────
 
   return (
     <div className="flex flex-col h-full min-h-0 gap-2">
+      <style>{`
+        @keyframes ripple-expand {
+          0%   { transform: scale(0.3); opacity: 1; }
+          100% { transform: scale(2.4); opacity: 0; }
+        }
+      `}</style>
 
       {/* ── Frosted-glass address bar ── */}
       <div
@@ -435,6 +499,54 @@ export function RemoteBrowser({ filePath }: Props) {
           {currentUrl || (status === "connecting" ? "connecting…" : "—")}
         </span>
 
+        {/* Clipboard toggle */}
+        <button
+          type="button"
+          onClick={() => setClipboardOpen((v) => !v)}
+          disabled={status !== "connected"}
+          title="剪贴板"
+          aria-label="剪贴板"
+          className="shrink-0 rounded-md p-1 transition-colors disabled:opacity-40"
+          style={{
+            color: clipboardOpen ? "var(--accent, #3b82f6)" : "var(--text-secondary)",
+            background: clipboardOpen ? "rgba(59,130,246,0.12)" : "transparent",
+          }}
+          onMouseEnter={(e) => { if (!clipboardOpen) e.currentTarget.style.background = "rgba(255,255,255,0.08)"; }}
+          onMouseLeave={(e) => { if (!clipboardOpen) e.currentTarget.style.background = "transparent"; }}
+        >
+          <Clipboard size={11} />
+        </button>
+
+        {/* Open in right-half window (local split screen) */}
+        <button
+          type="button"
+          onClick={handleOpenSplit}
+          disabled={!currentUrl}
+          title="本地分屏打开（在屏幕右半侧新窗口打开，关闭云端预览）"
+          aria-label="本地分屏打开"
+          className="shrink-0 rounded-md p-1 transition-colors disabled:opacity-40"
+          style={{ color: "var(--text-secondary)" }}
+          onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.08)")}
+          onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+        >
+          <LayoutTemplate size={11} />
+        </button>
+
+        {/* Open in external browser (new tab) */}
+        <button
+          type="button"
+          onClick={() => { if (currentUrl) window.open(currentUrl, "_blank", "noopener,noreferrer"); }}
+          disabled={!currentUrl}
+          title="在本地浏览器中打开（新标签页）"
+          aria-label="在本地浏览器中打开"
+          className="shrink-0 rounded-md p-1 transition-colors disabled:opacity-40"
+          style={{ color: "var(--text-secondary)" }}
+          onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.08)")}
+          onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+        >
+          <ExternalLink size={11} />
+        </button>
+
         {/* Refresh button */}
         <button
           type="button"
@@ -450,6 +562,64 @@ export function RemoteBrowser({ filePath }: Props) {
           <RefreshCw size={11} />
         </button>
       </div>
+
+      {/* ── Clipboard panel ── */}
+      {clipboardOpen && (
+        <div
+          className="flex flex-col gap-2 px-3 py-2.5 rounded-xl text-xs shrink-0 border"
+          style={{
+            background: "rgba(255,255,255,0.04)",
+            borderColor: "rgba(255,255,255,0.10)",
+          }}
+        >
+          <div className="flex items-center justify-between gap-2">
+            <span className="font-medium text-zinc-400">剪贴板同步</span>
+            <button
+              type="button"
+              onClick={() => setClipboardOpen(false)}
+              className="rounded p-0.5 text-zinc-500 hover:text-zinc-200 transition-colors"
+              aria-label="关闭剪贴板"
+            >
+              <X size={11} />
+            </button>
+          </div>
+
+          {/* Paste to remote */}
+          <div className="flex gap-1.5">
+            <input
+              type="text"
+              value={clipText}
+              onChange={(e) => setClipText(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleSendClipText(); } }}
+              placeholder="输入或粘贴文本 → 发送到远端"
+              className="flex-1 min-w-0 rounded-md px-2 py-1 text-[11px] font-mono bg-black/40 border border-white/10 text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-blue-500/50"
+              aria-label="待发送到远端的文本"
+            />
+            <button
+              type="button"
+              onClick={handleSendClipText}
+              disabled={!clipText.trim() || status !== "connected"}
+              title="发送到远端"
+              className="shrink-0 rounded-md px-2 py-1 flex items-center gap-1 text-[11px] font-medium text-white bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              <Send size={10} />
+              发送
+            </button>
+          </div>
+
+          {/* Get remote selection */}
+          <button
+            type="button"
+            onClick={handleGetSelection}
+            disabled={status !== "connected"}
+            className="flex items-center gap-1.5 text-[11px] text-zinc-400 hover:text-zinc-200 disabled:opacity-40 disabled:cursor-not-allowed transition-colors self-start"
+            title="获取远端选中文本（自动复制到本地剪贴板）"
+          >
+            <ClipboardCopy size={11} />
+            获取远端选中文本
+          </button>
+        </div>
+      )}
 
       {/* ── Viewport ── */}
       <div
@@ -474,8 +644,27 @@ export function RemoteBrowser({ filePath }: Props) {
           style={{ cursor: status === "connected" ? "crosshair" : "default" }}
           tabIndex={-1}
           onClick={handleCanvasClick}
+          onDoubleClick={handleCanvasDoubleClick}
           onKeyDown={handleKeyDown}
         />
+
+        {/* ── Click / double-click ripple effects ── */}
+        {ripples.map((r) => (
+          <span
+            key={r.id}
+            className="pointer-events-none absolute rounded-full"
+            style={{
+              left: r.x,
+              top: r.y,
+              width: r.isDouble ? 36 : 24,
+              height: r.isDouble ? 36 : 24,
+              marginLeft: r.isDouble ? -18 : -12,
+              marginTop: r.isDouble ? -18 : -12,
+              border: `2px solid ${r.isDouble ? "rgba(59,130,246,0.9)" : "rgba(255,255,255,0.7)"}`,
+              animation: "ripple-expand 0.55s ease-out forwards",
+            }}
+          />
+        ))}
 
         {/* IME proxy input: focusable but visually hidden (NOT display:none) */}
         <input

@@ -9,7 +9,7 @@ import { PreviewPanel } from "@/components/PreviewPanel";
 import { SearchOverlay } from "@/components/SearchOverlay";
 import { SettingsPanel } from "@/components/SettingsPanel";
 import { Sidebar } from "@/components/Sidebar";
-import { ModelSelector, type AvailableModel } from "@/components/ModelSelector";
+import { ModelSelector } from "@/components/ModelSelector";
 import { ConfigPanel } from "@/components/ConfigPanel";
 import { TaskProgressBar } from "@/components/TaskProgressBar";
 import { useAgentChat } from "@/hooks/useAgentChat";
@@ -60,13 +60,36 @@ export default function Home() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [leftWidth, setLeftWidth] = useState(SIDEBAR_DEFAULT);
   const [rightWidth, setRightWidth] = useState(RIGHT_PANEL_DEFAULT);
-  const [selectedModel, setSelectedModel] = useState<AvailableModel>("glm-4");
+  const [selectedModel, setSelectedModel] = useState<string>("glm-4");
   const lastInputRef = useRef("");
   const draggingRef = useRef<null | "left" | "right">(null);
   const dragStartX = useRef(0);
   const dragStartWidth = useRef(0);
 
   const apiBase = process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8765";
+
+  // Load the default model from config on mount
+  const loadModelFromConfig = useCallback(async () => {
+    try {
+      const url =
+        process.env.NEXT_PUBLIC_AGUI_DIRECT === "1"
+          ? `${apiBase}/api/config`
+          : "/api/config";
+      const res = await fetch(url);
+      if (!res.ok) return;
+      const cfg = (await res.json()) as {
+        agents?: { defaults?: { model?: string } };
+      };
+      const m = cfg?.agents?.defaults?.model;
+      if (m && typeof m === "string") setSelectedModel(m);
+    } catch {
+      // keep default
+    }
+  }, [apiBase]);
+
+  useEffect(() => {
+    void loadModelFromConfig();
+  }, [loadModelFromConfig]);
 
   const openFilePreview = useCallback((path: string) => {
     setPreviewPath(path);
@@ -197,7 +220,7 @@ export default function Home() {
     rightPanelMode === "settings" ? (
       <SettingsPanel onClose={() => setIsPreviewOpen(false)} />
     ) : rightPanelMode === "config" ? (
-      <ConfigPanel onClose={() => setIsPreviewOpen(false)} />
+      <ConfigPanel onClose={() => setIsPreviewOpen(false)} onSaved={loadModelFromConfig} />
     ) : (
       <PreviewPanel
         onClose={() => setIsPreviewOpen(false)}
@@ -295,7 +318,7 @@ export default function Home() {
         {/* Chat area */}
         <div className="flex-1 min-w-0 min-h-0 flex flex-col">
           {/* Top control bar — progress rail on left, actions on right */}
-          <div className="flex items-center gap-1.5 mb-2 shrink-0 min-w-0">
+          <div className="flex items-start gap-1.5 mb-2 shrink-0 min-w-0">
             {/* Inline progress rail — flex-1 so it fills available space */}
             <TaskProgressBar runStatus={runStatus} />
 

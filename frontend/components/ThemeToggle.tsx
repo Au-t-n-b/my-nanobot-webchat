@@ -22,14 +22,13 @@ export function ThemeToggle() {
           aria-label={desc}
           title={desc}
           className={
-            "inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] transition-colors " +
+            "inline-flex items-center justify-center rounded-lg p-1.5 transition-colors " +
             (theme === id
-              ? "ui-subtle ui-text-primary font-medium"
+              ? "ui-subtle ui-text-primary"
               : "ui-text-muted hover:bg-[var(--surface-3)] hover:text-[var(--text-primary)]")
           }
         >
-          <Icon size={11} />
-          {label}
+          <Icon size={13} />
         </button>
       ))}
     </div>

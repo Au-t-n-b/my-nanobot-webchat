@@ -159,14 +159,14 @@ export function TaskProgressBar({ runStatus, compact = false }: { runStatus: Run
               {/* ── Module name below node — hidden in compact mode ── */}
               {!compact && (
                 <span
-                  className={`mt-1.5 text-[9px] leading-tight text-center truncate w-full px-0.5 transition-colors ${
+                  className={`mt-1.5 text-[11px] leading-tight text-center truncate w-full px-0.5 transition-colors ${
                     module.status === "running"
                       ? "font-semibold text-slate-800 dark:text-white"
                       : module.status === "completed"
                         ? "text-emerald-600 dark:text-emerald-400"
                         : "text-slate-400 dark:text-slate-500"
                   }`}
-                  style={{ maxWidth: "64px" }}
+                  style={{ maxWidth: "72px" }}
                 >
                   {module.name}
                 </span>

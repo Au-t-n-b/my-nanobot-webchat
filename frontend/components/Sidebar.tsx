@@ -287,7 +287,7 @@ export function Sidebar({
           </button>
         </div>
 
-        <div className="max-h-[200px] overflow-auto space-y-0.5">
+        <div className="max-h-[200px] overflow-y-auto overflow-x-hidden space-y-0.5">
           {artifacts.length === 0 ? (
             <p className="text-[11px] ui-text-muted">本轮生成的文件会出现在这里，点击后统一在右侧预览。</p>
           ) : (
@@ -389,7 +389,7 @@ export function Sidebar({
           </p>
         )}
 
-        <div className="max-h-44 overflow-auto space-y-0.5" role="list">
+        <div className="max-h-44 overflow-y-auto overflow-x-hidden space-y-0.5" role="list">
           {!skillsLoading && skills.length === 0 && (
             <p className="text-[11px] ui-text-muted">暂无技能（已自动创建 skills 目录）。</p>
           )}

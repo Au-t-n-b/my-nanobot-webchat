@@ -50,24 +50,24 @@ async def _run_with_heartbeat(
 ) -> Any:
     """Await *coro*, calling *on_heartbeat* every *interval* seconds.
 
-    Uses ``asyncio.shield`` so the inner task is never cancelled by the
-    per-heartbeat timeout — only a real external CancelledError propagates.
+    Uses ``asyncio.wait`` with a timeout so the inner task is never cancelled
+    by the per-heartbeat check — only a real CancelledError propagates.
     """
     task: asyncio.Task = asyncio.ensure_future(coro)
     elapsed = 0.0
-    while not task.done():
-        try:
-            await asyncio.wait_for(asyncio.shield(task), timeout=interval)
-        except asyncio.TimeoutError:
+    try:
+        while True:
+            done, _ = await asyncio.wait({task}, timeout=interval)
+            if done:
+                return task.result()
             elapsed += interval
             try:
                 await on_heartbeat(f"⏳ 工具执行中，已等待 {int(elapsed)}s…", tool_hint=False)
             except Exception:
                 pass
-        except asyncio.CancelledError:
-            task.cancel()
-            raise
-    return task.result()
+    except asyncio.CancelledError:
+        task.cancel()
+        raise
 
 
 def _extract_file_key(tool_name: str, arguments: Any) -> str | None:
@@ -316,18 +316,23 @@ class AgentLoop:
                     await _filtered_stream(delta)
 
                 async def _llm_heartbeat() -> None:
-                    while True:
-                        done, _ = await asyncio.wait(
-                            {asyncio.ensure_future(llm_started.wait())},
-                            timeout=10.0,
-                        )
-                        if done:          # event was set; LLM is streaming
-                            break
-                        if on_progress:
-                            try:
-                                await on_progress("⏳ 等待模型响应中…", tool_hint=False)
-                            except Exception:
-                                pass
+                    # Create the wait-task ONCE so we don't leak a new coroutine
+                    # every iteration when the 10-second timeout fires.
+                    wait_task = asyncio.ensure_future(llm_started.wait())
+                    try:
+                        while True:
+                            done, _ = await asyncio.wait({wait_task}, timeout=10.0)
+                            if done:      # event was set; LLM has started streaming
+                                break
+                            if on_progress:
+                                try:
+                                    await on_progress("⏳ 等待模型响应中…", tool_hint=False)
+                                except Exception:
+                                    pass
+                    finally:
+                        wait_task.cancel()
+                        with suppress(asyncio.CancelledError):
+                            await wait_task
 
                 _heartbeat_task = asyncio.create_task(_llm_heartbeat())
                 try:

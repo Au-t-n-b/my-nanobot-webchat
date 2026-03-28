@@ -362,6 +362,26 @@ async def handle_chat(request: web.Request) -> web.StreamResponse | web.Response
                 return await fut
 
             token = agent.set_tool_approval_callback(on_tool_approval)
+
+            async def _sse_heartbeat() -> None:
+                """Independent keepalive: fires every 10 s regardless of agent output.
+
+                Prevents browser / proxy idle-timeout (the frontend enforces 20 s).
+                Uses a dedicated 'Heartbeat' event so the frontend can show a
+                lightweight 'thinking' indicator without polluting the step log.
+                """
+                try:
+                    while not run_finished_sent and not client_disconnected:
+                        await asyncio.sleep(10)
+                        if run_finished_sent or client_disconnected:
+                            break
+                        await safe_write("Heartbeat", {"message": "Agent 正在处理中…"})
+                except asyncio.CancelledError:
+                    pass
+                except Exception:
+                    pass
+
+            heartbeat_task = asyncio.create_task(_sse_heartbeat())
             try:
                 assert user_text is not None
                 process_task = asyncio.create_task(
@@ -442,6 +462,10 @@ async def handle_chat(request: web.Request) -> web.StreamResponse | web.Response
                     )
                     run_finished_sent = True
             finally:
+                # Cancel the keepalive heartbeat regardless of how the run ended
+                heartbeat_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await heartbeat_task
                 agent.reset_tool_approval_callback(token)
     except asyncio.CancelledError:
         client_disconnected = True

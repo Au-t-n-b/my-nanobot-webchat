@@ -586,6 +586,11 @@ export function useAgentChat() {
               setRunStatus("error");
               setStatusMessage(data.message);
             }
+          } else if (event === "Heartbeat") {
+            // Backend keepalive — update status bar so the user knows the
+            // agent is alive; do NOT add a step log entry (would be noisy).
+            const msg = typeof data.message === "string" ? data.message : "Agent 正在处理中…";
+            setStatusMessage(msg);
           }
         };
 

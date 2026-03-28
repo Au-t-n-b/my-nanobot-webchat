@@ -106,9 +106,9 @@ class AgentLoop:
 
     _TOOL_RESULT_MAX_CHARS = 16_000   # session-persistence limit (unchanged)
     # Per-result limit for the **in-flight** message list sent to the LLM.
-    # Smaller than _TOOL_RESULT_MAX_CHARS so that 10-20 tool iterations can
-    # coexist in one context window without blowing the gateway payload limit.
-    _INLINE_RESULT_MAX_CHARS = 6_000
+    # Keep it small: 14 tool calls × 3500 chars ≈ 49 KB, well under any
+    # corporate gateway payload cap and prevents 504 timeouts on large context.
+    _INLINE_RESULT_MAX_CHARS = 3_500
 
     def __init__(
         self,

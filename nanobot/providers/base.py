@@ -75,7 +75,10 @@ class LLMProvider(ABC):
     while maintaining a consistent interface.
     """
 
-    _CHAT_RETRY_DELAYS = (1, 2, 4)
+    # Five retry attempts with exponential-ish back-off.
+    # The longer tail (15 s, 30 s) is specifically needed for corporate gateway
+    # 504 timeouts caused by large contexts: the gateway needs time to unblock.
+    _CHAT_RETRY_DELAYS = (2, 5, 15, 30, 30)
     _TRANSIENT_ERROR_MARKERS = (
         "429",
         "rate limit",

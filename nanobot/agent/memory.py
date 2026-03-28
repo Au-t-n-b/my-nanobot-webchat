@@ -318,8 +318,10 @@ class MemoryConsolidator:
         lock = self.get_lock(session.key)
         async with lock:
             budget = self.context_window_tokens - self.max_completion_tokens - self._SAFETY_BUFFER
-            # Trigger consolidation at 65 % to keep healthy headroom for in-turn growth.
-            trigger = int(budget * 0.65)
+            # Trigger consolidation at 55 % to keep ample headroom for in-turn growth.
+            # Multi-step skills (e.g. Excel processing) can add 10-20 K tokens of tool
+            # results in a single turn; triggering early keeps the total request small.
+            trigger = int(budget * 0.55)
             target = budget // 2
             estimated, source = self.estimate_session_prompt_tokens(session)
             if estimated <= 0:

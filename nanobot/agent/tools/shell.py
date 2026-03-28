@@ -45,7 +45,7 @@ class ExecTool(Tool):
         return "exec"
 
     _MAX_TIMEOUT = 600
-    _MAX_OUTPUT = 10_000
+    _MAX_OUTPUT = 5_000   # keep head+tail; prevents huge payloads from flooding SSE
 
     @property
     def description(self) -> str:

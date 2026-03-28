@@ -510,6 +510,7 @@ export function useAgentChat() {
 
       const decoder = new TextDecoder();
       let buffer = "";
+      let lastFragment = "";  // last raw bytes received — logged on stream error
       // Accumulate file paths found in tool step logs during this run
       const toolArtifactPaths: string[] = [];
 
@@ -601,7 +602,10 @@ export function useAgentChat() {
             }
             const { done, value } = readResult;
             if (done) break;
-            buffer += decoder.decode(value, { stream: true });
+            const chunk = decoder.decode(value, { stream: true });
+            buffer += chunk;
+            // Keep a rolling snapshot of the last 500 chars for diagnostics
+            lastFragment = (lastFragment + chunk).slice(-500);
             buffer = applySseBlocks(buffer, (rec) => handleRec(rec.event, rec.data));
           }
           if (buffer.trim()) {
@@ -622,6 +626,12 @@ export function useAgentChat() {
           return;
         }
         streamError = true;
+        console.error(
+          "[useAgentChat] 流异常结束 —— 断流前最后收到的片段:",
+          lastFragment || "(空，连接可能在首包前断开)",
+          "\n原始错误:",
+          e,
+        );
         setError(e instanceof Error ? e.message : String(e));
         setRunStatus("error");
         setStatusMessage("本轮执行被中断");

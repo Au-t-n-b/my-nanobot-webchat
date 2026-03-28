@@ -7,7 +7,7 @@ import json
 import re
 import os
 import time
-from contextlib import AsyncExitStack, nullcontext
+from contextlib import AsyncExitStack, nullcontext, suppress
 from contextvars import ContextVar, Token
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Awaitable, Callable
@@ -40,6 +40,55 @@ ToolApprovalCallback = Callable[[Any], Awaitable[bool]]
 _APPROVAL_CALLBACK: ContextVar[ToolApprovalCallback | None] = ContextVar(
     "nanobot_tool_approval_cb",
     default=None,
+)
+
+
+async def _run_with_heartbeat(
+    coro: "Awaitable[Any]",
+    on_heartbeat: "Callable[..., Awaitable[None]]",
+    interval: float = 10.0,
+) -> Any:
+    """Await *coro*, calling *on_heartbeat* every *interval* seconds.
+
+    Uses ``asyncio.shield`` so the inner task is never cancelled by the
+    per-heartbeat timeout — only a real external CancelledError propagates.
+    """
+    task: asyncio.Task = asyncio.ensure_future(coro)
+    elapsed = 0.0
+    while not task.done():
+        try:
+            await asyncio.wait_for(asyncio.shield(task), timeout=interval)
+        except asyncio.TimeoutError:
+            elapsed += interval
+            try:
+                await on_heartbeat(f"⏳ 工具执行中，已等待 {int(elapsed)}s…", tool_hint=False)
+            except Exception:
+                pass
+        except asyncio.CancelledError:
+            task.cancel()
+            raise
+    return task.result()
+
+
+def _extract_file_key(tool_name: str, arguments: Any) -> str | None:
+    """Return a stable cache key when a tool call references a file path."""
+    if not isinstance(arguments, dict):
+        return None
+    if tool_name == "exec":
+        cmd = str(arguments.get("command", ""))
+        m = re.search(r"[\w./\\-]+\.(?:xlsx?|csv|json|txt|py|md)", cmd, re.IGNORECASE)
+        return f"exec:{m.group(0).lower()}" if m else None
+    if tool_name in ("read_file", "write_file", "edit_file"):
+        path = str(arguments.get("path", "") or arguments.get("file_path", ""))
+        return f"{tool_name}:{path.lower()}" if path else None
+    return None
+
+
+_EXCEL_ERROR_HINT = (
+    "\n\n💡 [Excel 读取建议] 请尝试以下方案：\n"
+    "① 使用 `openpyxl.load_workbook(path, data_only=True)` 读取计算结果而非公式；\n"
+    "② 确认 Excel 文件未被其他程序打开（文件锁定会导致读取失败）；\n"
+    "③ 若文件损坏，可先另存为 `.csv` 格式再读取。"
 )
 
 
@@ -232,6 +281,8 @@ class AgentLoop:
         iteration = 0
         final_content = None
         tools_used: list[str] = []
+        # file-key → consecutive call count (reset when a *different* file is called)
+        _file_retry_counter: dict[str, int] = {}
 
         # Wrap on_stream with stateful think-tag filter so downstream
         # consumers (CLI, channels) never see <think> blocks.
@@ -255,12 +306,42 @@ class AgentLoop:
             current_model = model_name or self.model
 
             if on_stream:
-                response = await self.provider.chat_stream_with_retry(
-                    messages=messages,
-                    tools=tool_defs,
-                    model=current_model,
-                    on_content_delta=_filtered_stream,
-                )
+                # Guard against cold-start latency: fire a heartbeat every 10 s
+                # until the first token arrives, so the frontend idle-timeout
+                # (20 s) is never triggered while waiting for the LLM to begin.
+                llm_started = asyncio.Event()
+
+                async def _guarded_stream(delta: str) -> None:
+                    llm_started.set()          # first token → stop heartbeat
+                    await _filtered_stream(delta)
+
+                async def _llm_heartbeat() -> None:
+                    while True:
+                        done, _ = await asyncio.wait(
+                            {asyncio.ensure_future(llm_started.wait())},
+                            timeout=10.0,
+                        )
+                        if done:          # event was set; LLM is streaming
+                            break
+                        if on_progress:
+                            try:
+                                await on_progress("⏳ 等待模型响应中…", tool_hint=False)
+                            except Exception:
+                                pass
+
+                _heartbeat_task = asyncio.create_task(_llm_heartbeat())
+                try:
+                    response = await self.provider.chat_stream_with_retry(
+                        messages=messages,
+                        tools=tool_defs,
+                        model=current_model,
+                        on_content_delta=_guarded_stream,
+                    )
+                finally:
+                    llm_started.set()          # unblock heartbeat loop on any exit
+                    _heartbeat_task.cancel()
+                    with suppress(asyncio.CancelledError):
+                        await _heartbeat_task
             else:
                 response = await self.provider.chat_with_retry(
                     messages=messages,
@@ -325,10 +406,26 @@ class AgentLoop:
                 # return_exceptions=True ensures all results are collected
                 # even if one tool is cancelled or raises BaseException.
                 if approved_calls:
-                    results = await asyncio.gather(*(
+                    # Count per-file retries before execution
+                    for tc in approved_calls:
+                        fkey = _extract_file_key(tc.name, tc.arguments)
+                        if fkey:
+                            _file_retry_counter[fkey] = _file_retry_counter.get(fkey, 0) + 1
+
+                    gather_coro = asyncio.gather(*(
                         self.tools.execute(tc.name, tc.arguments)
                         for tc in approved_calls
                     ), return_exceptions=True)
+
+                    # Wrap with heartbeat so long-running execs don't trigger
+                    # the frontend SSE idle timeout (~20 s).
+                    if on_progress:
+                        results = await _run_with_heartbeat(
+                            gather_coro, on_progress, interval=10.0
+                        )
+                    else:
+                        results = await gather_coro
+
                     for tc, result in zip(approved_calls, results):
                         result_by_id[tc.id] = result
 
@@ -336,6 +433,30 @@ class AgentLoop:
                     result = result_by_id.get(tool_call.id, "Tool call cancelled by user approval.")
                     if isinstance(result, BaseException):
                         result = f"Error: {type(result).__name__}: {result}"
+
+                    # ── Inject file-retry warning ──
+                    if isinstance(result, str):
+                        fkey = _extract_file_key(tool_call.name, tool_call.arguments)
+                        if fkey and _file_retry_counter.get(fkey, 0) > 3:
+                            result += (
+                                "\n\n⚠️ [系统提示] 检测到对同一文件的重试已超过 3 次，"
+                                "请检查：文件是否被占用、路径是否正确，"
+                                "或尝试先用 dir/ls 命令确认文件存在。"
+                            )
+
+                        # ── Inject Excel/openpyxl hint ──
+                        args_str = str(tool_call.arguments or "").lower()
+                        is_excel_op = ".xls" in args_str
+                        has_error = (
+                            "openpyxl" in result.lower()
+                            or "xlrd" in result.lower()
+                            or (is_excel_op and (
+                                "error" in result.lower() or "traceback" in result.lower()
+                            ))
+                        )
+                        if has_error:
+                            result += _EXCEL_ERROR_HINT
+
                     messages = self.context.add_tool_result(
                         messages, tool_call.id, tool_call.name, result
                     )

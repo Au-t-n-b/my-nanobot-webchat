@@ -290,8 +290,11 @@ export function RemoteBrowser({ filePath, onClosePanel }: Props) {
     [status, sendAction, spawnRipple],
   );
 
+  // Wheel handler — must be registered as { passive: false } so e.preventDefault()
+  // actually works. React's synthetic onWheel is passive in modern browsers, so we
+  // use a native addEventListener in useEffect instead.
   const handleWheel = useCallback(
-    (e: React.WheelEvent<HTMLDivElement>) => {
+    (e: WheelEvent) => {
       if (status !== "connected") return;
       e.preventDefault();
       accumulatedScrollRef.current.deltaX += e.deltaX;
@@ -315,6 +318,14 @@ export function RemoteBrowser({ filePath, onClosePanel }: Props) {
     },
     [status, sendAction],
   );
+
+  // Register wheel as non-passive so preventDefault() is honoured
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    el.addEventListener("wheel", handleWheel, { passive: false });
+    return () => el.removeEventListener("wheel", handleWheel);
+  }, [handleWheel]);
 
   const focusImeProxy = useCallback(() => {
     if (status !== "connected") return;
@@ -628,7 +639,6 @@ export function RemoteBrowser({ filePath, onClosePanel }: Props) {
         style={{ background: "var(--surface-1, #111)" }}
         onMouseDownCapture={focusImeProxy}
         onTouchStartCapture={focusImeProxy}
-        onWheel={handleWheel}
       >
         {/*
           <canvas> fills the container completely.

@@ -208,11 +208,13 @@ async def test_post_chat_with_agent_maps_sse() -> None:
         on_progress=None,
         on_stream=None,
         on_stream_end=None,
+        model_name=None,
     ):
         assert content == "hi"
         assert session_key == "t1"
         assert channel == "web"
         assert chat_id == "t1"
+        assert model_name is None
         if on_progress:
             await on_progress("thinking", tool_hint=False)
         if on_stream:
@@ -245,6 +247,78 @@ async def test_post_chat_with_agent_maps_sse() -> None:
         assert fin is not None
         assert fin.get("message") == "A"
         assert "error" not in fin
+
+
+@pytest.mark.asyncio
+async def test_post_chat_rejects_non_string_model_name() -> None:
+    agent = MagicMock()
+    agent.model = "m1"
+    agent.process_direct = AsyncMock(return_value=None)
+    agent.close_mcp = AsyncMock()
+    app = create_app(agent_loop=agent)
+    async with TestClient(TestServer(app)) as client:
+        resp = await client.post(
+            "/api/chat",
+            json={
+                "threadId": "t1",
+                "runId": "r1",
+                "messages": [{"role": "user", "content": "hi"}],
+                "humanInTheLoop": False,
+                "model_name": 123,
+            },
+        )
+        assert resp.status == 400
+        body = await resp.json()
+        assert body.get("detail") == "model_name must be a string"
+    agent.process_direct.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_post_chat_model_name_override_updates_runstarted_and_call_arg() -> None:
+    from nanobot.bus.events import OutboundMessage
+
+    agent = MagicMock()
+    agent.model = "m1"
+
+    async def pd(
+        content,
+        session_key="x",
+        channel="x",
+        chat_id="x",
+        on_progress=None,
+        on_stream=None,
+        on_stream_end=None,
+        model_name=None,
+    ):
+        assert content == "hi"
+        assert session_key == "t1"
+        assert channel == "web"
+        assert chat_id == "t1"
+        assert model_name == "glm-4.7"
+        if on_stream:
+            await on_stream("A")
+        return OutboundMessage(channel="web", chat_id=session_key, content="A")
+
+    agent.process_direct = AsyncMock(side_effect=pd)
+    agent.close_mcp = AsyncMock()
+
+    app = create_app(agent_loop=agent)
+    async with TestClient(TestServer(app)) as client:
+        resp = await client.post(
+            "/api/chat",
+            json={
+                "threadId": "t1",
+                "runId": "r1",
+                "messages": [{"role": "user", "content": "hi"}],
+                "humanInTheLoop": False,
+                "model_name": "glm-4.7",
+            },
+        )
+        assert resp.status == 200
+        body = await resp.text()
+        rs = _sse_event_payload(body, "RunStarted")
+        assert rs is not None
+        assert rs.get("model") == "glm-4.7"
 
 
 @pytest.mark.asyncio

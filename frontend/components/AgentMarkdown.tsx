@@ -56,7 +56,7 @@ function normalizeAssistantLinks(content: string): string {
   return result;
 }
 
-const FOLD_THRESHOLD = 15;
+const OTHER_CODE_FOLD_THRESHOLD = 12;
 
 function extractCodeText(node: ReactNode): string {
   if (typeof node === "string") return node;
@@ -70,8 +70,11 @@ function extractCodeText(node: ReactNode): string {
 
 function FoldableCodeBlock({ lang, children }: { lang: string; children: React.ReactNode }) {
   const code = extractCodeText(children);
+  const normalizedLang = (lang || "").trim().toLowerCase();
   const lines = code.split("\n").filter((l, i, arr) => !(i === arr.length - 1 && l === "")).length;
-  const shouldFold = lines > FOLD_THRESHOLD;
+  const shouldFold =
+    normalizedLang === "html" ||
+    (lines >= OTHER_CODE_FOLD_THRESHOLD);
   const [collapsed, setCollapsed] = useState(shouldFold);
   const [copied, setCopied] = useState(false);
 
@@ -81,6 +84,40 @@ function FoldableCodeBlock({ lang, children }: { lang: string; children: React.R
       setTimeout(() => setCopied(false), 1500);
     });
   };
+
+  const label = normalizedLang === "html" ? "HTML 源码" : (lang ? `${lang} 源码` : "源码");
+
+  if (collapsed && shouldFold) {
+    return (
+      <div className="my-2 rounded-xl overflow-hidden text-xs ui-card">
+        <button
+          type="button"
+          onClick={() => setCollapsed(false)}
+          className="w-full flex items-center justify-between gap-3 px-3 py-2 ui-text-secondary hover:bg-[var(--surface-2)] transition-colors"
+          aria-label="展开代码块"
+          title="点击展开"
+        >
+          <span className="truncate">
+            [{label} - {lines} lines]
+          </span>
+          <span className="shrink-0 inline-flex items-center gap-1">
+            <span className="text-[10px] ui-text-muted">{copied ? "已复制" : ""}</span>
+            <span className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] ui-text-secondary border"
+              style={{ borderColor: "var(--border-subtle)", background: "var(--surface-3)" }}
+              onClick={(e) => { e.stopPropagation(); copy(); }}
+              role="button"
+              aria-label="复制代码"
+              title="复制"
+            >
+              {copied ? <Check size={10} /> : <Copy size={10} />}
+              复制
+            </span>
+            <ChevronDown size={12} />
+          </span>
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="my-2 rounded-xl overflow-hidden text-xs ui-card">

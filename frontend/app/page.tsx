@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Menu, X } from "lucide-react";
+import { PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Menu, Settings, X } from "lucide-react";
 import { ChatArea } from "@/components/ChatArea";
 import { ChoicesModal } from "@/components/ChoicesModal";
 import { ErrorToast } from "@/components/ErrorToast";
@@ -9,6 +9,9 @@ import { PreviewPanel } from "@/components/PreviewPanel";
 import { SearchOverlay } from "@/components/SearchOverlay";
 import { SettingsPanel } from "@/components/SettingsPanel";
 import { Sidebar } from "@/components/Sidebar";
+import { ModelSelector, type AvailableModel } from "@/components/ModelSelector";
+import { ConfigPanel } from "@/components/ConfigPanel";
+import { TaskProgressBar } from "@/components/TaskProgressBar";
 import { useAgentChat } from "@/hooks/useAgentChat";
 import { previewKindFromPath } from "@/lib/previewKind";
 
@@ -20,7 +23,7 @@ const RIGHT_PANEL_MAX = typeof window !== "undefined"
   ? Math.floor(window.innerWidth * 0.62)
   : 900;
 
-type RightPanelMode = "preview" | "settings";
+type RightPanelMode = "preview" | "settings" | "config";
 
 export default function Home() {
   const {
@@ -34,6 +37,7 @@ export default function Home() {
     pendingChoices,
     runStatus,
     statusMessage,
+    effectiveModel,
     sendMessage,
     approveTool,
     clearPendingChoices,
@@ -56,6 +60,7 @@ export default function Home() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [leftWidth, setLeftWidth] = useState(SIDEBAR_DEFAULT);
   const [rightWidth, setRightWidth] = useState(RIGHT_PANEL_DEFAULT);
+  const [selectedModel, setSelectedModel] = useState<AvailableModel>("glm-4");
   const lastInputRef = useRef("");
   const draggingRef = useRef<null | "left" | "right">(null);
   const dragStartX = useRef(0);
@@ -109,14 +114,14 @@ export default function Home() {
     lastInputRef.current = v;
     setInputPrefill("");
     setToastDismissed(false);
-    void sendMessage(v);
-  }, [sendMessage]);
+    void sendMessage(v, selectedModel);
+  }, [selectedModel, sendMessage]);
 
   const handleRetry = useCallback(() => {
     if (!lastInputRef.current) return;
     setToastDismissed(false);
-    void sendMessage(lastInputRef.current);
-  }, [sendMessage]);
+    void sendMessage(lastInputRef.current, selectedModel);
+  }, [selectedModel, sendMessage]);
 
   const showError = error && !toastDismissed;
 
@@ -183,14 +188,20 @@ export default function Home() {
     onSkillSelect: handleSkillSelect,
   };
 
+  const openConfig = useCallback(() => {
+    setRightPanelMode("config");
+    setIsPreviewOpen(true);
+  }, []);
+
   const rightPanel =
     rightPanelMode === "settings" ? (
       <SettingsPanel onClose={() => setIsPreviewOpen(false)} />
+    ) : rightPanelMode === "config" ? (
+      <ConfigPanel onClose={() => setIsPreviewOpen(false)} />
     ) : (
       <PreviewPanel
         onClose={() => setIsPreviewOpen(false)}
         filePath={previewPath}
-        onClearFile={() => setPreviewPath(null)}
         onOpenPath={openFilePreview}
         activeSkillName={activeSkillName}
         onFillInput={handleFillInput}
@@ -218,7 +229,7 @@ export default function Home() {
         choices={pendingChoices}
         onSelect={(choice) => {
           clearPendingChoices();
-          void sendMessage(choice.value);
+          void sendMessage(choice.value, selectedModel);
         }}
         onClose={clearPendingChoices}
       />
@@ -283,26 +294,42 @@ export default function Home() {
 
         {/* Chat area */}
         <div className="flex-1 min-w-0 min-h-0 flex flex-col">
-          {/* Top control bar */}
-          <div className="flex items-center justify-end gap-1.5 mb-2 shrink-0">
-            <button
-              type="button"
-              onClick={() => setSidebarCollapsed((v) => !v)}
-              aria-label={sidebarCollapsed ? "展开左侧栏" : "收起左侧栏"}
-              className="rounded-lg p-2 ui-text-secondary hover:bg-[var(--surface-3)] hover:ui-text-primary transition-colors border border-transparent hover:border-[var(--border-subtle)]"
-              title={sidebarCollapsed ? "展开左侧栏" : "收起左侧栏"}
-            >
-              {sidebarCollapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}
-            </button>
-            <button
-              type="button"
-              onClick={() => setIsPreviewOpen((v) => !v)}
-              aria-label={isPreviewOpen ? "收起右侧预览" : "展开右侧预览"}
-              className="rounded-lg p-2 ui-text-secondary hover:bg-[var(--surface-3)] hover:ui-text-primary transition-colors border border-transparent hover:border-[var(--border-subtle)]"
-              title={isPreviewOpen ? "收起右侧预览" : "展开右侧预览"}
-            >
-              {isPreviewOpen ? <PanelRightClose size={17} /> : <PanelRightOpen size={17} />}
-            </button>
+          {/* Top control bar — progress rail on left, actions on right */}
+          <div className="flex items-center gap-1.5 mb-2 shrink-0 min-w-0">
+            {/* Inline progress rail — flex-1 so it fills available space */}
+            <TaskProgressBar runStatus={runStatus} />
+
+            {/* Right-side action buttons */}
+            <div className="flex items-center gap-1.5 shrink-0">
+              <ModelSelector value={selectedModel} onChange={setSelectedModel} />
+              <button
+                type="button"
+                onClick={openConfig}
+                aria-label="配置中心"
+                title="配置中心"
+                className="rounded-lg p-2 ui-text-secondary hover:bg-[var(--surface-3)] hover:ui-text-primary transition-colors border border-transparent hover:border-[var(--border-subtle)]"
+              >
+                <Settings size={17} />
+              </button>
+              <button
+                type="button"
+                onClick={() => setSidebarCollapsed((v) => !v)}
+                aria-label={sidebarCollapsed ? "展开左侧栏" : "收起左侧栏"}
+                className="rounded-lg p-2 ui-text-secondary hover:bg-[var(--surface-3)] hover:ui-text-primary transition-colors border border-transparent hover:border-[var(--border-subtle)]"
+                title={sidebarCollapsed ? "展开左侧栏" : "收起左侧栏"}
+              >
+                {sidebarCollapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsPreviewOpen((v) => !v)}
+                aria-label={isPreviewOpen ? "收起右侧预览" : "展开右侧预览"}
+                className="rounded-lg p-2 ui-text-secondary hover:bg-[var(--surface-3)] hover:ui-text-primary transition-colors border border-transparent hover:border-[var(--border-subtle)]"
+                title={isPreviewOpen ? "收起右侧预览" : "展开右侧预览"}
+              >
+                {isPreviewOpen ? <PanelRightClose size={17} /> : <PanelRightOpen size={17} />}
+              </button>
+            </div>
           </div>
 
           <div className="flex-1 min-h-0">
@@ -312,6 +339,7 @@ export default function Home() {
               isLoading={isLoading}
               runStatus={runStatus}
               statusMessage={statusMessage}
+              effectiveModel={effectiveModel}
               pendingTool={pendingTool}
               pendingChoices={pendingChoices}
               onSend={handleSend}
@@ -360,6 +388,7 @@ export default function Home() {
           isLoading={isLoading}
           runStatus={runStatus}
           statusMessage={statusMessage}
+          effectiveModel={effectiveModel}
           pendingTool={pendingTool}
           pendingChoices={pendingChoices}
           onSend={handleSend}

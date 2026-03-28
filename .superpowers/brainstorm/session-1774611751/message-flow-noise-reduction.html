@@ -1,0 +1,101 @@
+<h2>消息流降噪（方案对比）</h2>
+<p class="subtitle">目标：折叠中间产物、把执行元数据“贴边”而不是占一整行。</p>
+
+<div class="section">
+  <div class="label">你要选的是交互结构（实现后会套用现有 UI 变量与主题）</div>
+</div>
+
+<div class="options">
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>ARTIFACTS 抽屉 + 气泡角标（推荐）</h3>
+      <p>HTML/网页视窗链接/长代码块自动收纳到「中间产物」抽屉；气泡右下角显示小标签：已完成、模型名。</p>
+      <div class="mockup">
+        <div class="mockup-header">对话气泡示意</div>
+        <div class="mockup-body">
+          <div style="display:flex;gap:10px;align-items:flex-start">
+            <div style="flex:1;border:1px solid rgba(255,255,255,.06);border-radius:16px;padding:14px;background:rgba(255,255,255,.03)">
+              <div style="font-size:13px;line-height:1.55">
+                这里是回答正文（重点内容保持可读性优先）。
+              </div>
+              <div style="margin-top:10px;border-top:1px solid rgba(255,255,255,.06);padding-top:10px">
+                <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+                  <div style="font-size:12px;opacity:.8">中间产物（2）</div>
+                  <div style="font-size:12px;opacity:.8">▸ 展开</div>
+                </div>
+                <div style="margin-top:8px;font-size:12px;opacity:.75">
+                  [HTML 源码 - 11 lines] · [网页视窗链接 - 1]
+                </div>
+              </div>
+              <div style="display:flex;justify-content:flex-end;margin-top:10px">
+                <div style="font-size:11px;opacity:.75;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.06);padding:3px 8px;border-radius:999px">
+                  已完成 · 模型：glm-4
+                </div>
+              </div>
+            </div>
+          </div>
+          <div style="margin-top:10px;font-size:12px;opacity:.75">
+            抽屉展开后才显示：长 HTML / 大代码块 / 多个链接按钮。
+          </div>
+        </div>
+      </div>
+      <div class="pros-cons">
+        <div class="pros">
+          <h4>优点</h4>
+          <ul>
+            <li>对话主线最干净</li>
+            <li>产物集中管理，便于复制/预览</li>
+            <li>元数据不占整行</li>
+          </ul>
+        </div>
+        <div class="cons">
+          <h4>代价</h4>
+          <ul>
+            <li>需要定义“什么算可折叠产物”的规则</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>仅折叠长代码块（最小改动）</h3>
+      <p>只对 HTML/长代码块做折叠；链接按钮仍保持原样；元数据仍在状态区但更紧凑。</p>
+      <div class="pros-cons">
+        <div class="pros">
+          <h4>优点</h4>
+          <ul><li>实现快、风险小</li><li>规则简单（按 code fence 行数阈值）</li></ul>
+        </div>
+        <div class="cons">
+          <h4>代价</h4>
+          <ul><li>“网页视窗链接”仍可能形成噪音</li><li>对话主线改善有限</li></ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>气泡内“侧边栏式”元信息条</h3>
+      <p>把执行状态/模型/耗时做成气泡内右侧细条（像票据边栏），不新增抽屉；产物仍在正文中但更易扫读。</p>
+      <div class="pros-cons">
+        <div class="pros">
+          <h4>优点</h4>
+          <ul><li>视觉统一、很“产品化”</li><li>元信息更可发现</li></ul>
+        </div>
+        <div class="cons">
+          <h4>代价</h4>
+          <ul><li>占用气泡宽度，小屏更拥挤</li><li>仍需解决长产物占高的问题</li></ul>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <p class="subtitle">请点选 A/B/C 其中一个（可多点几次比较），然后在终端回复我：你选哪一个，以及希望抽屉里默认显示哪些条目（HTML、网页视窗链接、长代码块、其它）。</p>
+</div>

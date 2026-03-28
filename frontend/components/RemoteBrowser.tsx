@@ -217,7 +217,7 @@ export function RemoteBrowser({ filePath }: Props) {
       }
       wsRef.current = null;
     };
-  }, [filePath]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [filePath]);
 
   // ── Interaction helpers ──────────────────────────────────────────────────
 
@@ -474,6 +474,7 @@ export function RemoteBrowser({ filePath }: Props) {
           style={{ cursor: status === "connected" ? "crosshair" : "default" }}
           tabIndex={-1}
           onClick={handleCanvasClick}
+          onKeyDown={handleKeyDown}
         />
 
         {/* IME proxy input: focusable but visually hidden (NOT display:none) */}

@@ -4,13 +4,13 @@ import type { AgentMessage, ChoiceItem, RunStatus, StepLog, ToolPendingPayload }
 import { MessageList } from "@/components/MessageList";
 import { StepLogs } from "@/components/StepLogs";
 import { ChatInput } from "@/components/ChatInput";
-
 type Props = {
   messages: AgentMessage[];
   stepLogs: StepLog[];
   isLoading: boolean;
   runStatus: RunStatus;
   statusMessage: string;
+  effectiveModel?: string | null;
   pendingTool: ToolPendingPayload | null;
   pendingChoices: ChoiceItem[] | null;
   onSend: (value: string) => void;
@@ -29,6 +29,7 @@ export function ChatArea({
   isLoading,
   runStatus,
   statusMessage,
+  effectiveModel,
   pendingTool,
   pendingChoices,
   onSend,
@@ -40,6 +41,11 @@ export function ChatArea({
   focusSignal,
   prefillText,
 }: Props) {
+  const inlineStatusTag =
+    !isLoading && runStatus === "completed" && statusMessage === "本轮执行完成"
+      ? "本轮执行完成"
+      : null;
+
   return (
     <section className="ui-panel h-full min-h-0 overflow-hidden rounded-2xl p-4 flex flex-col gap-3">
 
@@ -73,8 +79,15 @@ export function ChatArea({
         </div>
       )}
 
-      <StepLogs stepLogs={stepLogs} runStatus={runStatus} statusMessage={statusMessage} />
-      <MessageList messages={messages} isLoading={isLoading} onFileLinkClick={onFileLinkClick} onDeleteMessage={onDeleteMessage} searchQuery={searchQuery} />
+      <StepLogs stepLogs={stepLogs} runStatus={runStatus} statusMessage={statusMessage} runModel={effectiveModel} />
+      <MessageList
+        messages={messages}
+        isLoading={isLoading}
+        inlineStatusTag={inlineStatusTag ?? undefined}
+        onFileLinkClick={onFileLinkClick}
+        onDeleteMessage={onDeleteMessage}
+        searchQuery={searchQuery}
+      />
       <ChatInput
         onSubmit={onSend}
         disabled={disabled}

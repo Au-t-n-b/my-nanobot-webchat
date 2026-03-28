@@ -5,7 +5,7 @@ import type { RunStatus, StepLog } from "@/hooks/useAgentChat";
 import { CheckCircle2, ChevronDown, ChevronRight, CircleDashed, ShieldAlert, TriangleAlert } from "lucide-react";
 import { useState } from "react";
 
-type Props = { stepLogs: StepLog[]; runStatus: RunStatus; statusMessage: string };
+type Props = { stepLogs: StepLog[]; runStatus: RunStatus; statusMessage: string; runModel?: string | null };
 
 function statusMeta(runStatus: RunStatus): { label: string; className: string; icon: ReactNode } {
   switch (runStatus) {
@@ -22,7 +22,7 @@ function statusMeta(runStatus: RunStatus): { label: string; className: string; i
   }
 }
 
-export function StepLogs({ stepLogs, runStatus, statusMessage }: Props) {
+export function StepLogs({ stepLogs, runStatus, statusMessage, runModel }: Props) {
   const [open, setOpen] = useState(false);
   const meta = statusMeta(runStatus);
   if (!stepLogs.length && runStatus === "idle") return null;
@@ -35,6 +35,7 @@ export function StepLogs({ stepLogs, runStatus, statusMessage }: Props) {
           <div>
             <p className={`text-xs font-medium ${meta.className}`}>{meta.label}</p>
             <p className="text-xs ui-text-secondary">{statusMessage}</p>
+            {runModel ? <p className="text-[11px] ui-text-muted mt-0.5">模型：{runModel}</p> : null}
           </div>
         </div>
         {stepLogs.length > 0 && (

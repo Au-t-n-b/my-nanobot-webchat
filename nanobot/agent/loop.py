@@ -219,6 +219,7 @@ class AgentLoop:
         channel: str = "cli",
         chat_id: str = "direct",
         message_id: str | None = None,
+        model_name: str | None = None,
     ) -> tuple[str | None, list[str], list[dict]]:
         """Run the agent iteration loop.
 
@@ -251,19 +252,20 @@ class AgentLoop:
             iteration += 1
 
             tool_defs = self.tools.get_definitions()
+            current_model = model_name or self.model
 
             if on_stream:
                 response = await self.provider.chat_stream_with_retry(
                     messages=messages,
                     tools=tool_defs,
-                    model=self.model,
+                    model=current_model,
                     on_content_delta=_filtered_stream,
                 )
             else:
                 response = await self.provider.chat_with_retry(
                     messages=messages,
                     tools=tool_defs,
-                    model=self.model,
+                    model=current_model,
                 )
 
             usage = response.usage or {}
@@ -465,6 +467,7 @@ class AgentLoop:
         on_progress: Callable[[str], Awaitable[None]] | None = None,
         on_stream: Callable[[str], Awaitable[None]] | None = None,
         on_stream_end: Callable[..., Awaitable[None]] | None = None,
+        model_name: str | None = None,
     ) -> OutboundMessage | None:
         """Process a single inbound message and return the response."""
         # System messages: parse origin from chat_id ("channel:chat_id")
@@ -486,6 +489,7 @@ class AgentLoop:
             final_content, _, all_msgs = await self._run_agent_loop(
                 messages, channel=channel, chat_id=chat_id,
                 message_id=msg.metadata.get("message_id"),
+                model_name=model_name,
             )
             self._save_turn(session, all_msgs, 1 + len(history))
             self.sessions.save(session)
@@ -535,6 +539,7 @@ class AgentLoop:
             on_stream_end=on_stream_end,
             channel=msg.channel, chat_id=msg.chat_id,
             message_id=msg.metadata.get("message_id"),
+            model_name=model_name,
         )
 
         if final_content is None:
@@ -646,6 +651,7 @@ class AgentLoop:
         on_progress: Callable[[str], Awaitable[None]] | None = None,
         on_stream: Callable[[str], Awaitable[None]] | None = None,
         on_stream_end: Callable[..., Awaitable[None]] | None = None,
+        model_name: str | None = None,
     ) -> OutboundMessage | None:
         """Process a message directly and return the outbound payload."""
         await self._connect_mcp()
@@ -653,4 +659,5 @@ class AgentLoop:
         return await self._process_message(
             msg, session_key=session_key, on_progress=on_progress,
             on_stream=on_stream, on_stream_end=on_stream_end,
+            model_name=model_name,
         )

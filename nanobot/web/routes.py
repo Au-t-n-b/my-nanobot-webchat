@@ -34,6 +34,22 @@ if TYPE_CHECKING:
     from nanobot.agent.loop import AgentLoop
 
 
+def _default_task_status_payload() -> dict[str, Any]:
+    modules = [
+        {"id": "m1", "name": "需求分析", "status": "pending", "steps": []},
+        {"id": "m2", "name": "方案设计", "status": "pending", "steps": []},
+        {"id": "m3", "name": "后端实现", "status": "pending", "steps": []},
+        {"id": "m4", "name": "前端实现", "status": "pending", "steps": []},
+        {"id": "m5", "name": "联调验证", "status": "pending", "steps": []},
+        {"id": "m6", "name": "回归发布", "status": "pending", "steps": []},
+    ]
+    return {
+        "updatedAt": None,
+        "overall": {"doneCount": 0, "totalCount": len(modules)},
+        "modules": modules,
+    }
+
+
 async def _cleanup_chat_run(
     approvals: ApprovalRegistry,
     registry: RunRegistry,
@@ -193,6 +209,12 @@ async def handle_chat(request: web.Request) -> web.StreamResponse | web.Response
 
     messages = data.get("messages")
     human_in_the_loop = bool(data.get("humanInTheLoop", False))
+    raw_model_name = data.get("model_name")
+    model_name_override: str | None = None
+    if raw_model_name is not None:
+        if not isinstance(raw_model_name, str):
+            return web.json_response({"detail": "model_name must be a string"}, status=400)
+        model_name_override = raw_model_name.strip() or None
     user_text: str | None = None
     if agent is not None:
         user_text = _last_user_text(messages)
@@ -264,7 +286,7 @@ async def handle_chat(request: web.Request) -> web.StreamResponse | web.Response
             )
             run_finished_sent = True
         else:
-            model_name = agent.model or "unknown"
+            model_name = model_name_override or agent.model or "unknown"
             await safe_write(
                 "RunStarted",
                 {"threadId": thread_id, "runId": run_id, "model": model_name},
@@ -351,6 +373,7 @@ async def handle_chat(request: web.Request) -> web.StreamResponse | web.Response
                         on_progress=on_progress,
                         on_stream=on_stream,
                         on_stream_end=on_stream_end,
+                        model_name=model_name_override,
                     )
                 )
                 out = await process_task
@@ -538,6 +561,62 @@ async def handle_file(request: web.Request) -> web.Response:
     return web.Response(body=body, content_type=ctype)
 
 
+async def handle_task_status(request: web.Request) -> web.Response:
+    cfg = request.app[CONFIG_KEY]
+    workspace = _agui_workspace_root(cfg)
+    progress_file = workspace / "task_progress.json"
+
+    if not progress_file.exists():
+        return web.json_response(_default_task_status_payload())
+
+    try:
+        payload = json.loads(progress_file.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return web.json_response({"detail": "invalid task_progress.json"}, status=500)
+    except OSError as e:
+        return web.json_response({"detail": str(e)}, status=500)
+
+    return web.json_response(payload)
+
+
+async def handle_config_get(request: web.Request) -> web.Response:
+    """GET /api/config — return ~/.nanobot/config.json as JSON."""
+    cors = _cors_headers(request)
+    from nanobot.config.loader import get_config_path  # local import to avoid circular deps
+
+    config_path = get_config_path()
+    if not config_path.exists():
+        return web.json_response({"detail": "config not found"}, status=404, headers=cors)
+    try:
+        payload = json.loads(config_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return web.json_response({"detail": "invalid config.json"}, status=500, headers=cors)
+    except OSError as exc:
+        return web.json_response({"detail": str(exc)}, status=500, headers=cors)
+    return web.json_response(payload, headers=cors)
+
+
+async def handle_config_post(request: web.Request) -> web.Response:
+    """POST /api/config — overwrite ~/.nanobot/config.json with request body."""
+    cors = _cors_headers(request)
+    from nanobot.config.loader import get_config_path
+
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({"detail": "request body must be valid JSON"}, status=400, headers=cors)
+
+    config_path = get_config_path()
+    try:
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        config_path.write_text(json.dumps(body, indent=2, ensure_ascii=False), encoding="utf-8")
+    except OSError as exc:
+        return web.json_response({"detail": str(exc)}, status=500, headers=cors)
+
+    logger.info("config.json updated via API")
+    return web.json_response({"ok": True}, headers=cors)
+
+
 async def handle_browser(request: web.Request) -> web.WebSocketResponse:
     """WebSocket endpoint for remote browser streaming.
 
@@ -690,6 +769,7 @@ async def handle_browser(request: web.Request) -> web.WebSocketResponse:
 def setup_routes(app: web.Application) -> None:
     app.router.add_post("/api/chat", handle_chat)
     app.router.add_post("/api/approve-tool", handle_approve)
+    app.router.add_get("/api/task-status", handle_task_status)
     app.router.add_get("/api/file", handle_file)
     app.router.add_get("/api/skills", handle_skills)
     app.router.add_post("/api/open-folder", handle_open_folder)
@@ -697,7 +777,11 @@ def setup_routes(app: web.Application) -> None:
     app.router.add_get("/api/browser", handle_browser)
     app.router.add_options("/api/chat", handle_options)
     app.router.add_options("/api/approve-tool", handle_options)
+    app.router.add_options("/api/task-status", handle_options)
     app.router.add_options("/api/file", handle_options)
     app.router.add_options("/api/skills", handle_options)
     app.router.add_options("/api/open-folder", handle_options)
     app.router.add_options("/api/trash-files", handle_options)
+    app.router.add_get("/api/config", handle_config_get)
+    app.router.add_post("/api/config", handle_config_post)
+    app.router.add_options("/api/config", handle_options)

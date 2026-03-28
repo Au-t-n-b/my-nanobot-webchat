@@ -222,6 +222,7 @@ export function useAgentChat() {
   const [pendingChoices, setPendingChoices] = useState<ChoiceItem[] | null>(null);
   const [runStatus, setRunStatus] = useState<RunStatus>("idle");
   const [statusMessage, setStatusMessage] = useState("准备就绪");
+  const [effectiveModel, setEffectiveModel] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const hydratedRef = useRef(false);
   const runStatusRef = useRef<RunStatus>("idle");
@@ -300,6 +301,7 @@ export function useAgentChat() {
     setPendingChoices(null);
     setRunStatus("idle");
     setStatusMessage("当前会话已清空");
+    setEffectiveModel(null);
   }, [threadId]);
 
   const clearPendingChoices = useCallback(() => {
@@ -324,6 +326,7 @@ export function useAgentChat() {
     setIsLoading(false);
     setRunStatus("idle");
     setStatusMessage("已创建新会话");
+    setEffectiveModel(null);
   }, []);
 
   const deleteSession = useCallback(
@@ -361,6 +364,7 @@ export function useAgentChat() {
         setIsLoading(false);
         setRunStatus("idle");
         setStatusMessage("会话已删除，已切换到其他会话");
+        setEffectiveModel(null);
       } else {
         setStatusMessage("会话已删除");
       }
@@ -383,6 +387,7 @@ export function useAgentChat() {
     setIsLoading(false);
     setRunStatus("idle");
     setStatusMessage("已切换会话");
+    setEffectiveModel(null);
   }, []);
 
   const approveTool = useCallback(
@@ -419,7 +424,7 @@ export function useAgentChat() {
   );
 
   const sendMessage = useCallback(
-    async (text: string) => {
+    async (text: string, modelName?: string) => {
       const trimmed = text.trim();
       if (!trimmed || !threadId || isLoading) return;
 
@@ -466,6 +471,7 @@ export function useAgentChat() {
             runId,
             messages: bodyMessages,
             humanInTheLoop: false,
+            model_name: modelName?.trim() ? modelName.trim() : undefined,
           }),
         });
 
@@ -508,7 +514,11 @@ export function useAgentChat() {
       const toolArtifactPaths: string[] = [];
 
       const handleRec = (event: string, data: Record<string, unknown>) => {
-        if (event === "TextMessageContent" && typeof data.delta === "string") {
+        if (event === "RunStarted") {
+            if (typeof data.model === "string" && data.model.trim()) {
+              setEffectiveModel(data.model);
+            }
+          } else if (event === "TextMessageContent" && typeof data.delta === "string") {
             const d = data.delta;
             setMessages((prev) =>
               prev.map((m) => (m.id === asstId ? { ...m, content: m.content + d } : m)),
@@ -641,6 +651,7 @@ export function useAgentChat() {
     pendingChoices,
     runStatus,
     statusMessage,
+    effectiveModel,
     sendMessage,
     approveTool,
     clearPendingChoices,

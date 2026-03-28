@@ -16,7 +16,6 @@ import { previewKindFromPath, type PreviewKind } from "@/lib/previewKind";
 type Props = {
   onClose: () => void;
   filePath: string | null;
-  onClearFile: () => void;
   onOpenPath: (path: string) => void;
   activeSkillName?: string | null;
   onFillInput?: (text: string) => void;
@@ -579,7 +578,6 @@ function FilePreviewBody({
 export function PreviewPanel({
   onClose,
   filePath,
-  onClearFile,
   onOpenPath,
   activeSkillName,
   onFillInput,

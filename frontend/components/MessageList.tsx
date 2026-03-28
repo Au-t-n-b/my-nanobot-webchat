@@ -9,6 +9,7 @@ import { extractFilesFromContent } from "@/lib/fileIndex";
 type Props = {
   messages: AgentMessage[];
   isLoading: boolean;
+  inlineStatusTag?: string;
   onFileLinkClick?: (path: string) => void;
   onDeleteMessage?: (id: string) => void;
   searchQuery?: string;
@@ -128,7 +129,14 @@ function Avatar({ role }: { role: "user" | "assistant" }) {
   );
 }
 
-export const MessageList = memo(function MessageList({ messages, isLoading, onFileLinkClick, onDeleteMessage, searchQuery }: Props) {
+export const MessageList = memo(function MessageList({
+  messages,
+  isLoading,
+  inlineStatusTag,
+  onFileLinkClick,
+  onDeleteMessage,
+  searchQuery,
+}: Props) {
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -186,6 +194,16 @@ export const MessageList = memo(function MessageList({ messages, isLoading, onFi
             );
           })}
         </ul>
+        {inlineStatusTag ? (
+          <div className="mt-3 flex justify-center">
+            <span
+              className="inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] ui-text-secondary"
+              style={{ borderColor: "var(--border-subtle)", background: "var(--surface-2)" }}
+            >
+              {inlineStatusTag}
+            </span>
+          </div>
+        ) : null}
         <div ref={bottomRef} />
       </div>
     </div>

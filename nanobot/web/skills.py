@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 
 
@@ -12,6 +13,19 @@ def get_skills_root() -> Path:
     if override:
         return Path(override).expanduser().resolve()
     return (Path.home() / ".nanobot" / "workspace" / "skills").resolve()
+
+
+def _parse_frontmatter_description(content: str) -> str:
+    """Extract the ``description`` value from YAML frontmatter, or return ''."""
+    if not content.startswith("---"):
+        return ""
+    match = re.match(r"^---\n(.*?)\n---", content, re.DOTALL)
+    if not match:
+        return ""
+    for line in match.group(1).splitlines():
+        if line.startswith("description:"):
+            return line[len("description:"):].strip().strip("\"'")
+    return ""
 
 
 def list_skills() -> list[dict[str, object]]:
@@ -27,6 +41,10 @@ def list_skills() -> list[dict[str, object]]:
         if not skill_file.is_file():
             continue
         st = skill_file.stat()
+        try:
+            content = skill_file.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            content = ""
         items.append(
             {
                 "name": child.name,
@@ -35,6 +53,7 @@ def list_skills() -> list[dict[str, object]]:
                 "mtimeMs": int(st.st_mtime * 1000),
                 # "workspace" = user-local skill; future values: "remote", "builtin"
                 "source": "workspace",
+                "description": _parse_frontmatter_description(content),
             }
         )
 

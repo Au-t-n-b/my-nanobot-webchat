@@ -34,6 +34,8 @@ type SkillItem = {
   mtimeMs: number;
   /** "workspace" = user-local; future values: "remote", "builtin" */
   source?: string;
+  /** Parsed from SKILL.md frontmatter `description:` field */
+  description?: string;
 };
 
 type SkillsResp = { items: SkillItem[] };
@@ -364,6 +366,25 @@ export function Sidebar({
                     </span>
                   )}
                 </button>
+                {/* Description tooltip — shown on hover, only when description exists */}
+                {s.description && (
+                  <div
+                    className="pointer-events-none absolute left-full top-0 ml-2 z-50 w-56 opacity-0 group-hover:opacity-100 transition-opacity duration-150"
+                    aria-hidden="true"
+                  >
+                    <div
+                      className="rounded-lg px-3 py-2 text-[11px] leading-relaxed ui-text-secondary shadow-lg"
+                      style={{
+                        background: "var(--surface-1)",
+                        border: "1px solid var(--border-subtle)",
+                        boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
+                      }}
+                    >
+                      <p className="font-semibold ui-text-primary mb-0.5 text-[11px]">{s.name}</p>
+                      {s.description}
+                    </div>
+                  </div>
+                )}
                 {/* 悬浮操作组：复制路径 / 打开位置 */}
                 <div className="absolute right-1 top-0 bottom-0 flex items-center gap-0.5 pr-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
                   <button

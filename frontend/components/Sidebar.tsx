@@ -83,6 +83,7 @@ export function Sidebar({
   const [skillsError, setSkillsError] = useState<string | null>(null);
   const [selectedSkillName, setSelectedSkillName] = useState<string | null>(null);
   const [hoveredSkill, setHoveredSkill] = useState<SkillItem | null>(null);
+  const [tooltipPos, setTooltipPos] = useState<{ top: number; left: number } | null>(null);
   const [removedPaths, setRemovedPaths] = useState<Set<string>>(new Set());
   const [trashError, setTrashError] = useState<string | null>(null);
   const [trashBusy, setTrashBusy] = useState(false);
@@ -338,8 +339,15 @@ export function Sidebar({
               <div
                 key={s.name}
                 role="listitem"
-                onMouseEnter={() => setHoveredSkill(s)}
-                onMouseLeave={() => setHoveredSkill((prev) => (prev?.name === s.name ? null : prev))}
+                onMouseEnter={(e) => {
+                  const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                  setHoveredSkill(s);
+                  setTooltipPos({ top: rect.top, left: rect.right + 8 });
+                }}
+                onMouseLeave={() => {
+                  setHoveredSkill(null);
+                  setTooltipPos(null);
+                }}
                 className={
                   "relative rounded-lg border transition-colors group " +
                   (isActive
@@ -395,20 +403,6 @@ export function Sidebar({
             );
           })}
         </div>
-
-        {/* Description card — rendered OUTSIDE the overflow container to avoid clipping */}
-        {hoveredSkill?.description && (
-          <div
-            className="rounded-lg px-3 py-2 text-[11px] leading-relaxed transition-all duration-150"
-            style={{
-              background: "var(--surface-2)",
-              border: "1px solid var(--border-subtle)",
-            }}
-          >
-            <p className="font-semibold ui-text-primary mb-0.5">{hoveredSkill.name}</p>
-            <p className="ui-text-secondary">{hoveredSkill.description}</p>
-          </div>
-        )}
 
       </section>
 
@@ -493,6 +487,24 @@ export function Sidebar({
         {/* Theme toggle */}
         <ThemeToggle />
       </div>
+      {/* Fixed-position skill description tooltip — unaffected by overflow clipping */}
+      {hoveredSkill?.description && tooltipPos && (
+        <div
+          className="pointer-events-none fixed z-[9999] w-60 rounded-lg px-3 py-2.5 text-[11px] leading-relaxed shadow-xl animate-in fade-in duration-100"
+          style={{
+            top: tooltipPos.top,
+            left: tooltipPos.left,
+            background: "var(--surface-1)",
+            border: "1px solid var(--border-subtle)",
+            boxShadow: "0 8px 32px rgba(0,0,0,0.4)",
+            maxWidth: "240px",
+          }}
+          aria-hidden="true"
+        >
+          <p className="font-semibold ui-text-primary mb-1 text-[11px]">{hoveredSkill.name}</p>
+          <p className="ui-text-secondary leading-snug">{hoveredSkill.description}</p>
+        </div>
+      )}
     </aside>
   );
 }

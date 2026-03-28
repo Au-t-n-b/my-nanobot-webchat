@@ -152,21 +152,21 @@ export function TaskProgressBar({ runStatus, compact = false }: { runStatus: Run
                   <Loader2 size={11} strokeWidth={3} className="animate-spin" />
                 )}
                 {module.status === "pending" && (
-                  <span className="text-[9px] font-bold">{index + 1}</span>
+                  <span className="text-[11px] font-bold">{index + 1}</span>
                 )}
               </div>
 
               {/* ── Module name below node — hidden in compact mode ── */}
               {!compact && (
                 <span
-                  className={`mt-1.5 text-[11px] leading-tight text-center truncate w-full px-0.5 transition-colors ${
+                  className={`mt-1.5 text-xs leading-tight text-center truncate w-full px-0.5 transition-colors ${
                     module.status === "running"
                       ? "font-semibold text-slate-800 dark:text-white"
                       : module.status === "completed"
                         ? "text-emerald-600 dark:text-emerald-400"
                         : "text-slate-400 dark:text-slate-500"
                   }`}
-                  style={{ maxWidth: "72px" }}
+                  style={{ maxWidth: "88px" }}
                 >
                   {module.name}
                 </span>
@@ -180,24 +180,24 @@ export function TaskProgressBar({ runStatus, compact = false }: { runStatus: Run
                   left: "50%",
                   transform: "translateX(-50%)",
                   zIndex: 9999,
-                  width: "200px",
+                  width: "224px",
                 }}
               >
                 <div className="flex justify-center mb-[-1px]">
                   <div className="w-2 h-2 rotate-45 border-l border-t border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900" />
                 </div>
-                <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white/96 dark:bg-slate-900/96 backdrop-blur-md shadow-[0_8px_32px_rgba(0,0,0,0.15)] dark:shadow-[0_8px_32px_rgba(0,0,0,0.6)] p-3 text-xs">
-                  <div className="font-semibold mb-1.5 pb-1.5 border-b border-slate-100 dark:border-slate-700/50 text-slate-800 dark:text-slate-100">
+                <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white/96 dark:bg-slate-900/96 backdrop-blur-md shadow-[0_8px_32px_rgba(0,0,0,0.15)] dark:shadow-[0_8px_32px_rgba(0,0,0,0.6)] p-3.5">
+                  <div className="font-semibold text-sm mb-2 pb-2 border-b border-slate-100 dark:border-slate-700/50 text-slate-800 dark:text-slate-100">
                     {module.name}
                   </div>
                   {module.steps.length === 0 ? (
-                    <p className="text-slate-400 dark:text-slate-500 text-[11px]">暂无细分步骤</p>
+                    <p className="text-slate-400 dark:text-slate-500 text-xs">暂无细分步骤</p>
                   ) : (
-                    <div className="space-y-1.5">
+                    <div className="space-y-2">
                       {module.steps.map((step) => (
                         <div key={step.id} className="flex items-start justify-between gap-2">
                           <span
-                            className={`leading-snug text-[11px] ${
+                            className={`leading-snug text-xs ${
                               step.done
                                 ? "text-slate-600 dark:text-slate-300"
                                 : "text-slate-400 dark:text-slate-500"
@@ -207,9 +207,9 @@ export function TaskProgressBar({ runStatus, compact = false }: { runStatus: Run
                           </span>
                           <span className="shrink-0 mt-0.5">
                             {step.done ? (
-                              <CheckCircle2 size={11} className="text-emerald-500" />
+                              <CheckCircle2 size={13} className="text-emerald-500" />
                             ) : (
-                              <Circle size={11} className="text-slate-300 dark:text-slate-600" />
+                              <Circle size={13} className="text-slate-300 dark:text-slate-600" />
                             )}
                           </span>
                         </div>

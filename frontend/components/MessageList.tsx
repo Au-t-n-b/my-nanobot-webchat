@@ -66,49 +66,63 @@ function fileBasename(p: string): string {
   return p.replace(/\\/g, "/").split("/").filter(Boolean).pop() ?? p;
 }
 
+/**
+ * Pre-compute chip paths for every message in one pass so that:
+ * 1. Bare filenames in message text are upgraded to full absolute paths using
+ *    artifact data from ANY message (not just the current one).
+ * 2. The same file is only shown once — in the earliest message that mentions it.
+ */
+function buildMessageChipPaths(messages: AgentMessage[]): string[][] {
+  // Build a global basename → full-path map from all message artifacts.
+  const globalMap = new Map<string, string>();
+  for (const m of messages) {
+    for (const raw of m.artifacts ?? []) {
+      const p = raw.trim();
+      if (p) globalMap.set(fileBasename(p).toLowerCase(), p);
+    }
+  }
+
+  const globalSeen = new Set<string>(); // tracks paths shown in any earlier message
+
+  return messages.map((m) => {
+    if (m.role !== "assistant" || !m.content?.trim()) return [];
+
+    // Extract paths from the message text, then upgrade bare names via global map.
+    const fromContent = extractFilesFromContent(m.content);
+    const candidates: string[] = [];
+    const localSeen = new Set<string>();
+
+    const addCandidate = (raw: string) => {
+      const p = raw.trim();
+      if (!p) return;
+      const full = globalMap.get(fileBasename(p).toLowerCase()) ?? p;
+      if (!localSeen.has(full)) {
+        localSeen.add(full);
+        candidates.push(full);
+      }
+    };
+
+    for (const p of fromContent) addCandidate(p);
+    for (const p of m.artifacts ?? []) addCandidate(p);
+
+    // Keep only paths not already displayed in a prior message.
+    const chips = candidates.filter((p) => !globalSeen.has(p));
+    for (const p of chips) globalSeen.add(p);
+    return chips;
+  });
+}
+
 function FileIndexChips({
-  content,
-  artifacts,
+  paths,
   onFileLinkClick,
 }: {
-  content: string;
-  artifacts?: string[];
+  paths: string[];
   onFileLinkClick?: (path: string) => void;
 }) {
-  const files = useMemo(() => {
-    const fromContent = extractFilesFromContent(content);
-    const artifactList = (artifacts ?? []).map((p) => p.trim()).filter(Boolean);
-
-    // Build a basename → full-path map from artifacts (absolute paths take priority).
-    const basenameToFull = new Map<string, string>();
-    for (const p of artifactList) {
-      basenameToFull.set(fileBasename(p).toLowerCase(), p);
-    }
-
-    // Start with content-extracted paths, but upgrade any that have a matching
-    // artifact with the same basename (avoids filename-only paths going to /api/file).
-    const seenFull = new Set<string>();
-    const merged: string[] = [];
-    for (const p of fromContent) {
-      const upgraded = basenameToFull.get(fileBasename(p).toLowerCase()) ?? p;
-      if (!seenFull.has(upgraded)) {
-        seenFull.add(upgraded);
-        merged.push(upgraded);
-      }
-    }
-    // Add any artifact paths not already covered by content extraction.
-    for (const p of artifactList) {
-      if (!seenFull.has(p)) {
-        seenFull.add(p);
-        merged.push(p);
-      }
-    }
-    return merged;
-  }, [content, artifacts]);
-  if (files.length === 0) return null;
+  if (paths.length === 0) return null;
   return (
     <div className="mt-2 flex flex-wrap gap-1.5">
-      {files.map((path) => (
+      {paths.map((path) => (
         <button
           key={path}
           type="button"
@@ -160,6 +174,11 @@ export const MessageList = memo(function MessageList({
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages.length, isLoading]);
 
+  // Pre-compute chip paths for all messages in one pass:
+  // - bare filenames are upgraded to full paths via the global artifact map
+  // - each file appears only once (in the earliest message that references it)
+  const chipPathsPerMessage = useMemo(() => buildMessageChipPaths(messages), [messages]);
+
   return (
     <div className="flex-1 min-h-0 overflow-y-auto pr-1">
       {/* Constrain ultra-wide screens for comfortable reading */}
@@ -194,7 +213,7 @@ export const MessageList = memo(function MessageList({
                           onFileLinkClick={onFileLinkClick}
                           searchQuery={searchQuery}
                         />
-                        <FileIndexChips content={m.content} artifacts={m.artifacts} onFileLinkClick={onFileLinkClick} />
+                        <FileIndexChips paths={chipPathsPerMessage[i] ?? []} onFileLinkClick={onFileLinkClick} />
                       </>
                     )}
                   </div>

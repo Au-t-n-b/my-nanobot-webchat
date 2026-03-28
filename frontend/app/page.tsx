@@ -176,13 +176,21 @@ export default function Home() {
     };
   }, []);
 
-  // Track header width for compact mode
+  // Track header width for compact mode.
+  // IMPORTANT: only update state when the compact threshold (760 px) is crossed,
+  // NOT on every pixel change, to avoid a ResizeObserver → setState → re-render
+  // → DOM shrink → ResizeObserver → ... infinite loop.
+  const prevCompactRef = useRef(false);
   useEffect(() => {
     const el = headerRef.current;
     if (!el) return;
     const ro = new ResizeObserver((entries) => {
       const w = entries[0]?.contentRect.width ?? 9999;
-      setHeaderWidth(w);
+      const nextCompact = w < 760;
+      if (nextCompact !== prevCompactRef.current) {
+        prevCompactRef.current = nextCompact;
+        setHeaderWidth(w);
+      }
     });
     ro.observe(el);
     return () => ro.disconnect();

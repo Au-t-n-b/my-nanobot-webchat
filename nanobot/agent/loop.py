@@ -108,7 +108,7 @@ class AgentLoop:
     # Per-result limit for the **in-flight** message list sent to the LLM.
     # Keep it small: 14 tool calls × 3500 chars ≈ 49 KB, well under any
     # corporate gateway payload cap and prevents 504 timeouts on large context.
-    _INLINE_RESULT_MAX_CHARS = 3_500
+    _INLINE_RESULT_MAX_CHARS = 2_000
 
     def __init__(
         self,
@@ -390,7 +390,7 @@ class AgentLoop:
                 # ballooning the request body and causing 504 gateway timeouts.
                 # We replace oversized argument values with a short placeholder
                 # so the LLM still sees the call structure but not the bulk payload.
-                _ARG_INLINE_LIMIT = 400  # chars; full script visible in actual file
+                _ARG_INLINE_LIMIT = 250  # chars; full script visible in actual file
                 inline_tool_call_dicts: list[dict] = []
                 for tcd in tool_call_dicts:
                     func = tcd.get("function", {})

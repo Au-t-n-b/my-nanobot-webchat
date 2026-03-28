@@ -8,7 +8,7 @@ const SESSION_SUMMARIES_STORAGE_KEY = "nanobot_agui_sessions";
 const LEGACY_MESSAGES_STORAGE_KEY = "nanobot_agui_messages";
 const MESSAGES_CAP = 50;
 const MESSAGES_MAX_BYTES = 1.8 * 1024 * 1024;
-const STREAM_IDLE_TIMEOUT_MS = 20_000;
+const STREAM_IDLE_TIMEOUT_MS = 90_000;   // 90 s — SSE proxy may buffer; heartbeat fires every 10 s
 
 export type AgentMessage = {
   id: string;

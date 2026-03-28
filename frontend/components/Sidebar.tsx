@@ -82,6 +82,7 @@ export function Sidebar({
   const [skillsLoading, setSkillsLoading] = useState(false);
   const [skillsError, setSkillsError] = useState<string | null>(null);
   const [selectedSkillName, setSelectedSkillName] = useState<string | null>(null);
+  const [hoveredSkill, setHoveredSkill] = useState<SkillItem | null>(null);
   const [removedPaths, setRemovedPaths] = useState<Set<string>>(new Set());
   const [trashError, setTrashError] = useState<string | null>(null);
   const [trashBusy, setTrashBusy] = useState(false);
@@ -337,6 +338,8 @@ export function Sidebar({
               <div
                 key={s.name}
                 role="listitem"
+                onMouseEnter={() => setHoveredSkill(s)}
+                onMouseLeave={() => setHoveredSkill((prev) => (prev?.name === s.name ? null : prev))}
                 className={
                   "relative rounded-lg border transition-colors group " +
                   (isActive
@@ -357,7 +360,6 @@ export function Sidebar({
                     }
                   }}
                   className="w-full text-left px-2.5 py-2 text-sm ui-text-secondary pr-16 flex items-center gap-1.5 min-w-0"
-                  title={s.skillDir}
                 >
                   <span className="truncate">{s.name}</span>
                   {s.source === "workspace" && (
@@ -366,25 +368,6 @@ export function Sidebar({
                     </span>
                   )}
                 </button>
-                {/* Description tooltip — shown on hover, only when description exists */}
-                {s.description && (
-                  <div
-                    className="pointer-events-none absolute left-full top-0 ml-2 z-50 w-56 opacity-0 group-hover:opacity-100 transition-opacity duration-150"
-                    aria-hidden="true"
-                  >
-                    <div
-                      className="rounded-lg px-3 py-2 text-[11px] leading-relaxed ui-text-secondary shadow-lg"
-                      style={{
-                        background: "var(--surface-1)",
-                        border: "1px solid var(--border-subtle)",
-                        boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
-                      }}
-                    >
-                      <p className="font-semibold ui-text-primary mb-0.5 text-[11px]">{s.name}</p>
-                      {s.description}
-                    </div>
-                  </div>
-                )}
                 {/* 悬浮操作组：复制路径 / 打开位置 */}
                 <div className="absolute right-1 top-0 bottom-0 flex items-center gap-0.5 pr-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
                   <button
@@ -413,22 +396,36 @@ export function Sidebar({
           })}
         </div>
 
+        {/* Description card — rendered OUTSIDE the overflow container to avoid clipping */}
+        {hoveredSkill?.description && (
+          <div
+            className="rounded-lg px-3 py-2 text-[11px] leading-relaxed transition-all duration-150"
+            style={{
+              background: "var(--surface-2)",
+              border: "1px solid var(--border-subtle)",
+            }}
+          >
+            <p className="font-semibold ui-text-primary mb-0.5">{hoveredSkill.name}</p>
+            <p className="ui-text-secondary">{hoveredSkill.description}</p>
+          </div>
+        )}
+
       </section>
 
-      {/* ── 中心资产 Center Assets ── */}
+      {/* ── 组织资产 Organization Assets ── */}
       <section className="ui-card rounded-xl p-3 flex flex-col gap-2 min-h-0">
         <div className="flex items-center justify-between gap-2">
           <span className="text-[11px] font-semibold uppercase tracking-wider ui-text-secondary">
-            中心资产 <span className="font-normal normal-case tracking-normal ui-text-muted">Center Assets</span>
+            组织资产 <span className="font-normal normal-case tracking-normal ui-text-muted">Org Assets</span>
           </span>
         </div>
         <div className="flex flex-col items-center justify-center gap-1.5 py-4 rounded-lg border border-dashed"
           style={{ borderColor: "var(--border-subtle)", background: "var(--surface-2)" }}>
           <span className="text-xl" aria-hidden="true">🏛️</span>
           <p className="text-[11px] ui-text-muted text-center leading-relaxed px-2">
-            中心资产库即将接入
+            组织资产库即将接入
             <br />
-            <span className="text-[10px]">Center asset integration coming soon</span>
+            <span className="text-[10px]">Org asset integration coming soon</span>
           </p>
         </div>
       </section>

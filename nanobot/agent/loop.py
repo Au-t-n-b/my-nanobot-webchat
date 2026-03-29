@@ -521,6 +521,17 @@ class AgentLoop:
                     messages = self.context.add_tool_result(
                         messages, tool_call.id, tool_call.name, inline_result
                     )
+
+                # ── Stop turn after present_choices ──────────────────────────
+                # present_choices signals that we need user input before
+                # proceeding.  Break immediately so the frontend receives
+                # RunFinished with the choices payload and can render the modal.
+                # The user's selection will arrive as the next inbound message.
+                if any(tc.name == "present_choices" for tc in response.tool_calls):
+                    if on_stream_end:
+                        await on_stream_end(resuming=False)
+                    break
+                # ─────────────────────────────────────────────────────────────
             else:
                 if on_stream and on_stream_end:
                     await on_stream_end(resuming=False)

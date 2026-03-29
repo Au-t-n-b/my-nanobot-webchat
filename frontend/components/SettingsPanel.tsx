@@ -3,6 +3,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Check, Eye, EyeOff, Loader2, Save, X } from "lucide-react";
 
+function aguiRequestPath(path: string): string {
+  if (process.env.NEXT_PUBLIC_AGUI_DIRECT === "1") {
+    const base = (process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8765").replace(/\/$/, "");
+    return `${base}${path.startsWith("/") ? path : `/${path}`}`;
+  }
+  return path.startsWith("/") ? path : `/${path}`;
+}
+
 type ProxyConfig = {
   enabled: boolean;
   host: string;
@@ -43,7 +51,7 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
 
   useEffect(() => {
     setLoading(true);
-    fetch("/api/config")
+    fetch(aguiRequestPath("/api/config"))
       .then((r) => r.json())
       .then((data: Config) => {
         const p = data.proxy ?? {};
@@ -62,7 +70,7 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
   const handleSave = async () => {
     setSaving(true);
     try {
-      const res = await fetch("/api/config", {
+      const res = await fetch(aguiRequestPath("/api/config"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

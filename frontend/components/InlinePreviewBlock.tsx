@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { X } from "lucide-react";
+import mermaid from "mermaid";
 import { buildProxiedFileUrl } from "@/lib/apiFile";
 
 type InlineState =
@@ -35,10 +36,9 @@ export function InlinePreviewBlock({ path, onClose }: { path: string; onClose: (
         const text = await res.text();
         if (cancelled) return;
         if (ext === "mmd") {
-          const m = await import("mermaid");
-          m.default.initialize({ startOnLoad: false, theme: "dark", securityLevel: "strict" });
+          mermaid.initialize({ startOnLoad: false, theme: "dark", securityLevel: "strict" });
           const id = `mmd-inline-${Date.now()}`;
-          const { svg } = await m.default.render(id, text);
+          const { svg } = await mermaid.render(id, text);
           if (!cancelled) setState({ status: "mermaid", svg });
         } else {
           setState({ status: "text", lang: LANG_MAP[ext] ?? ext, content: text });

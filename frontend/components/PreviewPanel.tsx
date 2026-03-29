@@ -4,9 +4,8 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
 import { Check, Copy, FileQuestion, FolderOpen, Loader2, Play, Sparkles, X } from "lucide-react";
 import * as XLSX from "xlsx";
 import mammoth from "mammoth/mammoth.browser.js";
-// PrismAsyncLight handles language loading internally and is Turbopack-safe:
-// no manual registerLanguage calls needed, no SSR/HMR registration conflicts.
-import { PrismAsyncLight as SyntaxHighlighter } from "react-syntax-highlighter";
+import mermaid from "mermaid";
+import { ensurePrismLanguagesRegistered, PRISM_LANGUAGE_IDS, SyntaxHighlighter } from "@/lib/prismSyntaxHighlighter";
 import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { AgentMarkdown } from "@/components/AgentMarkdown";
 import { RemoteBrowser } from "@/components/RemoteBrowser";
@@ -38,7 +37,7 @@ const EXT_TO_LANG: Record<string, string> = {
   js: "javascript", jsx: "javascript",
   py: "python",
   json: "json",
-  yaml: "yaml", yml: "yaml", toml: "yaml",
+  yaml: "yaml", yml: "yaml", toml: "toml",
   sh: "bash", bash: "bash",
   css: "css",
   rs: "rust",
@@ -213,6 +212,11 @@ function CodePreview({ code, lang, filePath }: { code: string; lang?: string; fi
 
   const effectiveLang = lang ?? "text";
   const isPlainText = !lang;
+  ensurePrismLanguagesRegistered();
+  const usePrism =
+    Boolean(lang) &&
+    lang !== "text" &&
+    PRISM_LANGUAGE_IDS.has(effectiveLang);
 
   return (
     <div className="relative group rounded-xl overflow-hidden border border-[var(--border-subtle)]">
@@ -252,7 +256,7 @@ function CodePreview({ code, lang, filePath }: { code: string; lang?: string; fi
         )}
       </div>
 
-      {isPlainText ? (
+      {isPlainText || !usePrism ? (
         <pre className="text-xs ui-text-secondary whitespace-pre-wrap font-mono p-3 leading-relaxed overflow-x-auto"
           style={{ background: "var(--surface-2)" }}>
           {code}
@@ -422,9 +426,8 @@ function FilePreviewBody({
           const text = await res.text();
           if (cancelled) return;
           if (kind === "mermaid") {
-            const m = await import("mermaid");
-            m.default.initialize({ startOnLoad: false, theme: "dark", securityLevel: "strict" });
-            const { svg } = await m.default.render(`mmd-${mermaidId}`, text);
+            mermaid.initialize({ startOnLoad: false, theme: "dark", securityLevel: "strict" });
+            const { svg } = await mermaid.render(`mmd-${mermaidId}`, text);
             if (!cancelled) setState({ status: "mermaid", svg, source: text });
             return;
           }

@@ -35,17 +35,139 @@ if TYPE_CHECKING:
 
 
 def _default_task_status_payload() -> dict[str, Any]:
-    modules = [
-        {"id": "m1", "name": "需求分析", "status": "pending", "steps": []},
-        {"id": "m2", "name": "方案设计", "status": "pending", "steps": []},
-        {"id": "m3", "name": "后端实现", "status": "pending", "steps": []},
-        {"id": "m4", "name": "前端实现", "status": "pending", "steps": []},
-        {"id": "m5", "name": "联调验证", "status": "pending", "steps": []},
-        {"id": "m6", "name": "回归发布", "status": "pending", "steps": []},
-    ]
+    return _normalize_task_progress_payload(_default_task_progress_file_payload())
+
+
+def _default_task_progress_file_payload() -> dict[str, Any]:
     return {
+        "schemaVersion": 1,
         "updatedAt": None,
-        "overall": {"doneCount": 0, "totalCount": len(modules)},
+        "progress": [
+            {
+                "moduleId": "m_1",
+                "moduleName": "机房准备",
+                "updatedAt": None,
+                "tasks": [
+                    {"name": "提资", "completed": False},
+                    {"name": "工勘数据采集与处理", "completed": False},
+                    {"name": "勘测记录智能分析", "completed": False},
+                    {"name": "工勘报告生成", "completed": False},
+                ],
+            },
+            {
+                "moduleId": "m_2",
+                "moduleName": "机房工勘",
+                "updatedAt": None,
+                "tasks": [
+                    {"name": "数据解析/架构/空间设", "completed": False},
+                    {"name": "数据智能提取", "completed": False},
+                    {"name": "网段规划/格式转换", "completed": False},
+                    {"name": "智能数据校验", "completed": False},
+                ],
+            },
+            {
+                "moduleId": "m_3",
+                "moduleName": "规划设计",
+                "updatedAt": None,
+                "tasks": [
+                    {"name": "施工智能调度", "completed": False},
+                    {"name": "进度智能化反馈", "completed": False},
+                ],
+            },
+            {
+                "moduleId": "m_4",
+                "moduleName": "硬装/昇腾安装",
+                "updatedAt": None,
+                "tasks": [
+                    {"name": "智能化生成配置文件", "completed": False},
+                    {"name": "昇腾软件安装", "completed": False},
+                    {"name": "单机测试/集群测试", "completed": False},
+                    {"name": "测试结果智能分析", "completed": False},
+                ],
+            },
+            {
+                "moduleId": "m_5",
+                "moduleName": "软件部署/对接",
+                "updatedAt": None,
+                "tasks": [
+                    {"name": "软件部署/测试", "completed": False},
+                    {"name": "对接问题处理", "completed": False},
+                    {"name": "平台对接", "completed": False},
+                ],
+            },
+            {
+                "moduleId": "m_6",
+                "moduleName": "验收上线",
+                "updatedAt": None,
+                "tasks": [
+                    {"name": "验收文档生成", "completed": False},
+                    {"name": "问题定界定位", "completed": False},
+                    {"name": "系统上线", "completed": False},
+                ],
+            },
+        ],
+    }
+
+
+def _task_progress_file_path() -> Path:
+    from nanobot.config.loader import get_config_path
+
+    return get_config_path().parent / "task_progress.json"
+
+
+def _normalize_task_progress_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Normalize persisted progress data into the frontend's existing shape."""
+    # Backward compatibility: if some external writer still emits the old
+    # AGUI-facing structure, pass it through unchanged during migration.
+    if "modules" in payload and "overall" in payload:
+        return payload
+
+    progress = payload.get("progress")
+    if not isinstance(progress, list):
+        progress = []
+
+    modules: list[dict[str, Any]] = []
+    for mod_index, raw_module in enumerate(progress, start=1):
+        module_id = str(raw_module.get("moduleId") or f"m_{mod_index}")
+        module_name = str(raw_module.get("moduleName") or module_id)
+        raw_tasks = raw_module.get("tasks")
+        if not isinstance(raw_tasks, list):
+            raw_tasks = []
+
+        steps: list[dict[str, Any]] = []
+        completed_count = 0
+        for task_index, raw_task in enumerate(raw_tasks, start=1):
+            done = bool(raw_task.get("completed"))
+            if done:
+                completed_count += 1
+            steps.append(
+                {
+                    "id": f"{module_id}_s_{task_index}",
+                    "name": str(raw_task.get("name") or f"任务 {task_index}"),
+                    "done": done,
+                }
+            )
+
+        if steps and completed_count == len(steps):
+            status = "completed"
+        elif completed_count > 0:
+            status = "running"
+        else:
+            status = "pending"
+
+        modules.append(
+            {
+                "id": module_id,
+                "name": module_name,
+                "status": status,
+                "steps": steps,
+            }
+        )
+
+    done_count = sum(1 for module in modules if module["status"] == "completed")
+    return {
+        "updatedAt": payload.get("updatedAt"),
+        "overall": {"doneCount": done_count, "totalCount": len(modules)},
         "modules": modules,
     }
 
@@ -586,9 +708,7 @@ async def handle_file(request: web.Request) -> web.Response:
 
 
 async def handle_task_status(request: web.Request) -> web.Response:
-    cfg = request.app[CONFIG_KEY]
-    workspace = _agui_workspace_root(cfg)
-    progress_file = workspace / "task_progress.json"
+    progress_file = _task_progress_file_path()
 
     if not progress_file.exists():
         return web.json_response(_default_task_status_payload())
@@ -600,7 +720,7 @@ async def handle_task_status(request: web.Request) -> web.Response:
     except OSError as e:
         return web.json_response({"detail": str(e)}, status=500)
 
-    return web.json_response(payload)
+    return web.json_response(_normalize_task_progress_payload(payload))
 
 
 async def handle_config_get(request: web.Request) -> web.Response:

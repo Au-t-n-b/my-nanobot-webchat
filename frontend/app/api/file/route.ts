@@ -14,7 +14,7 @@ import path from "path";
 import os from "os";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { findPreviewFileFallback } from "@/lib/fileResolver";
+import { findPreviewFileFallback, registerKnownFilePath } from "@/lib/fileResolver";
 
 const MIME: Record<string, string> = {
   // text
@@ -121,6 +121,8 @@ export async function GET(req: NextRequest) {
     });
     if (found && (isBareFilename || normalized.startsWith("Output/") || normalized.startsWith("RunTime/") || normalized.startsWith("Input/") || normalized.startsWith("Start/"))) {
       filePath = found;
+      // Cache the resolved path so the next request for this filename is instant
+      registerKnownFilePath(normalized, found, workspace);
     }
   }
 

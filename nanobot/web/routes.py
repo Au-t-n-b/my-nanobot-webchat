@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import io
 import json
 import mimetypes
 import os
 import traceback
+import zipfile
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -24,10 +26,27 @@ from nanobot.web.fs_ops import (
     resolve_in_workspace,
     trash_paths,
 )
-from nanobot.web.keys import AGENT_LOOP_KEY, APPROVAL_REGISTRY_KEY, CONFIG_KEY, RUN_REGISTRY_KEY
+from nanobot.web.keys import (
+    AGENT_LOOP_KEY,
+    APPROVAL_REGISTRY_KEY,
+    CONFIG_KEY,
+    REMOTE_CENTER_CLIENT_FACTORY_KEY,
+    REMOTE_CENTER_SESSION_STORE_KEY,
+    RUN_REGISTRY_KEY,
+)
 from nanobot.web.paths import normalize_file_query, resolve_file_target
+from nanobot.web.remote_center import RemoteCenterClient, RemoteCenterSessionStore
 from nanobot.web.run_registry import ApprovalRegistry, RunRegistry
-from nanobot.web.skills import list_skills
+from nanobot.web.skills import (
+    build_skill_archive,
+    get_skill_dir,
+    get_skills_root,
+    list_skills,
+    parse_skill_metadata,
+    read_remote_skill_metadata,
+    skill_latest_modified_at,
+    write_remote_skill_metadata,
+)
 from nanobot.web.sse import format_sse
 
 if TYPE_CHECKING:
@@ -239,11 +258,425 @@ def _error(code: str, message: str, *, detail: str | None = None, status: int) -
     return web.json_response(payload, status=status)
 
 
+def _remote_center_store(request: web.Request) -> RemoteCenterSessionStore:
+    return request.app[REMOTE_CENTER_SESSION_STORE_KEY]
+
+
+def _remote_center_client_factory(request: web.Request) -> Any:
+    return request.app.get("remote_center_client_factory") or request.app[REMOTE_CENTER_CLIENT_FACTORY_KEY]
+
+
+def _require_remote_session(request: web.Request) -> RemoteCenterSessionStore | web.Response:
+    store = _remote_center_store(request)
+    if not store.is_connected():
+        return _error("remote_not_connected", "Remote center session not established", status=400)
+    return store
+
+
+def _sanitize_skill_folder_name(value: str) -> str:
+    safe = "".join("-" if ch in '\\/:*?"<>|' else ch for ch in str(value or "").strip())
+    safe = " ".join(safe.split())
+    return safe[:120] or "remote-skill"
+
+
+def _list_archive_files(names: list[str]) -> list[str]:
+    return [name for name in names if name and not name.endswith("/")]
+
+
+def _common_prefix(paths: list[str]) -> str:
+    if not paths:
+        return ""
+    segments_list = [path.split("/")[:-1] for path in paths]
+    if not segments_list:
+        return ""
+    prefix: list[str] = []
+    for group in zip(*segments_list, strict=False):
+        if len(set(group)) != 1:
+            break
+        prefix.append(group[0])
+    return "/".join(prefix)
+
+
+def _archive_prefix(paths: list[str]) -> str:
+    files = _list_archive_files(paths)
+    anchors = [path for path in files if path.endswith("/SKILL.md") or path == "SKILL.md" or path.endswith("/_meta.json") or path == "_meta.json"]
+    return _common_prefix(anchors or files)
+
+
+def _write_imported_skill_archive(archive_bytes: bytes, target_dir: Path) -> None:
+    target_dir.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(io.BytesIO(archive_bytes)) as zf:
+        names = zf.namelist()
+        prefix = _archive_prefix(names)
+        wrote_any = False
+        for name in names:
+            if name.endswith("/"):
+                continue
+            relative = name[len(prefix) + 1 :] if prefix and name.startswith(f"{prefix}/") else name
+            if not relative:
+                continue
+            out_path = (target_dir / relative).resolve()
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            out_path.write_bytes(zf.read(name))
+            wrote_any = True
+        if not wrote_any:
+            raise ValueError("Archive did not contain writable files")
+
+
+def _current_scope_and_project(store: RemoteCenterSessionStore) -> tuple[str, str | None]:
+    project_id, _project_name = store.selected_project()
+    return ("project", project_id) if project_id else ("personal", None)
+
+
+async def handle_remote_center_session(request: web.Request) -> web.Response:
+    return web.json_response(_remote_center_store(request).snapshot())
+
+
+async def handle_remote_center_login(request: web.Request) -> web.Response:
+    try:
+        data = await request.json()
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return _error("bad_request", "Invalid JSON body", status=400)
+
+    frontend_base = str(data.get("frontendBase") or "").strip()
+    api_base = str(data.get("apiBase") or "").strip()
+    work_id = str(data.get("workId") or "").strip()
+    password = str(data.get("password") or "")
+    if not frontend_base or not api_base or not work_id or not password:
+        return _error("bad_request", "frontendBase, apiBase, workId and password are required", status=400)
+
+    try:
+        factory = _remote_center_client_factory(request)
+        client = factory(frontend_base, api_base)
+        payload = await client.login(work_id=work_id, password=password)
+        snapshot = _remote_center_store(request).set_session(
+            frontend_base=frontend_base,
+            api_base=api_base,
+            token=str(payload.get("token") or ""),
+            user=payload.get("user") if isinstance(payload.get("user"), dict) else None,
+            projects=payload.get("projects") if isinstance(payload.get("projects"), list) else [],
+            client=client,
+        )
+        return web.json_response(snapshot)
+    except Exception as e:
+        return _error("remote_login_failed", "Failed to login to remote center", detail=str(e), status=502)
+
+
+async def handle_remote_center_logout(request: web.Request) -> web.Response:
+    return web.json_response(await _remote_center_store(request).clear())
+
+
+async def handle_remote_center_project(request: web.Request) -> web.Response:
+    try:
+        data = await request.json()
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return _error("bad_request", "Invalid JSON body", status=400)
+
+    store = _remote_center_store(request)
+    if not store.is_connected():
+        return _error("remote_not_connected", "Remote center session not established", status=400)
+
+    project_id = str(data.get("projectId") or "").strip()
+    if not project_id:
+        return _error("bad_request", "projectId is required", status=400)
+    try:
+        return web.json_response(store.select_project(project_id))
+    except KeyError:
+        return _error("not_found", "Project not found in remote session", status=404)
+
+
+async def handle_remote_org_skills(request: web.Request) -> web.Response:
+    store_or_response = _require_remote_session(request)
+    if isinstance(store_or_response, web.Response):
+        return store_or_response
+    store = store_or_response
+    client = store.client()
+    try:
+        items = await client.list_org_skills()
+        return web.json_response({"items": items})
+    except Exception as e:
+        return _error("remote_bad_response", "Failed to load remote organization skills", detail=str(e), status=502)
+
+
+async def handle_remote_org_skill_detail(request: web.Request) -> web.Response:
+    store_or_response = _require_remote_session(request)
+    if isinstance(store_or_response, web.Response):
+        return store_or_response
+    store = store_or_response
+    skill_id = request.match_info.get("skill_id", "")
+    try:
+        item = await store.client().get_org_skill(skill_id)
+        return web.json_response(item)
+    except KeyError:
+        return _error("not_found", "Remote organization skill not found", status=404)
+    except Exception as e:
+        return _error("remote_bad_response", "Failed to load remote organization skill detail", detail=str(e), status=502)
+
+
+async def handle_remote_org_skill_import(request: web.Request) -> web.Response:
+    store_or_response = _require_remote_session(request)
+    if isinstance(store_or_response, web.Response):
+        return store_or_response
+    store = store_or_response
+    try:
+        data = await request.json()
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return _error("bad_request", "Invalid JSON body", status=400)
+    if str(data.get("target") or "") != "workspace-skills":
+        return _error("bad_request", "Only workspace-skills import target is supported", status=400)
+    skill_id = request.match_info.get("skill_id", "")
+    user = store.user() or {}
+    try:
+        detail = await store.client().get_org_skill(skill_id)
+        archive = await store.client().download_org_skill(skill_id, user_id=str(user.get("workId") or ""))
+        target_dir = get_skills_root() / _sanitize_skill_folder_name(str(detail.get("name") or detail.get("title") or skill_id))
+        _write_imported_skill_archive(archive, target_dir)
+        write_remote_skill_metadata(
+            target_dir,
+            {
+                "source": "remote-imported",
+                "remoteSkillId": str(detail.get("id") or skill_id),
+                "remoteTitle": str(detail.get("title") or detail.get("name") or skill_id),
+                "organizationName": str(detail.get("organizationName") or ""),
+                "businessType": str(detail.get("businessType") or ""),
+                "deliveryType": str(detail.get("deliveryType") or ""),
+                "sourceTemplateVersion": str(detail.get("version") or ""),
+                "version": str(detail.get("version") or ""),
+            },
+        )
+        return web.json_response({"ok": True, "target": "workspace-skills", "importedPath": str(target_dir.resolve())})
+    except Exception as e:
+        return _error("remote_bad_response", "Failed to import remote organization skill", detail=str(e), status=502)
+
+
+async def handle_remote_org_skill_clone(request: web.Request) -> web.Response:
+    store_or_response = _require_remote_session(request)
+    if isinstance(store_or_response, web.Response):
+        return store_or_response
+    store = store_or_response
+    try:
+        data = await request.json()
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return _error("bad_request", "Invalid JSON body", status=400)
+    scope = str(data.get("scope") or "").strip() or "project"
+    project_id = str(data.get("projectId") or "").strip() or None
+    skill_id = request.match_info.get("skill_id", "")
+    user = store.user() or {}
+    try:
+        item = await store.client().clone_org_skill_to_personal(
+            skill_id,
+            scope=scope,
+            project_id=project_id,
+        )
+        return web.json_response({"ok": True, "item": item})
+    except Exception as e:
+        return _error("remote_bad_response", "Failed to clone remote organization skill", detail=str(e), status=502)
+
+
+async def handle_personal_skills_list(request: web.Request) -> web.Response:
+    store_or_response = _require_remote_session(request)
+    if isinstance(store_or_response, web.Response):
+        return store_or_response
+    store = store_or_response
+    scope, project_id = _current_scope_and_project(store)
+    try:
+        items = await store.client().list_personal_skills(
+            scope=scope,
+            project_id=project_id,
+        )
+        return web.json_response({"items": items})
+    except Exception as e:
+        return _error("remote_bad_response", "Failed to load personal skills", detail=str(e), status=502)
+
+
+async def handle_personal_skills_upload(request: web.Request) -> web.Response:
+    store_or_response = _require_remote_session(request)
+    if isinstance(store_or_response, web.Response):
+        return store_or_response
+    store = store_or_response
+    reader = await request.post()
+    scope = str(reader.get("scope") or "").strip() or "project"
+    project_id = str(reader.get("projectId") or "").strip() or None
+    upload = reader.get("file")
+    if upload is None or not hasattr(upload, "file"):
+        return _error("bad_request", "file is required", status=400)
+    try:
+        content = upload.file.read()
+        item = await store.client().upload_personal_skill(
+            filename=str(upload.filename or "skill.zip"),
+            content=content,
+            scope=scope,
+            project_id=project_id,
+        )
+        return web.json_response({"ok": True, "item": item})
+    except Exception as e:
+        return _error("upload_failed", "Failed to upload personal skill", detail=str(e), status=502)
+
+
+async def handle_personal_artifacts_list(request: web.Request) -> web.Response:
+    store_or_response = _require_remote_session(request)
+    if isinstance(store_or_response, web.Response):
+        return store_or_response
+    store = store_or_response
+    scope, project_id = _current_scope_and_project(store)
+    user = store.user() or {}
+    try:
+        items = await store.client().list_personal_artifacts(
+            scope=scope,
+            project_id=project_id,
+            user_id=str(user.get("workId") or ""),
+        )
+        return web.json_response({"items": items})
+    except Exception as e:
+        return _error("remote_bad_response", "Failed to load personal artifacts", detail=str(e), status=502)
+
+
+async def handle_personal_artifacts_upload(request: web.Request) -> web.Response:
+    store_or_response = _require_remote_session(request)
+    if isinstance(store_or_response, web.Response):
+        return store_or_response
+    store = store_or_response
+    reader = await request.post()
+    scope = str(reader.get("scope") or "").strip() or "project"
+    project_id = str(reader.get("projectId") or "").strip() or None
+    uploads = reader.getall("files")
+    if not uploads:
+        return _error("bad_request", "files are required", status=400)
+    try:
+        files = [
+            {
+                "filename": str(item.filename or "file.bin"),
+                "clientFileKey": str(item.filename or "file.bin"),
+                "content": item.file.read(),
+                "contentType": str(item.content_type or "application/octet-stream"),
+            }
+            for item in uploads
+        ]
+        items = await store.client().upload_personal_artifacts(
+            files=files,
+            scope=scope,
+            project_id=project_id,
+        )
+        return web.json_response({"ok": True, "items": items})
+    except Exception as e:
+        return _error("upload_failed", "Failed to upload personal artifacts", detail=str(e), status=502)
+
+
+async def handle_personal_artifacts_upload_from_session(request: web.Request) -> web.Response:
+    store_or_response = _require_remote_session(request)
+    if isinstance(store_or_response, web.Response):
+        return store_or_response
+    store = store_or_response
+    try:
+        data = await request.json()
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return _error("bad_request", "Invalid JSON body", status=400)
+    scope = str(data.get("scope") or "").strip() or "project"
+    project_id = str(data.get("projectId") or "").strip() or None
+    raw_paths = data.get("paths")
+    if not isinstance(raw_paths, list) or not raw_paths:
+        return _error("bad_request", "paths must be a non-empty array", status=400)
+    try:
+        files = []
+        for raw in raw_paths:
+            try:
+                resolved = resolve_in_workspace(str(raw))
+            except BadRequestError:
+                return _error("invalid_upload_source", "paths must stay within workspace", status=400)
+            files.append(
+                {
+                    "filename": resolved.name,
+                    "clientFileKey": resolved.name,
+                    "content": resolved.read_bytes(),
+                    "contentType": mimetypes.guess_type(resolved.name)[0] or "application/octet-stream",
+                }
+            )
+        items = await store.client().upload_personal_artifacts(
+            files=files,
+            scope=scope,
+            project_id=project_id,
+        )
+        return web.json_response({"ok": True, "items": items})
+    except NotFoundError as e:
+        return _error(e.code, e.message, detail=e.detail, status=e.status)
+    except Exception as e:
+        return _error("upload_failed", "Failed to upload session artifacts", detail=str(e), status=502)
+
+
 async def handle_skills(_request: web.Request) -> web.Response:
     try:
         return web.json_response({"items": list_skills()})
     except Exception as e:
         return _error("internal_error", "Failed to list skills", detail=str(e), status=500)
+
+
+async def handle_skill_publish(request: web.Request) -> web.Response:
+    store_or_response = _require_remote_session(request)
+    if isinstance(store_or_response, web.Response):
+        return store_or_response
+    store = store_or_response
+    try:
+        data = await request.json()
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return _error("bad_request", "Invalid JSON body", status=400)
+
+    skill_name = str(data.get("skillName") or "").strip()
+    target = str(data.get("target") or "").strip()
+    if not skill_name or target not in {"personal", "backflow"}:
+        return _error("bad_request", "skillName and target(personal|backflow) are required", status=400)
+    try:
+        skill_dir = get_skill_dir(skill_name)
+    except ValueError:
+        return _error("bad_request", "invalid skillName", status=400)
+    skill_file = skill_dir / "SKILL.md"
+    if not skill_dir.is_dir() or not skill_file.is_file():
+        return _error("not_found", "Skill not found", status=404)
+
+    user = store.user() or {}
+    user_id = str(user.get("workId") or "")
+    scope, project_id = _current_scope_and_project(store)
+    archive = build_skill_archive(skill_dir)
+    if not archive:
+        return _error("bad_request", "Skill archive is empty", status=400)
+    metadata = parse_skill_metadata(skill_dir)
+
+    try:
+        if target == "personal":
+            item = await store.client().upload_personal_skill(
+                filename=f"{skill_name}.zip",
+                content=archive,
+                scope=scope,
+                project_id=project_id,
+                user_id=user_id,
+            )
+            return web.json_response({"ok": True, "target": "personal", "item": item})
+
+        remote_meta = read_remote_skill_metadata(skill_dir) or {}
+        raw_source_template_id = str(remote_meta.get("remoteSkillId") or "").strip()
+        if not raw_source_template_id.isdigit():
+            return _error("bad_request", "Only remote-imported skills can be collected back to remote assets", status=400)
+        item = await store.client().collect_skill_to_remote(
+            filename=f"{skill_name}.zip",
+            content=archive,
+            title=str(remote_meta.get("remoteTitle") or metadata.get("name") or skill_name),
+            description=str(metadata.get("description") or ""),
+            tags=[str(tag) for tag in metadata.get("tags") or [] if str(tag).strip()],
+            business_type=str(remote_meta.get("businessType") or "迁移调优"),
+            delivery_type=str(remote_meta.get("deliveryType") or ""),
+            organization_name=str(remote_meta.get("organizationName") or ""),
+            project_name=project_id,
+            uploader_id=user_id,
+            version=str(metadata.get("version") or remote_meta.get("version") or "1.0.0"),
+            source_template_version=str(
+                remote_meta.get("sourceTemplateVersion") or remote_meta.get("version") or metadata.get("version") or "1.0.0"
+            ),
+            local_last_modified_at=skill_latest_modified_at(skill_dir),
+            base_skill_id=int(raw_source_template_id),
+            base_skill_title=str(remote_meta.get("remoteTitle") or metadata.get("name") or skill_name),
+        )
+        return web.json_response({"ok": True, "target": "backflow", "item": item})
+    except Exception as e:
+        return _error("upload_failed", "Failed to publish skill", detail=str(e), status=502)
 
 
 async def handle_open_folder(request: web.Request) -> web.Response:
@@ -924,7 +1357,21 @@ def setup_routes(app: web.Application) -> None:
     app.router.add_post("/api/approve-tool", handle_approve)
     app.router.add_get("/api/task-status", handle_task_status)
     app.router.add_get("/api/file", handle_file)
+    app.router.add_get("/api/remote-center/session", handle_remote_center_session)
+    app.router.add_post("/api/remote-center/login", handle_remote_center_login)
+    app.router.add_post("/api/remote-center/logout", handle_remote_center_logout)
+    app.router.add_post("/api/remote-center/project", handle_remote_center_project)
+    app.router.add_get("/api/remote-assets/org-skills", handle_remote_org_skills)
+    app.router.add_get("/api/remote-assets/org-skills/{skill_id}", handle_remote_org_skill_detail)
+    app.router.add_post("/api/remote-assets/org-skills/{skill_id}/import", handle_remote_org_skill_import)
+    app.router.add_post("/api/remote-assets/org-skills/{skill_id}/clone-to-personal", handle_remote_org_skill_clone)
+    app.router.add_get("/api/remote-assets/personal-skills", handle_personal_skills_list)
+    app.router.add_post("/api/remote-assets/personal-skills/upload", handle_personal_skills_upload)
+    app.router.add_get("/api/remote-assets/personal-artifacts", handle_personal_artifacts_list)
+    app.router.add_post("/api/remote-assets/personal-artifacts/upload", handle_personal_artifacts_upload)
+    app.router.add_post("/api/remote-assets/personal-artifacts/upload-from-session", handle_personal_artifacts_upload_from_session)
     app.router.add_get("/api/skills", handle_skills)
+    app.router.add_post("/api/skills/publish", handle_skill_publish)
     app.router.add_post("/api/open-folder", handle_open_folder)
     app.router.add_post("/api/trash-files", handle_trash_files)
     app.router.add_get("/api/browser", handle_browser)
@@ -932,7 +1379,21 @@ def setup_routes(app: web.Application) -> None:
     app.router.add_options("/api/approve-tool", handle_options)
     app.router.add_options("/api/task-status", handle_options)
     app.router.add_options("/api/file", handle_options)
+    app.router.add_options("/api/remote-center/session", handle_options)
+    app.router.add_options("/api/remote-center/login", handle_options)
+    app.router.add_options("/api/remote-center/logout", handle_options)
+    app.router.add_options("/api/remote-center/project", handle_options)
+    app.router.add_options("/api/remote-assets/org-skills", handle_options)
+    app.router.add_options("/api/remote-assets/org-skills/{skill_id}", handle_options)
+    app.router.add_options("/api/remote-assets/org-skills/{skill_id}/import", handle_options)
+    app.router.add_options("/api/remote-assets/org-skills/{skill_id}/clone-to-personal", handle_options)
+    app.router.add_options("/api/remote-assets/personal-skills", handle_options)
+    app.router.add_options("/api/remote-assets/personal-skills/upload", handle_options)
+    app.router.add_options("/api/remote-assets/personal-artifacts", handle_options)
+    app.router.add_options("/api/remote-assets/personal-artifacts/upload", handle_options)
+    app.router.add_options("/api/remote-assets/personal-artifacts/upload-from-session", handle_options)
     app.router.add_options("/api/skills", handle_options)
+    app.router.add_options("/api/skills/publish", handle_options)
     app.router.add_options("/api/open-folder", handle_options)
     app.router.add_options("/api/trash-files", handle_options)
     app.router.add_get("/api/config", handle_config_get)

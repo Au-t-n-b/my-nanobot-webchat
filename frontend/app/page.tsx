@@ -6,6 +6,8 @@ import { ChatArea } from "@/components/ChatArea";
 import { ChoicesModal } from "@/components/ChoicesModal";
 import { ErrorToast } from "@/components/ErrorToast";
 import { PreviewPanel } from "@/components/PreviewPanel";
+import { RemoteAssetDetailPanel } from "@/components/RemoteAssetDetailPanel";
+import { RemoteAssetUploadPanel } from "@/components/RemoteAssetUploadPanel";
 import { SearchOverlay } from "@/components/SearchOverlay";
 import { SettingsPanel } from "@/components/SettingsPanel";
 import { Sidebar } from "@/components/Sidebar";
@@ -23,7 +25,7 @@ const RIGHT_PANEL_MAX = typeof window !== "undefined"
   ? Math.floor(window.innerWidth * 0.62)
   : 900;
 
-type RightPanelMode = "preview" | "settings" | "config";
+type RightPanelMode = "preview" | "settings" | "config" | "remoteAssetDetail" | "remoteAssetUpload";
 
 export default function Home() {
   const {
@@ -52,6 +54,8 @@ export default function Home() {
   const [previewPath, setPreviewPath] = useState<string | null>(null);
   const [rightPanelMode, setRightPanelMode] = useState<RightPanelMode>("preview");
   const [activeSkillName, setActiveSkillName] = useState<string | null>(null);
+  const [selectedOrgAssetId, setSelectedOrgAssetId] = useState<string | null>(null);
+  const [sidebarRefreshNonce, setSidebarRefreshNonce] = useState(0);
   const [inputFocusSignal, setInputFocusSignal] = useState(0);
   const [toastDismissed, setToastDismissed] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -124,6 +128,21 @@ export default function Home() {
   const openSettings = useCallback(() => {
     setRightPanelMode("settings");
     setIsPreviewOpen(true);
+  }, []);
+
+  const openRemoteAssetDetail = useCallback((assetId: string) => {
+    setSelectedOrgAssetId(assetId);
+    setRightPanelMode("remoteAssetDetail");
+    setIsPreviewOpen(true);
+  }, []);
+
+  const openRemoteAssetUpload = useCallback(() => {
+    setRightPanelMode("remoteAssetUpload");
+    setIsPreviewOpen(true);
+  }, []);
+
+  const refreshSidebarAssets = useCallback(() => {
+    setSidebarRefreshNonce((value) => value + 1);
   }, []);
 
   const handleSkillSelect = useCallback((skillName: string) => {
@@ -231,6 +250,8 @@ export default function Home() {
     onDeleteSession: deleteSession,
     onOpenSettings: openSettings,
     onSkillSelect: handleSkillSelect,
+    onOpenOrgAssetDetail: openRemoteAssetDetail,
+    refreshNonce: sidebarRefreshNonce,
   };
 
   const openConfig = useCallback(() => {
@@ -240,9 +261,18 @@ export default function Home() {
 
   const rightPanel =
     rightPanelMode === "settings" ? (
-      <SettingsPanel onClose={() => setIsPreviewOpen(false)} />
+      <SettingsPanel onClose={() => setIsPreviewOpen(false)} onOpenRemoteUpload={openRemoteAssetUpload} />
     ) : rightPanelMode === "config" ? (
       <ConfigPanel onClose={() => setIsPreviewOpen(false)} onSaved={loadModelFromConfig} />
+    ) : rightPanelMode === "remoteAssetDetail" ? (
+      <RemoteAssetDetailPanel
+        assetId={selectedOrgAssetId}
+        onClose={() => setIsPreviewOpen(false)}
+        onOpenUpload={openRemoteAssetUpload}
+        onImported={refreshSidebarAssets}
+      />
+    ) : rightPanelMode === "remoteAssetUpload" ? (
+      <RemoteAssetUploadPanel onClose={() => setIsPreviewOpen(false)} onUploaded={refreshSidebarAssets} />
     ) : (
       <PreviewPanel
         onClose={() => setIsPreviewOpen(false)}

@@ -25,6 +25,8 @@ type Props = {
   onDeleteSession?: (threadId: string) => void;
   onOpenSettings?: () => void;
   onSkillSelect?: (skillName: string) => void;
+  onOpenOrgAssetDetail?: (assetId: string) => void;
+  refreshNonce?: number;
   /** When true the sidebar is in 64 px icon-only mode */
   isCollapsed?: boolean;
   onToggleCollapse?: () => void;
@@ -35,14 +37,31 @@ type SkillItem = {
   skillDir: string;
   skillFile: string;
   mtimeMs: number;
-  /** "workspace" = user-local; future values: "remote", "builtin" */
   source?: string;
   /** Parsed from SKILL.md frontmatter `description:` field */
   description?: string;
+  remoteSkillId?: string;
+  remoteTitle?: string;
+  organizationName?: string;
 };
 
 type SkillsResp = { items: SkillItem[] };
+type OrgAssetItem = {
+  id: string;
+  title: string;
+  name: string;
+  description: string;
+  version: string;
+  organizationName: string;
+  updatedAt: string;
+};
 type TrashModalState = { open: boolean; mode: "one" | "all"; targets: string[] };
+type SkillPublishTarget = "personal" | "backflow";
+type SkillPublishModalState = {
+  open: boolean;
+  skill: SkillItem | null;
+  target: SkillPublishTarget;
+};
 
 function apiPath(path: string, apiBase: string): string {
   if (process.env.NEXT_PUBLIC_AGUI_DIRECT === "1") {
@@ -66,9 +85,20 @@ export function Sidebar({
   onDeleteSession,
   onOpenSettings,
   onSkillSelect,
+  onOpenOrgAssetDetail,
+  refreshNonce = 0,
   isCollapsed = false,
   onToggleCollapse,
 }: Props) {
+  const readApiError = useCallback(
+    (body: { error?: { message?: string; detail?: string } }, fallback: string) => {
+      const message = body.error?.message?.trim();
+      const detail = body.error?.detail?.trim();
+      if (message && detail) return `${message}: ${detail}`;
+      return message || detail || fallback;
+    },
+    [],
+  );
   /**
    * Toggle helper: if *targetPath* is already open, close the panel;
    * otherwise open it.
@@ -93,7 +123,19 @@ export function Sidebar({
   const [trashError, setTrashError] = useState<string | null>(null);
   const [trashBusy, setTrashBusy] = useState(false);
   const [trashModal, setTrashModal] = useState<TrashModalState>({ open: false, mode: "one", targets: [] });
+  const [skillPublishModal, setSkillPublishModal] = useState<SkillPublishModalState>({
+    open: false,
+    skill: null,
+    target: "personal",
+  });
+  const [skillPublishBusy, setSkillPublishBusy] = useState(false);
+  const [skillPublishError, setSkillPublishError] = useState<string | null>(null);
+  const [skillPublishStatus, setSkillPublishStatus] = useState<string | null>(null);
   const [copiedPath, setCopiedPath] = useState<string | null>(null);
+  const [orgAssets, setOrgAssets] = useState<OrgAssetItem[]>([]);
+  const [orgAssetsLoading, setOrgAssetsLoading] = useState(false);
+  const [orgAssetsError, setOrgAssetsError] = useState<string | null>(null);
+  const [orgAssetsConnected, setOrgAssetsConnected] = useState(true);
   const stableIndexedFilesRef = useRef<ReturnType<typeof extractIndexedFiles>>([]);
   const indexedFiles = useMemo(() => {
     // During streaming, freeze file-index recomputation to avoid input lag.
@@ -130,7 +172,35 @@ export function Sidebar({
 
   useEffect(() => {
     void loadSkills();
-  }, [loadSkills]);
+  }, [loadSkills, refreshNonce]);
+
+  const loadOrgAssets = useCallback(async () => {
+    setOrgAssetsLoading(true);
+    setOrgAssetsError(null);
+    try {
+      const res = await fetch(apiPath("/api/remote-assets/org-skills", apiBase));
+      const body = (await res.json().catch(() => ({}))) as { items?: OrgAssetItem[]; error?: { code?: string; message?: string } };
+      if (!res.ok) {
+        if (body.error?.code === "remote_not_connected") {
+          setOrgAssetsConnected(false);
+          setOrgAssets([]);
+          return;
+        }
+        throw new Error(body.error?.message ?? `HTTP ${res.status}`);
+      }
+      setOrgAssetsConnected(true);
+      setOrgAssets(body.items ?? []);
+    } catch (e) {
+      setOrgAssetsConnected(true);
+      setOrgAssetsError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setOrgAssetsLoading(false);
+    }
+  }, [apiBase]);
+
+  useEffect(() => {
+    void loadOrgAssets();
+  }, [loadOrgAssets, refreshNonce]);
 
   const copyPath = useCallback((path: string) => {
     void navigator.clipboard.writeText(path).then(() => {
@@ -189,6 +259,41 @@ export function Sidebar({
       setTrashBusy(false);
     }
   }, [apiBase, trashModal.targets]);
+
+  const submitSkillPublish = useCallback(async () => {
+    if (!skillPublishModal.skill) return;
+    setSkillPublishBusy(true);
+    setSkillPublishError(null);
+    setSkillPublishStatus(null);
+    try {
+      const res = await fetch(apiPath("/api/skills/publish", apiBase), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          skillName: skillPublishModal.skill.name,
+          target: skillPublishModal.target,
+        }),
+      });
+      const body = (await res.json().catch(() => ({}))) as {
+        target?: SkillPublishTarget;
+        item?: { title?: string };
+        error?: { message?: string; detail?: string };
+      };
+      if (!res.ok) {
+        throw new Error(readApiError(body, `HTTP ${res.status}`));
+      }
+      if (body.target === "backflow") {
+        setSkillPublishStatus(`已回收到远端项目资产：${body.item?.title ?? skillPublishModal.skill.name}`);
+      } else {
+        setSkillPublishStatus(`已上传为个人资产：${body.item?.title ?? `${skillPublishModal.skill.name}.zip`}`);
+      }
+      setSkillPublishModal({ open: false, skill: null, target: "personal" });
+    } catch (e) {
+      setSkillPublishError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSkillPublishBusy(false);
+    }
+  }, [apiBase, readApiError, skillPublishModal]);
 
   // ── Mini sidebar (collapsed mode) ──────────────────────────────────────
   if (isCollapsed) {
@@ -388,6 +493,16 @@ export function Sidebar({
             {skillsError}
           </p>
         )}
+        {skillPublishStatus && (
+          <p className="rounded-lg px-2 py-1 text-[11px]" style={{ background: "rgba(34,197,94,0.12)", color: "var(--success)", border: "1px solid rgba(34,197,94,0.24)" }}>
+            {skillPublishStatus}
+          </p>
+        )}
+        {skillPublishError && (
+          <p className="rounded-lg px-2 py-1 text-[11px]" style={{ background: "rgba(239,107,115,0.12)", color: "var(--danger)", border: "1px solid rgba(239,107,115,0.24)" }}>
+            {skillPublishError}
+          </p>
+        )}
 
         <div className="max-h-44 overflow-y-auto overflow-x-hidden space-y-0.5" role="list">
           {!skillsLoading && skills.length === 0 && (
@@ -419,6 +534,8 @@ export function Sidebar({
                 <button
                   type="button"
                   onClick={() => {
+                    setSkillPublishError(null);
+                    setSkillPublishStatus(null);
                     if (currentPreviewPath === s.skillFile) {
                       setSelectedSkillName(null);
                       onClosePreview?.();
@@ -428,17 +545,38 @@ export function Sidebar({
                       onSkillSelect?.(s.name);
                     }
                   }}
-                  className="w-full text-left px-2.5 py-2 text-sm ui-text-secondary pr-16 flex items-center gap-1.5 min-w-0"
+                  className="w-full text-left px-2.5 py-2 text-sm ui-text-secondary pr-28 flex items-center gap-1.5 min-w-0"
                 >
                   <span className="truncate">{s.name}</span>
-                  {s.source === "workspace" && (
+                  {s.source === "remote-imported" ? (
+                    <span className="shrink-0 rounded px-1 py-0.5 text-[9px] font-medium leading-none border border-[var(--border-subtle)] text-[var(--accent)]">
+                      remote
+                    </span>
+                  ) : (
                     <span className="shrink-0 rounded px-1 py-0.5 text-[9px] font-medium leading-none ui-text-muted border border-[var(--border-subtle)]">
                       local
                     </span>
                   )}
                 </button>
-                {/* 悬浮操作组：复制路径 / 打开位置 */}
+                {/* 悬浮操作组：上传/回收 / 复制路径 / 打开位置 */}
                 <div className="absolute right-1 top-0 bottom-0 flex items-center gap-0.5 pr-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSkillPublishError(null);
+                      setSkillPublishStatus(null);
+                      setSkillPublishModal({
+                        open: true,
+                        skill: s,
+                        target: s.source === "remote-imported" ? "backflow" : "personal",
+                      });
+                    }}
+                    className="ui-btn-ghost rounded px-1.5 py-1 text-[10px]"
+                    aria-label={`${s.source === "remote-imported" ? "回收" : "上传"} ${s.name}`}
+                    title={s.source === "remote-imported" ? "回收到远端" : "上传到远端"}
+                  >
+                    {s.source === "remote-imported" ? "回收" : "上传"}
+                  </button>
                   <button
                     type="button"
                     onClick={() => copyPath(s.skillFile)}
@@ -473,16 +611,72 @@ export function Sidebar({
           <span className="text-[11px] font-semibold uppercase tracking-wider ui-text-secondary whitespace-nowrap">
             组织资产 <span className="font-normal normal-case tracking-normal ui-text-muted">Org Assets</span>
           </span>
+          <button
+            type="button"
+            onClick={() => void loadOrgAssets()}
+            className="ui-btn-ghost inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs"
+            aria-label="刷新组织资产"
+            title="刷新组织资产"
+          >
+            <RefreshCw size={12} className={orgAssetsLoading ? "animate-spin" : ""} />
+            刷新
+          </button>
         </div>
-        <div className="flex flex-col items-center justify-center gap-1.5 py-4 rounded-lg border border-dashed"
-          style={{ borderColor: "var(--border-subtle)", background: "var(--surface-2)" }}>
-          <span className="text-xl" aria-hidden="true">🏛️</span>
-          <p className="text-[11px] ui-text-muted text-center leading-relaxed px-2">
-            组织资产库即将接入
-            <br />
-            <span className="text-[10px]">Org asset integration coming soon</span>
+        {!orgAssetsConnected ? (
+          <div
+            className="flex flex-col items-center justify-center gap-2 py-4 rounded-lg border border-dashed"
+            style={{ borderColor: "var(--border-subtle)", background: "var(--surface-2)" }}
+          >
+            <span className="text-xl" aria-hidden="true">🏛️</span>
+            <p className="text-[11px] ui-text-muted text-center leading-relaxed px-2">
+              远端组织资产未连接
+              <br />
+              <span className="text-[10px]">请先在设置中登录组织中心</span>
+            </p>
+            <button type="button" onClick={onOpenSettings} className="ui-btn-ghost rounded-lg px-3 py-1.5 text-xs">
+              去连接
+            </button>
+          </div>
+        ) : orgAssetsError ? (
+          <p className="rounded-lg px-2 py-2 text-[11px]" style={{ background: "rgba(239,107,115,0.12)", color: "var(--danger)", border: "1px solid rgba(239,107,115,0.24)" }}>
+            {orgAssetsError}
           </p>
-        </div>
+        ) : (
+          <div className="max-h-44 overflow-y-auto overflow-x-hidden space-y-2">
+            {!orgAssetsLoading && orgAssets.length === 0 ? (
+              <div
+                className="flex flex-col items-center justify-center gap-1.5 py-4 rounded-lg border border-dashed"
+                style={{ borderColor: "var(--border-subtle)", background: "var(--surface-2)" }}
+              >
+                <span className="text-xl" aria-hidden="true">🏛️</span>
+                <p className="text-[11px] ui-text-muted text-center leading-relaxed px-2">当前没有可展示的组织资产。</p>
+              </div>
+            ) : (
+              orgAssets.map((asset) => (
+                <div
+                  key={asset.id}
+                  className="rounded-lg border p-2.5 flex flex-col gap-2"
+                  style={{ borderColor: "var(--border-subtle)", background: "var(--surface-2)" }}
+                >
+                  <div className="min-w-0">
+                    <p className="text-xs font-medium ui-text-primary truncate">{asset.title || asset.name}</p>
+                    <p className="text-[11px] ui-text-muted mt-1 line-clamp-2">{asset.description || asset.organizationName || "组织资产"}</p>
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[10px] ui-text-muted">v{asset.version || "未标注"}</span>
+                    <button
+                      type="button"
+                      onClick={() => onOpenOrgAssetDetail?.(asset.id)}
+                      className="ui-btn-ghost rounded-lg px-2 py-1 text-[11px]"
+                    >
+                      查看详情
+                    </button>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        )}
       </section>
 
       {trashModal.open && (
@@ -507,6 +701,66 @@ export function Sidebar({
               type="button"
               disabled={trashBusy}
               onClick={() => setTrashModal({ open: false, mode: "one", targets: [] })}
+              className="ui-btn-ghost rounded-lg px-3 py-1.5"
+            >
+              取消
+            </button>
+          </div>
+        </div>
+      )}
+
+      {skillPublishModal.open && skillPublishModal.skill && (
+        <div className="ui-card rounded-xl p-3 text-xs space-y-3" style={{ borderColor: "rgba(94,129,244,0.28)", background: "rgba(94,129,244,0.08)" }}>
+          <div className="space-y-1">
+            <p className="ui-text-primary font-medium">
+              {skillPublishModal.skill.source === "remote-imported" ? "回收 Skill" : "上传 Skill"}
+            </p>
+            <p className="ui-text-muted break-all">{skillPublishModal.skill.name}</p>
+          </div>
+          <div className="flex flex-col gap-2">
+            <label className="flex items-center gap-2">
+              <input
+                type="radio"
+                name="skill-publish-target"
+                checked={skillPublishModal.target === "personal"}
+                onChange={() => setSkillPublishModal((prev) => ({ ...prev, target: "personal" }))}
+              />
+              上传为个人资产
+            </label>
+            <label className="flex items-center gap-2">
+              <input
+                type="radio"
+                name="skill-publish-target"
+                checked={skillPublishModal.target === "backflow"}
+                disabled={skillPublishModal.skill.source !== "remote-imported"}
+                onChange={() => setSkillPublishModal((prev) => ({ ...prev, target: "backflow" }))}
+              />
+              提交组织中心回流申请
+            </label>
+          </div>
+          {skillPublishModal.skill.source !== "remote-imported" && (
+            <p className="ui-text-muted">仅从远端导入的 skill 支持按 demo 语义回收到远端项目资产。</p>
+          )}
+          {skillPublishModal.skill.source === "remote-imported" && skillPublishModal.skill.remoteTitle ? (
+            <p className="ui-text-muted">
+              远端来源：{skillPublishModal.skill.remoteTitle}
+              {skillPublishModal.skill.organizationName ? ` / ${skillPublishModal.skill.organizationName}` : ""}
+            </p>
+          ) : null}
+          <div className="flex gap-2">
+            <button
+              type="button"
+              disabled={skillPublishBusy}
+              onClick={() => void submitSkillPublish()}
+              className="rounded-lg px-3 py-1.5 text-white disabled:opacity-50"
+              style={{ background: "var(--accent)" }}
+            >
+              {skillPublishBusy ? "处理中..." : "确认"}
+            </button>
+            <button
+              type="button"
+              disabled={skillPublishBusy}
+              onClick={() => setSkillPublishModal({ open: false, skill: null, target: "personal" })}
               className="ui-btn-ghost rounded-lg px-3 py-1.5"
             >
               取消

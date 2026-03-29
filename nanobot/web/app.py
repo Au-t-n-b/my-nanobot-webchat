@@ -6,7 +6,15 @@ from typing import TYPE_CHECKING
 
 from aiohttp import web
 
-from nanobot.web.keys import AGENT_LOOP_KEY, APPROVAL_REGISTRY_KEY, CONFIG_KEY, RUN_REGISTRY_KEY
+from nanobot.web.keys import (
+    AGENT_LOOP_KEY,
+    APPROVAL_REGISTRY_KEY,
+    CONFIG_KEY,
+    REMOTE_CENTER_CLIENT_FACTORY_KEY,
+    REMOTE_CENTER_SESSION_STORE_KEY,
+    RUN_REGISTRY_KEY,
+)
+from nanobot.web.remote_center import RemoteCenterClient, RemoteCenterSessionStore
 from nanobot.web.routes import cors_middleware, setup_routes
 from nanobot.web.run_registry import ApprovalRegistry, RunRegistry
 
@@ -40,6 +48,8 @@ def create_app(
     app[CONFIG_KEY] = config
     app[RUN_REGISTRY_KEY] = run_registry or RunRegistry()
     app[APPROVAL_REGISTRY_KEY] = ApprovalRegistry()
+    app[REMOTE_CENTER_SESSION_STORE_KEY] = RemoteCenterSessionStore()
+    app[REMOTE_CENTER_CLIENT_FACTORY_KEY] = RemoteCenterClient
     app.on_cleanup.append(_agui_cleanup)
     setup_routes(app)
     return app

@@ -102,7 +102,14 @@ NEVER use relative paths like `Output/report.xlsx` or `./report.xlsx` when menti
 This rule is mandatory: the UI file-index and sidebar preview depend on absolute paths to create clickable links for the user.
 
 Reply directly with text for conversations. Only use the 'message' tool to send to a specific chat channel.
-IMPORTANT: To send files (images, documents, audio, video) to the user, you MUST call the 'message' tool with the 'media' parameter. Do NOT use read_file to "send" a file — reading a file only shows its content to you, it does NOT deliver the file to the user. Example: message(content="Here is the file", media=["/path/to/file.png"])"""
+IMPORTANT: To send files (images, documents, audio, video) to the user, you MUST call the 'message' tool with the 'media' parameter. Do NOT use read_file to "send" a file — reading a file only shows its content to you, it does NOT deliver the file to the user. Example: message(content="Here is the file", media=["/path/to/file.png"])
+
+## Interactive Choices (CRITICAL)
+Whenever you need the user to **choose between options** (e.g. selecting a scenario, confirming next steps, picking a number), you MUST call the `present_choices` tool instead of listing options in plain text.
+- Use `present_choices` even for simple yes/no questions or numbered lists.
+- Each choice must have a `label` (shown to user) and a `value` (sent back to you when selected).
+- After calling `present_choices`, stop and wait — the user's selection will arrive as the next message.
+- NEVER ask the user to "type a number" or "reply with X" — always use `present_choices` for structured selection."""
 
     @staticmethod
     def _build_runtime_context(channel: str | None, chat_id: str | None) -> str:

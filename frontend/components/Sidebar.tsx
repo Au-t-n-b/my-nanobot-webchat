@@ -545,7 +545,7 @@ export function Sidebar({
                       onSkillSelect?.(s.name);
                     }
                   }}
-                  className="w-full text-left px-2.5 py-2 text-sm ui-text-secondary pr-28 flex items-center gap-1.5 min-w-0"
+                  className="w-full text-left px-2.5 py-2 text-sm ui-text-secondary pr-6 group-hover:pr-28 flex items-center gap-1.5 min-w-0 transition-[padding]"
                 >
                   <span className="truncate">{s.name}</span>
                   {s.source === "remote-imported" ? (

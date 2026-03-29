@@ -525,11 +525,13 @@ class AgentLoop:
                 # ── Stop turn after present_choices ──────────────────────────
                 # present_choices signals that we need user input before
                 # proceeding.  Break immediately so the frontend receives
-                # RunFinished with the choices payload and can render the modal.
-                # The user's selection will arrive as the next inbound message.
+                # RunFinished (with the choices payload already captured by
+                # on_tool_approval in routes.py) and can render the modal.
+                # Do NOT call on_stream_end here — let the normal post-loop
+                # path in the caller (routes.py) send RunFinished so that
+                # run_finished_sent is managed in exactly one place.
                 if any(tc.name == "present_choices" for tc in response.tool_calls):
-                    if on_stream_end:
-                        await on_stream_end(resuming=False)
+                    final_content = ""  # choices turn; caller includes run_choices
                     break
                 # ─────────────────────────────────────────────────────────────
             else:

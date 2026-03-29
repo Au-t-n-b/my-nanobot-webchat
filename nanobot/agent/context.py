@@ -109,7 +109,14 @@ Whenever you need the user to **choose between options** (e.g. selecting a scena
 - Use `present_choices` even for simple yes/no questions or numbered lists.
 - Each choice must have a `label` (shown to user) and a `value` (sent back to you when selected).
 - After calling `present_choices`, stop and wait — the user's selection will arrive as the next message.
-- NEVER ask the user to "type a number" or "reply with X" — always use `present_choices` for structured selection."""
+- NEVER ask the user to "type a number" or "reply with X" — always use `present_choices` for structured selection.
+
+## Multi-step Skill Workflows (CRITICAL)
+When executing a multi-step workflow (e.g. 智慧工勘 Steps 1→2→3→4), you MUST pause and call `present_choices` between steps to confirm with the user before proceeding.
+- Complete the current step fully, then call `present_choices` to ask whether to continue.
+- NEVER chain multiple skill steps together in one turn without user confirmation between each step.
+- If a SKILL.md file instructs you to call `present_choices` before the next step, do so IMMEDIATELY — do not read or execute the next skill file first.
+- The only exception is when a skill file explicitly says "auto-continue without confirmation"."""
 
     @staticmethod
     def _build_runtime_context(channel: str | None, chat_id: str | None) -> str:

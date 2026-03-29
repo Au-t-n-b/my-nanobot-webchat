@@ -40,6 +40,46 @@ async def test_get_skills_scans_skill_md_and_sorts(tmp_path: Path, monkeypatch: 
         names = [it["name"] for it in data["items"]]
         assert names == ["Alpha", "beta"]
         assert all(Path(it["skillFile"]).is_absolute() for it in data["items"])
+        assert all(it["source"] == "local" for it in data["items"])
+
+
+@pytest.mark.asyncio
+async def test_get_skills_marks_remote_imported_when_metadata_exists(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path / "skills"
+    imported = root / "report-gen"
+    imported.mkdir(parents=True)
+    (imported / "SKILL.md").write_text("# report-gen", encoding="utf-8")
+    (imported / ".nanobot-remote-skill.json").write_text(
+        (
+            '{"source":"remote-imported","remoteSkillId":"101","remoteTitle":"工勘报告生成",'
+            '"organizationName":"交付中心"}'
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("NANOBOT_AGUI_SKILLS_ROOT", str(root))
+
+    app = create_app()
+    async with TestClient(TestServer(app)) as client:
+        resp = await client.get("/api/skills")
+        assert resp.status == 200
+        assert await resp.json() == {
+            "items": [
+                {
+                    "name": "report-gen",
+                    "skillDir": str(imported.resolve()),
+                    "skillFile": str((imported / "SKILL.md").resolve()),
+                    "mtimeMs": int((imported / "SKILL.md").stat().st_mtime * 1000),
+                    "source": "remote-imported",
+                    "description": "",
+                    "remoteSkillId": "101",
+                    "remoteTitle": "工勘报告生成",
+                    "organizationName": "交付中心",
+                }
+            ]
+        }
 
 
 @pytest.mark.asyncio

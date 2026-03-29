@@ -29,7 +29,23 @@ type ToastState =
   | { kind: "success"; text: string }
   | { kind: "error"; text: string };
 
-export function SettingsPanel({ onClose }: { onClose: () => void }) {
+type RemoteSession = {
+  connected: boolean;
+  frontendBase: string;
+  apiBase: string;
+  user: { workId: string; name: string; role: string } | null;
+  projects: Array<{ id: string; name: string }>;
+  selectedProjectId: string | null;
+  selectedProjectName: string | null;
+};
+
+export function SettingsPanel({
+  onClose,
+  onOpenRemoteUpload,
+}: {
+  onClose: () => void;
+  onOpenRemoteUpload?: () => void;
+}) {
   const [proxy, setProxy] = useState<ProxyConfig>({
     enabled: false,
     host: "",
@@ -41,6 +57,15 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<ToastState>({ kind: "none" });
   const [showPassword, setShowPassword] = useState(false);
+  const [remoteSession, setRemoteSession] = useState<RemoteSession | null>(null);
+  const [remoteForm, setRemoteForm] = useState({
+    frontendBase: "http://127.0.0.1:3000",
+    apiBase: "http://127.0.0.1:8000",
+    workId: "",
+    password: "",
+  });
+  const [remoteLoading, setRemoteLoading] = useState(true);
+  const [remoteBusy, setRemoteBusy] = useState<"idle" | "login" | "logout" | "project">("idle");
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const showToast = useCallback((t: ToastState) => {
@@ -67,6 +92,45 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
       .finally(() => setLoading(false));
   }, []);
 
+  const loadRemoteSession = useCallback(async () => {
+    setRemoteLoading(true);
+    try {
+      const res = await fetch(aguiRequestPath("/api/remote-center/session"));
+      const data = (await res.json().catch(() => ({}))) as Partial<RemoteSession>;
+      setRemoteSession({
+        connected: Boolean(data.connected),
+        frontendBase: typeof data.frontendBase === "string" ? data.frontendBase : "",
+        apiBase: typeof data.apiBase === "string" ? data.apiBase : "",
+        user: data.user
+          ? {
+              workId: String(data.user.workId ?? ""),
+              name: String(data.user.name ?? ""),
+              role: String(data.user.role ?? ""),
+            }
+          : null,
+        projects: Array.isArray(data.projects)
+          ? data.projects.map((item) => ({ id: String(item.id), name: String(item.name) }))
+          : [],
+        selectedProjectId: typeof data.selectedProjectId === "string" ? data.selectedProjectId : null,
+        selectedProjectName: typeof data.selectedProjectName === "string" ? data.selectedProjectName : null,
+      });
+      setRemoteForm((prev) => ({
+        frontendBase: typeof data.frontendBase === "string" && data.frontendBase ? data.frontendBase : prev.frontendBase,
+        apiBase: typeof data.apiBase === "string" && data.apiBase ? data.apiBase : prev.apiBase,
+        workId: typeof data.user?.workId === "string" && data.user.workId ? data.user.workId : prev.workId,
+        password: "",
+      }));
+    } catch {
+      setRemoteSession(null);
+    } finally {
+      setRemoteLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadRemoteSession();
+  }, [loadRemoteSession]);
+
   const handleSave = async () => {
     setSaving(true);
     try {
@@ -92,6 +156,61 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
       showToast({ kind: "error", text: e instanceof Error ? e.message : String(e) });
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleRemoteLogin = async () => {
+    setRemoteBusy("login");
+    try {
+      const res = await fetch(aguiRequestPath("/api/remote-center/login"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(remoteForm),
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: { message?: string } };
+      if (!res.ok) {
+        throw new Error(data.error?.message ?? `HTTP ${res.status}`);
+      }
+      showToast({ kind: "success", text: "远端中心登录成功 ✓" });
+      await loadRemoteSession();
+      setRemoteForm((prev) => ({ ...prev, password: "" }));
+    } catch (e) {
+      showToast({ kind: "error", text: e instanceof Error ? e.message : "远端登录失败" });
+    } finally {
+      setRemoteBusy("idle");
+    }
+  };
+
+  const handleRemoteLogout = async () => {
+    setRemoteBusy("logout");
+    try {
+      const res = await fetch(aguiRequestPath("/api/remote-center/logout"), { method: "POST" });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      showToast({ kind: "success", text: "已退出远端中心" });
+      await loadRemoteSession();
+    } catch (e) {
+      showToast({ kind: "error", text: e instanceof Error ? e.message : "退出失败" });
+    } finally {
+      setRemoteBusy("idle");
+    }
+  };
+
+  const handleProjectChange = async (projectId: string) => {
+    setRemoteBusy("project");
+    try {
+      const res = await fetch(aguiRequestPath("/api/remote-center/project"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectId }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: { message?: string } };
+      if (!res.ok) throw new Error(data.error?.message ?? `HTTP ${res.status}`);
+      await loadRemoteSession();
+      showToast({ kind: "success", text: "当前项目已切换" });
+    } catch (e) {
+      showToast({ kind: "error", text: e instanceof Error ? e.message : "切换项目失败" });
+    } finally {
+      setRemoteBusy("idle");
     }
   };
 
@@ -215,6 +334,109 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
                 </div>
               </div>
             )}
+          </section>
+
+          <section className="ui-card rounded-xl p-4 flex flex-col gap-3">
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <p className="text-sm font-medium ui-text-primary">远端交付中心</p>
+                <p className="text-[11px] ui-text-muted mt-0.5">Remote Delivery Center</p>
+              </div>
+              <span
+                className="rounded-full px-2 py-1 text-[10px]"
+                style={{
+                  background: remoteSession?.connected ? "rgba(34,197,94,0.12)" : "var(--surface-3)",
+                  color: remoteSession?.connected ? "var(--success)" : "var(--text-tertiary)",
+                }}
+              >
+                {remoteSession?.connected ? "已连接" : remoteLoading ? "加载中" : "未连接"}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <div className="flex flex-col gap-1">
+                <label className="text-[11px] ui-text-muted">前端地址</label>
+                <input
+                  type="text"
+                  value={remoteForm.frontendBase}
+                  onChange={(e) => setRemoteForm((prev) => ({ ...prev, frontendBase: e.target.value }))}
+                  className="ui-input ui-input-focusable rounded-lg px-2.5 py-1.5 text-xs"
+                />
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-[11px] ui-text-muted">后端地址</label>
+                <input
+                  type="text"
+                  value={remoteForm.apiBase}
+                  onChange={(e) => setRemoteForm((prev) => ({ ...prev, apiBase: e.target.value }))}
+                  className="ui-input ui-input-focusable rounded-lg px-2.5 py-1.5 text-xs"
+                />
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-[11px] ui-text-muted">工号</label>
+                <input
+                  type="text"
+                  value={remoteForm.workId}
+                  onChange={(e) => setRemoteForm((prev) => ({ ...prev, workId: e.target.value }))}
+                  className="ui-input ui-input-focusable rounded-lg px-2.5 py-1.5 text-xs"
+                />
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-[11px] ui-text-muted">密码</label>
+                <input
+                  type="password"
+                  value={remoteForm.password}
+                  onChange={(e) => setRemoteForm((prev) => ({ ...prev, password: e.target.value }))}
+                  className="ui-input ui-input-focusable rounded-lg px-2.5 py-1.5 text-xs"
+                />
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => void handleRemoteLogin()}
+                disabled={remoteBusy !== "idle"}
+                className="rounded-lg px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
+                style={{ background: "var(--accent)" }}
+              >
+                {remoteBusy === "login" ? "登录中…" : "登录远端"}
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleRemoteLogout()}
+                disabled={remoteBusy !== "idle" || !remoteSession?.connected}
+                className="ui-btn-ghost rounded-lg px-3 py-1.5 text-xs disabled:opacity-50"
+              >
+                {remoteBusy === "logout" ? "退出中…" : "退出登录"}
+              </button>
+              <button
+                type="button"
+                onClick={onOpenRemoteUpload}
+                disabled={!remoteSession?.connected}
+                className="ui-btn-ghost rounded-lg px-3 py-1.5 text-xs disabled:opacity-50"
+              >
+                打开上传面板
+              </button>
+            </div>
+
+            <div className="flex flex-col gap-1">
+              <label className="text-[11px] ui-text-muted">当前项目</label>
+              <select
+                value={remoteSession?.selectedProjectId ?? ""}
+                onChange={(e) => void handleProjectChange(e.target.value)}
+                disabled={!remoteSession?.connected || remoteBusy !== "idle"}
+                className="ui-input ui-input-focusable rounded-lg px-2.5 py-1.5 text-xs disabled:opacity-50"
+              >
+                <option value="">未绑定项目</option>
+                {(remoteSession?.projects ?? []).map((project) => (
+                  <option key={project.id} value={project.id}>{project.name}</option>
+                ))}
+              </select>
+              <p className="text-[11px] ui-text-muted">
+                当前用户：{remoteSession?.user ? `${remoteSession.user.name} (${remoteSession.user.workId})` : "未登录"}
+              </p>
+            </div>
           </section>
 
           {/* More sections can be added here */}

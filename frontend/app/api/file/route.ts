@@ -14,6 +14,7 @@ import path from "path";
 import os from "os";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { findPreviewFileFallback } from "@/lib/fileResolver";
 
 const MIME: Record<string, string> = {
   // text
@@ -88,27 +89,6 @@ function resolveFilePath(normalized: string): string {
   return resolved;
 }
 
-/**
- * If `p` looks like a bare filename (no directory separators), search for it
- * recursively under `searchRoot`.  Returns the first match found, or null.
- * Depth is capped at 6 to avoid excessive I/O.
- */
-function findFileByName(name: string, searchRoot: string, depth = 0): string | null {
-  if (depth > 6) return null;
-  try {
-    const entries = fs.readdirSync(searchRoot, { withFileTypes: true });
-    for (const e of entries) {
-      const full = path.join(searchRoot, e.name);
-      if (e.isFile() && e.name.toLowerCase() === name.toLowerCase()) return full;
-      if (e.isDirectory()) {
-        const found = findFileByName(name, full, depth + 1);
-        if (found) return found;
-      }
-    }
-  } catch { /* skip unreadable dirs */ }
-  return null;
-}
-
 export async function GET(req: NextRequest) {
   const raw = req.nextUrl.searchParams.get("path");
 
@@ -127,15 +107,20 @@ export async function GET(req: NextRequest) {
   let exists = false;
   try { exists = fs.statSync(filePath).isFile(); } catch { /* not found */ }
 
-  // Fallback: if the request was a bare filename and the primary path doesn't exist,
-  // search the workspace for a matching filename (handles agents that omit directory).
+  // Fallbacks:
+  // 1. old behavior: bare filename under workspace
+  // 2. new behavior: search likely external skill output roots for bare filenames
+  //    and relative Output/RunTime/Input paths
   if (!exists) {
     const normalized = normalizeQueryPath(raw);
     const isBareFilename = !normalized.includes("/") && !normalized.includes("\\");
-    if (isBareFilename) {
-      const workspace = getWorkspaceRoot();
-      const found = findFileByName(normalized, workspace);
-      if (found) filePath = found;
+    const workspace = getWorkspaceRoot();
+    const found = findPreviewFileFallback(normalized, {
+      workspaceRoot: workspace,
+      cwd: process.cwd(),
+    });
+    if (found && (isBareFilename || normalized.startsWith("Output/") || normalized.startsWith("RunTime/") || normalized.startsWith("Input/") || normalized.startsWith("Start/"))) {
+      filePath = found;
     }
   }
 

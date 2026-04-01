@@ -1276,7 +1276,145 @@ async def handle_config_post(request: web.Request) -> web.Response:
             return web.json_response({"detail": f"hot reload failed: {exc}"}, status=500, headers=cors)
 
     logger.info("config.json updated via API (hot reload applied)")
-    return web.json_response({"ok": True, "reloaded": agent is not None}, headers=cors)
+    return web.json_response(
+        {
+            "ok": True,
+            "reloaded": agent is not None,
+            "current_model": cfg.agents.defaults.model,
+        },
+        headers=cors,
+    )
+
+
+async def handle_config_test(request: web.Request) -> web.Response:
+    """POST /api/config/test — test provider connectivity without persisting config.
+
+    Body:
+      {
+        "providerName": "zhipu",
+        "apiKey": "xxxx" | "******",
+        "apiBase": "https://..." | "" | null,
+        "model": "glm-5" | null
+      }
+    """
+    cors = _cors_headers(request)
+    from nanobot.config.loader import get_config_path
+
+    SENSITIVE_PATTERNS = ("password", "apikey", "api_key", "token", "secret", "passwd")
+
+    def _is_sensitive(key: str) -> bool:
+        k = (key or "").lower()
+        return any(p in k for p in SENSITIVE_PATTERNS)
+
+    def _merge_with_original(incoming: Any, original: Any) -> Any:
+        # If user posts "******" for a sensitive field, keep the existing value.
+        if isinstance(incoming, dict) and isinstance(original, dict):
+            out: dict[str, Any] = dict(original)
+            for k, v in incoming.items():
+                if _is_sensitive(str(k)) and v == "******":
+                    continue
+                out[k] = _merge_with_original(v, original.get(k))
+            return out
+        return incoming
+
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({"detail": "request body must be valid JSON"}, status=400, headers=cors)
+
+    provider_name = str((body or {}).get("providerName") or "").strip()
+    api_key = (body or {}).get("apiKey")
+    api_base = (body or {}).get("apiBase")
+    model = str((body or {}).get("model") or "").strip() or None
+    if not provider_name:
+        return web.json_response({"detail": "providerName is required"}, status=400, headers=cors)
+
+    # Merge with on-disk config so masked sensitive fields keep their original values.
+    config_path = get_config_path()
+    existing: dict[str, Any] = {}
+    if config_path.exists():
+        try:
+            existing = json.loads(config_path.read_text(encoding="utf-8"))
+        except Exception:
+            existing = {}
+
+    # Build a minimal patch that forces provider selection.
+    patch: dict[str, Any] = {
+        "agents": {
+            "defaults": {
+                "provider": provider_name,
+            }
+        },
+        "providers": {
+            provider_name: {
+                "apiKey": api_key,
+                "apiBase": api_base,
+            }
+        },
+    }
+    if model:
+        patch["agents"]["defaults"]["model"] = model
+
+    merged_body = _merge_with_original(patch, existing)
+
+    # Validate and build provider
+    try:
+        from nanobot.config.schema import Config
+
+        cfg = Config.model_validate(merged_body)
+    except Exception as exc:
+        return web.json_response({"detail": f"invalid config: {exc}"}, status=400, headers=cors)
+
+    try:
+        from nanobot.providers.factory import make_provider
+
+        provider = make_provider(cfg)
+    except Exception as exc:
+        return web.json_response({"detail": f"invalid provider config: {exc}"}, status=400, headers=cors)
+
+    # Probe by doing a tiny completion — fastest and works across providers.
+    import asyncio
+    import time
+
+    start = time.perf_counter()
+    try:
+        resp = await asyncio.wait_for(
+            provider.chat(
+                messages=[{"role": "user", "content": "ping"}],
+                max_tokens=1,
+                temperature=0.0,
+                model=cfg.agents.defaults.model,
+            ),
+            timeout=12.0,
+        )
+    except asyncio.TimeoutError:
+        return web.json_response({"ok": False, "detail": "timeout after 12s"}, status=408, headers=cors)
+    except Exception as exc:
+        return web.json_response({"ok": False, "detail": str(exc)}, status=500, headers=cors)
+
+    elapsed_ms = int((time.perf_counter() - start) * 1000)
+    if getattr(resp, "finish_reason", "") == "error":
+        return web.json_response(
+            {
+                "ok": False,
+                "detail": (resp.content or "Error calling LLM").strip()[:1000],
+                "provider": provider_name,
+                "model": cfg.agents.defaults.model,
+                "latencyMs": elapsed_ms,
+            },
+            status=400,
+            headers=cors,
+        )
+
+    return web.json_response(
+        {
+            "ok": True,
+            "provider": provider_name,
+            "model": cfg.agents.defaults.model,
+            "latencyMs": elapsed_ms,
+        },
+        headers=cors,
+    )
 
 
 async def handle_providers_list(request: web.Request) -> web.Response:
@@ -1622,6 +1760,7 @@ def setup_routes(app: web.Application) -> None:
     app.router.add_post("/api/approve-tool", handle_approve)
     app.router.add_get("/api/task-status", handle_task_status)
     app.router.add_get("/api/file", handle_file)
+    app.router.add_post("/api/config/test", handle_config_test)
     app.router.add_get("/api/remote-center/session", handle_remote_center_session)
     app.router.add_post("/api/remote-center/login", handle_remote_center_login)
     app.router.add_post("/api/remote-center/logout", handle_remote_center_logout)
@@ -1666,5 +1805,6 @@ def setup_routes(app: web.Application) -> None:
     app.router.add_get("/api/providers", handle_providers_list)
     app.router.add_post("/welink/chat/stream", handle_welink_chat_stream)
     app.router.add_options("/api/config", handle_options)
+    app.router.add_options("/api/config/test", handle_options)
     app.router.add_options("/api/providers", handle_options)
     app.router.add_options("/welink/chat/stream", handle_options)

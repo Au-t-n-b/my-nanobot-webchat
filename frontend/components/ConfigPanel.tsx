@@ -1,14 +1,15 @@
 "use client";
 
-import { AlertCircle, CheckCircle2, RotateCcw, Save, Settings, X } from "lucide-react";
+import { AlertCircle, CheckCircle2, RotateCcw, Save, Settings, Wifi, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 function aguiRequestPath(path: string): string {
-  if (process.env.NEXT_PUBLIC_AGUI_DIRECT === "1") {
-    const base = (process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8765").replace(/\/$/, "");
-    return `${base}${path.startsWith("/") ? path : `/${path}`}`;
-  }
-  return path.startsWith("/") ? path : `/${path}`;
+  // Force direct-to-backend requests so config writes always trigger:
+  // - schema validation
+  // - provider build
+  // - hot reload (reload_provider_and_model)
+  const base = (process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8765").replace(/\/$/, "");
+  return `${base}${path.startsWith("/") ? path : `/${path}`}`;
 }
 
 type Status = "idle" | "loading" | "saving" | "success" | "error";
@@ -43,6 +44,11 @@ export function ConfigPanel({ onClose, onSaved }: { onClose: () => void; onSaved
     apiKeyConfigured: false,
     apiBase: "",
   });
+  const [testStatus, setTestStatus] = useState<Status>("idle");
+  const [testMsg, setTestMsg] = useState<string>("");
+  const [savedMsg, setSavedMsg] = useState<string>("");
+  const apiBaseTouchedRef = useRef(false);
+  const lastAutoBaseRef = useRef<string>("");
 
   const loadConfig = useCallback(async () => {
     setStatus("loading");
@@ -74,16 +80,17 @@ export function ConfigPanel({ onClose, onSaved }: { onClose: () => void; onSaved
           setForm((prev) => ({ ...prev, modelListText: cleaned.join("\n") }));
         }
       }
-      const pName = form.providerName;
-      const p = cfg?.providers?.[pName];
-      const maskedKey = (p?.apiKey ?? p?.api_key) as unknown;
-      const keyConfigured = typeof maskedKey === "string" && maskedKey === "******";
-      const apiBase = ((p?.apiBase ?? p?.api_base) as unknown) ?? "";
-      setForm((prev) => ({
-        ...prev,
-        apiKeyConfigured: keyConfigured,
-        apiBase: typeof apiBase === "string" ? apiBase : prev.apiBase,
-      }));
+      setForm((prev) => {
+        const p = cfg?.providers?.[prev.providerName];
+        const maskedKey = (p?.apiKey ?? p?.api_key) as unknown;
+        const keyConfigured = typeof maskedKey === "string" && maskedKey === "******";
+        const apiBase = ((p?.apiBase ?? p?.api_base) as unknown) ?? "";
+        return {
+          ...prev,
+          apiKeyConfigured: keyConfigured,
+          apiBase: typeof apiBase === "string" ? apiBase : prev.apiBase,
+        };
+      });
       setStatus("idle");
       setTimeout(() => textareaRef.current?.focus(), 80);
     } catch (e) {
@@ -115,6 +122,7 @@ export function ConfigPanel({ onClose, onSaved }: { onClose: () => void; onSaved
 
   const handleSave = async () => {
     setErrorMsg("");
+    setSavedMsg("");
     let parsed: unknown;
     try {
       parsed = JSON.parse(text);
@@ -130,14 +138,24 @@ export function ConfigPanel({ onClose, onSaved }: { onClose: () => void; onSaved
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(parsed),
       });
+      if (res.status === 409) {
+        const body = (await res.json().catch(() => ({}))) as { detail?: string };
+        throw new Error(body.detail ?? "当前 AI 正在运行任务，请稍后再试");
+      }
       if (!res.ok) {
         const body = (await res.json().catch(() => ({}))) as { detail?: string };
         throw new Error(body.detail ?? `HTTP ${res.status}`);
       }
+      const out = (await res.json().catch(() => ({}))) as { reloaded?: boolean; current_model?: string };
       const formatted = JSON.stringify(parsed, null, 2);
       setText(formatted);
       setOriginalText(formatted);
       setStatus("success");
+      if (out?.reloaded && out?.current_model) {
+        setSavedMsg(`配置已更新并热加载成功，当前模型：${out.current_model}`);
+      } else {
+        setSavedMsg("配置已保存");
+      }
       onSaved?.();
       setTimeout(() => setStatus("idle"), 2500);
     } catch (e) {
@@ -148,6 +166,7 @@ export function ConfigPanel({ onClose, onSaved }: { onClose: () => void; onSaved
 
   const handleSaveForm = async () => {
     setErrorMsg("");
+    setSavedMsg("");
     const model = form.defaultModel.trim();
     if (!model) {
       setStatus("error");
@@ -191,12 +210,22 @@ export function ConfigPanel({ onClose, onSaved }: { onClose: () => void; onSaved
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(patch),
       });
+      if (res.status === 409) {
+        const body = (await res.json().catch(() => ({}))) as { detail?: string };
+        throw new Error(body.detail ?? "当前 AI 正在运行任务，请稍后再试");
+      }
       if (!res.ok) {
         const body = (await res.json().catch(() => ({}))) as { detail?: string };
         throw new Error(body.detail ?? `HTTP ${res.status}`);
       }
+      const out = (await res.json().catch(() => ({}))) as { reloaded?: boolean; current_model?: string };
       setForm((prev) => ({ ...prev, apiKey: "", apiKeyConfigured: true }));
       setStatus("success");
+      if (out?.reloaded && out?.current_model) {
+        setSavedMsg(`配置已更新并热加载成功，当前模型：${out.current_model}`);
+      } else {
+        setSavedMsg("配置已保存");
+      }
       onSaved?.();
       // Refresh JSON view / persisted state.
       await loadConfig();
@@ -204,6 +233,58 @@ export function ConfigPanel({ onClose, onSaved }: { onClose: () => void; onSaved
     } catch (e) {
       setStatus("error");
       setErrorMsg(e instanceof Error ? e.message : "保存失败");
+    }
+  };
+
+  const handleTest = async () => {
+    setErrorMsg("");
+    setTestMsg("");
+    const providerName = (form.providerName || "").trim();
+    const model = form.defaultModel.trim();
+    const apiKeyToSend =
+      form.apiKey.trim()
+        ? form.apiKey.trim()
+        : form.apiKeyConfigured
+          ? "******"
+          : "";
+    if (!providerName) {
+      setTestStatus("error");
+      setTestMsg("请选择提供商");
+      return;
+    }
+    if (!apiKeyToSend) {
+      setTestStatus("error");
+      setTestMsg("请填写 API Key（首次测试必须填写）");
+      return;
+    }
+    setTestStatus("saving");
+    try {
+      const res = await fetch(aguiRequestPath("/api/config/test"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          providerName,
+          apiKey: apiKeyToSend,
+          apiBase: form.apiBase.trim() ? form.apiBase.trim() : undefined,
+          model: model || undefined,
+        }),
+      });
+      if (res.status === 409) {
+        const body = (await res.json().catch(() => ({}))) as { detail?: string };
+        throw new Error(body.detail ?? "当前 AI 正在运行任务，请稍后再试");
+      }
+      const body = (await res.json().catch(() => ({}))) as { ok?: boolean; detail?: string; latencyMs?: number; model?: string };
+      if (!res.ok || body.ok === false) {
+        throw new Error(body.detail ?? `HTTP ${res.status}`);
+      }
+      const latency = typeof body.latencyMs === "number" ? `${body.latencyMs}ms` : "";
+      const m = typeof body.model === "string" && body.model ? body.model : model;
+      setTestStatus("success");
+      setTestMsg(`连接成功${latency ? `（${latency}）` : ""}，模型：${m}`);
+      setTimeout(() => setTestStatus("idle"), 2500);
+    } catch (e) {
+      setTestStatus("error");
+      setTestMsg(e instanceof Error ? e.message : "测试失败");
     }
   };
 
@@ -302,7 +383,7 @@ export function ConfigPanel({ onClose, onSaved }: { onClose: () => void; onSaved
           }}
         >
           <CheckCircle2 size={13} className="shrink-0" />
-          配置已保存
+          {savedMsg || "配置已保存"}
         </div>
       )}
 
@@ -328,22 +409,43 @@ export function ConfigPanel({ onClose, onSaved }: { onClose: () => void; onSaved
                   value={form.providerName}
                   onChange={(e) => {
                     const next = e.target.value;
+                    apiBaseTouchedRef.current = false;
+                    lastAutoBaseRef.current = "";
+                    setTestStatus("idle");
+                    setTestMsg("");
                     setForm((prev) => ({ ...prev, providerName: next, apiKey: "", apiKeyConfigured: false, apiBase: "" }));
                     // Re-hydrate from loaded config text (masked) for the newly selected provider
                     try {
-                      const cfg = JSON.parse(text) as any;
-                      const p = cfg?.providers?.[next];
+                      const cfg = JSON.parse(text) as unknown;
+                      const providersObj =
+                        cfg && typeof cfg === "object" && "providers" in (cfg as Record<string, unknown>)
+                          ? ((cfg as Record<string, unknown>).providers as Record<string, unknown> | undefined)
+                          : undefined;
+                      const p = providersObj && typeof providersObj === "object"
+                        ? (providersObj[next] as Record<string, unknown> | undefined)
+                        : undefined;
                       const maskedKey = p?.apiKey ?? p?.api_key;
                       const keyConfigured = typeof maskedKey === "string" && maskedKey === "******";
                       const apiBase = p?.apiBase ?? p?.api_base;
+                      const fromConfig = typeof apiBase === "string" ? apiBase : "";
+                      const spec = providers.find((x) => x.name === next);
+                      const defaultBase = (spec?.defaultApiBase || "").trim();
+                      const shouldAutoFill = !fromConfig.trim() && defaultBase;
+                      const nextBase = shouldAutoFill ? defaultBase : fromConfig;
+                      if (shouldAutoFill) lastAutoBaseRef.current = defaultBase;
                       setForm((prev) => ({
                         ...prev,
                         providerName: next,
                         apiKeyConfigured: keyConfigured,
-                        apiBase: typeof apiBase === "string" ? apiBase : "",
+                        apiBase: nextBase,
                       }));
                     } catch {
-                      // ignore
+                      const spec = providers.find((x) => x.name === next);
+                      const defaultBase = (spec?.defaultApiBase || "").trim();
+                      if (defaultBase) {
+                        lastAutoBaseRef.current = defaultBase;
+                        setForm((prev) => ({ ...prev, providerName: next, apiBase: defaultBase }));
+                      }
                     }
                   }}
                   className="rounded-lg border px-2 py-1.5 text-xs"
@@ -408,12 +510,30 @@ export function ConfigPanel({ onClose, onSaved }: { onClose: () => void; onSaved
                 <span>API Base（可选）</span>
                 <input
                   value={form.apiBase}
-                  onChange={(e) => setForm((prev) => ({ ...prev, apiBase: e.target.value }))}
+                  onChange={(e) => {
+                    apiBaseTouchedRef.current = true;
+                    setForm((prev) => ({ ...prev, apiBase: e.target.value }));
+                  }}
                   className="rounded-lg border px-2 py-1.5 text-xs font-mono"
                   style={{ borderColor: "var(--border-subtle)", background: "var(--surface-2)", color: "var(--text-primary)" }}
                   placeholder="例如：https://open.bigmodel.cn/api/paas/v4"
                 />
               </label>
+              {testMsg && (
+                <div
+                  className="text-[11px] leading-relaxed"
+                  style={{
+                    color:
+                      testStatus === "error"
+                        ? "rgb(252,165,165)"
+                        : testStatus === "success"
+                          ? "rgb(110,231,183)"
+                          : "var(--text-tertiary)",
+                  }}
+                >
+                  {testMsg}
+                </div>
+              )}
             </section>
           </div>
         ) : (
@@ -463,6 +583,31 @@ export function ConfigPanel({ onClose, onSaved }: { onClose: () => void; onSaved
             <span className="text-[10px]" style={{ color: "var(--warning)" }}>
               未保存的更改
             </span>
+          )}
+          {mode === "form" && (
+            <button
+              type="button"
+              onClick={() => void handleTest()}
+              disabled={status === "loading" || status === "saving" || testStatus === "saving"}
+              className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold ui-text-secondary hover:ui-text-primary disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              style={{
+                background: "var(--surface-3)",
+                border: "1px solid var(--border-subtle)",
+              }}
+              title="测试连接（不会保存配置）"
+            >
+              {testStatus === "saving" ? (
+                <>
+                  <div className="w-3 h-3 border-2 border-white/20 border-t-white/70 rounded-full animate-spin" />
+                  测试中…
+                </>
+              ) : (
+                <>
+                  <Wifi size={12} />
+                  测试连接
+                </>
+              )}
+            </button>
           )}
           <button
             type="button"

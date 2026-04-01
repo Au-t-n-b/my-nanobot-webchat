@@ -4,11 +4,9 @@ import { Settings, X, Save, RotateCcw, AlertCircle, CheckCircle2 } from "lucide-
 import { useCallback, useEffect, useRef, useState } from "react";
 
 function aguiRequestPath(path: string): string {
-  if (process.env.NEXT_PUBLIC_AGUI_DIRECT === "1") {
-    const base = (process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8765").replace(/\/$/, "");
-    return `${base}${path.startsWith("/") ? path : `/${path}`}`;
-  }
-  return path.startsWith("/") ? path : `/${path}`;
+  // Force direct-to-backend requests so config writes always trigger hot reload.
+  const base = (process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8765").replace(/\/$/, "");
+  return `${base}${path.startsWith("/") ? path : `/${path}`}`;
 }
 
 type Status = "idle" | "loading" | "saving" | "success" | "error";

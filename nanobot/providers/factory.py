@@ -22,7 +22,12 @@ def make_provider(config: Config):
     model = config.agents.defaults.model
     provider_name = config.get_provider_name(model)
     p = config.get_provider(model)
-    llm_proxy = (p.proxy if p else None) or (config.tools.web.proxy or None)
+    # Important: do NOT implicitly reuse tools.web.proxy for LLM traffic.
+    # Users often set tools.web.proxy to reach external websites (search/fetch),
+    # but routing LLM calls through that proxy can cause MITM, blocked TLS, or
+    # unexpected upstream behavior. LLM proxy must be explicitly configured per
+    # provider via providers.<name>.proxy.
+    llm_proxy = (p.proxy if p else None) or None
     ssl_verify = config.tools.web.ssl_verify
 
     # OpenAI Codex (OAuth)

@@ -47,6 +47,12 @@ class CustomProvider(LLMProvider):
         model: str | None, max_tokens: int, temperature: float,
         reasoning_effort: str | None, tool_choice: str | dict[str, Any] | None,
     ) -> dict[str, Any]:
+        # DashScope compatible-mode enforces a strict max_tokens upper bound (<= 2000)
+        # and returns "Range of max_tokens should be [1, 2000]" otherwise.
+        # Clamp here so users can keep a higher global default for other providers.
+        base = (self.api_base or "").lower()
+        if "dashscope.aliyuncs.com/compatible-mode" in base:
+            max_tokens = min(int(max_tokens or 0), 2000)
         kwargs: dict[str, Any] = {
             "model": model or self.default_model,
             "messages": self._sanitize_empty_content(messages),

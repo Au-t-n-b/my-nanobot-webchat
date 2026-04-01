@@ -29,6 +29,13 @@ type ProviderItem = {
   stripModelPrefix: boolean;
 };
 
+type AgentProfile = {
+  name: string;
+  provider: string;
+  model: string;
+  models: string[];
+};
+
 export function ConfigPanel({ onClose, onSaved }: { onClose: () => void; onSaved?: () => void }) {
   const [mode, setMode] = useState<Mode>("form");
   const [text, setText] = useState("");
@@ -37,6 +44,8 @@ export function ConfigPanel({ onClose, onSaved }: { onClose: () => void; onSaved
   const [errorMsg, setErrorMsg] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [providers, setProviders] = useState<ProviderItem[]>([]);
+  const [profiles, setProfiles] = useState<AgentProfile[]>([]);
+  const [selectedProfile, setSelectedProfile] = useState<string>("");
   const [form, setForm] = useState({
     providerName: "zhipu",
     defaultModel: "glm-4.7",
@@ -68,9 +77,26 @@ export function ConfigPanel({ onClose, onSaved }: { onClose: () => void; onSaved
       setOriginalText(formatted);
       // Best-effort: hydrate form fields from config (apiKey is masked server-side).
       const cfg = json as {
-        agents?: { defaults?: { model?: string; provider?: string }; models?: string[] };
+        agents?: { defaults?: { model?: string; provider?: string }; models?: string[]; profiles?: AgentProfile[] };
         providers?: Record<string, { apiKey?: string; api_key?: string; apiBase?: string; api_base?: string }>;
       };
+      if (Array.isArray(cfg?.agents?.profiles)) {
+        const cleaned = cfg.agents.profiles
+          .filter((p) => p && typeof p === "object")
+          .map((p) => ({
+            name: String((p as AgentProfile).name || "").trim(),
+            provider: String((p as AgentProfile).provider || "auto").trim(),
+            model: String((p as AgentProfile).model || "").trim(),
+            models: Array.isArray((p as AgentProfile).models)
+              ? (p as AgentProfile).models.map((x) => String(x || "").trim()).filter((x) => x)
+              : [],
+          }))
+          .filter((p) => p.name);
+        setProfiles(cleaned);
+        setSelectedProfile((cur) => cur || (cleaned[0]?.name ?? ""));
+      } else {
+        setProfiles([]);
+      }
       const forcedProvider = cfg?.agents?.defaults?.provider;
       const providerFromConfig = typeof forcedProvider === "string" && forcedProvider.trim() ? forcedProvider.trim() : null;
       const m = cfg?.agents?.defaults?.model;
@@ -217,8 +243,14 @@ export function ConfigPanel({ onClose, onSaved }: { onClose: () => void; onSaved
         .split(/\r?\n|,/g)
         .map((x) => x.trim())
         .filter((x) => x);
+      // Auto-save a profile per provider so each provider's "defaults + common models"
+      // can be switched quickly from the main UI.
+      const nextProfiles: AgentProfile[] = [
+        ...profiles.filter((p) => p.name !== providerName),
+        { name: providerName, provider: providerName, model, models },
+      ];
       const patch = {
-        agents: { defaults: { model, provider: providerName }, models },
+        agents: { defaults: { model, provider: providerName }, models, profiles: nextProfiles },
         providers: {
           [providerName]: {
             apiKey: apiKeyToSend,
@@ -241,6 +273,8 @@ export function ConfigPanel({ onClose, onSaved }: { onClose: () => void; onSaved
       }
       const out = (await res.json().catch(() => ({}))) as { reloaded?: boolean; current_model?: string; current_provider?: string };
       setForm((prev) => ({ ...prev, apiKey: "", apiKeyConfigured: true }));
+      setProfiles(nextProfiles);
+      setSelectedProfile(providerName);
       setStatus("success");
       if (out?.reloaded && out?.current_model) {
         setSavedMsg(`配置已更新并热加载成功，当前：${out.current_provider ? `${out.current_provider} / ` : ""}${out.current_model}`);
@@ -420,6 +454,128 @@ export function ConfigPanel({ onClose, onSaved }: { onClose: () => void; onSaved
           </div>
         ) : mode === "form" ? (
           <div className="p-4 flex flex-col gap-4">
+            <section className="ui-card rounded-xl p-4 flex flex-col gap-3">
+              <div className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+                配置方案（Profiles）
+              </div>
+              <div className="flex items-center gap-2">
+                <select
+                  value={selectedProfile}
+                  onChange={(e) => setSelectedProfile(e.target.value)}
+                  className="flex-1 rounded-lg border px-2 py-1.5 text-xs"
+                  style={{ borderColor: "var(--border-subtle)", background: "var(--surface-2)", color: "var(--text-primary)" }}
+                >
+                  <option value="">（未选择）</option>
+                  {profiles.map((p) => (
+                    <option key={p.name} value={p.name}>
+                      {p.name} — {p.provider} / {p.model}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  className="rounded-lg px-3 py-1.5 text-xs font-semibold ui-text-secondary hover:ui-text-primary transition-colors"
+                  style={{ background: "var(--surface-3)", border: "1px solid var(--border-subtle)" }}
+                  disabled={!selectedProfile || status === "saving"}
+                  title="应用所选方案并热加载"
+                  onClick={async () => {
+                    const p = profiles.find((x) => x.name === selectedProfile);
+                    if (!p) return;
+                    // Apply by patching defaults + quick-switch list; providers keys already live under providers.*
+                    setStatus("saving");
+                    setErrorMsg("");
+                    setSavedMsg("");
+                    try {
+                      const patch = { agents: { defaults: { provider: p.provider, model: p.model }, models: p.models } };
+                      const res = await fetch(aguiRequestPath("/api/config"), {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify(patch),
+                      });
+                      if (res.status === 409) {
+                        const body = (await res.json().catch(() => ({}))) as { detail?: string };
+                        throw new Error(body.detail ?? "当前 AI 正在运行任务，请稍后再试");
+                      }
+                      if (!res.ok) {
+                        const body = (await res.json().catch(() => ({}))) as { detail?: string };
+                        throw new Error(body.detail ?? `HTTP ${res.status}`);
+                      }
+                      const out = (await res.json().catch(() => ({}))) as { reloaded?: boolean; current_model?: string; current_provider?: string };
+                      setStatus("success");
+                      if (out?.reloaded && out?.current_model) {
+                        setSavedMsg(`已切换方案并热加载，当前：${out.current_provider ? `${out.current_provider} / ` : ""}${out.current_model}`);
+                      } else {
+                        setSavedMsg("已切换方案");
+                      }
+                      // Refresh UI state from persisted config
+                      await loadConfig();
+                      onSaved?.();
+                      setTimeout(() => setStatus("idle"), 2500);
+                    } catch (e) {
+                      setStatus("error");
+                      setErrorMsg(e instanceof Error ? e.message : "切换失败");
+                    }
+                  }}
+                >
+                  应用
+                </button>
+                <button
+                  type="button"
+                  className="rounded-lg px-3 py-1.5 text-xs font-semibold ui-text-secondary hover:ui-text-primary transition-colors"
+                  style={{ background: "var(--surface-3)", border: "1px solid var(--border-subtle)" }}
+                  disabled={status === "saving"}
+                  title="将当前表单保存为一个方案（仅保存 provider/model/models）"
+                  onClick={async () => {
+                    const name = window.prompt("方案名称（例如：百炼-Qwen / Zhipu-GLM）")?.trim();
+                    if (!name) return;
+                    const provider = (form.providerName || "").trim();
+                    const model = (form.defaultModel || "").trim();
+                    const models = (form.modelListText || "")
+                      .split(/\r?\n|,/g)
+                      .map((x) => x.trim())
+                      .filter((x) => x);
+                    const nextProfiles = [
+                      ...profiles.filter((p) => p.name !== name),
+                      { name, provider, model, models },
+                    ];
+                    // Persist profiles into config.json
+                    setStatus("saving");
+                    setErrorMsg("");
+                    setSavedMsg("");
+                    try {
+                      const patch = { agents: { profiles: nextProfiles } };
+                      const res = await fetch(aguiRequestPath("/api/config"), {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify(patch),
+                      });
+                      if (res.status === 409) {
+                        const body = (await res.json().catch(() => ({}))) as { detail?: string };
+                        throw new Error(body.detail ?? "当前 AI 正在运行任务，请稍后再试");
+                      }
+                      if (!res.ok) {
+                        const body = (await res.json().catch(() => ({}))) as { detail?: string };
+                        throw new Error(body.detail ?? `HTTP ${res.status}`);
+                      }
+                      setProfiles(nextProfiles);
+                      setSelectedProfile(name);
+                      setStatus("success");
+                      setSavedMsg(`已保存方案：${name}`);
+                      await loadConfig();
+                      setTimeout(() => setStatus("idle"), 2500);
+                    } catch (e) {
+                      setStatus("error");
+                      setErrorMsg(e instanceof Error ? e.message : "保存方案失败");
+                    }
+                  }}
+                >
+                  保存为方案
+                </button>
+              </div>
+              <div className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>
+                方案只保存：provider / 默认模型 / 右上角常用模型列表。API Key 与 API Base 仍保存在 providers.* 中，不会重复存两份。
+              </div>
+            </section>
             <section className="ui-card rounded-xl p-4 flex flex-col gap-3">
               <div className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
                 模型与提供商

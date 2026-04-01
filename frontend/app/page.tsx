@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Menu, Settings, X } from "lucide-react";
 import { ChatArea } from "@/components/ChatArea";
 import { ChoicesModal } from "@/components/ChoicesModal";
@@ -66,6 +66,8 @@ export default function Home() {
   const [rightWidth, setRightWidth] = useState(RIGHT_PANEL_DEFAULT);
   const [selectedModel, setSelectedModel] = useState<string>("glm-4");
   const [modelOptions, setModelOptions] = useState<string[]>([]);
+  const [selectedProvider, setSelectedProvider] = useState<string>("");
+  const [agentProfiles, setAgentProfiles] = useState<Array<{ name: string; provider: string; model: string; models: string[] }>>([]);
   const lastInputRef = useRef("");
   const draggingRef = useRef<null | "left" | "right">(null);
   const dragStartX = useRef(0);
@@ -75,35 +77,89 @@ export default function Home() {
 
   const apiBase = process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8765";
 
-  // Load the default model from config on mount
+  const configUrl = useMemo(() => {
+    return process.env.NEXT_PUBLIC_AGUI_DIRECT === "1" ? `${apiBase}/api/config` : "/api/config";
+  }, [apiBase]);
+
+  // Load provider/model + common models (and profiles) from config on mount
   const loadModelFromConfig = useCallback(async () => {
     try {
-      const url =
-        process.env.NEXT_PUBLIC_AGUI_DIRECT === "1"
-          ? `${apiBase}/api/config`
-          : "/api/config";
-      const res = await fetch(url);
+      const res = await fetch(configUrl);
       if (!res.ok) return;
       const cfg = (await res.json()) as {
-        agents?: { defaults?: { model?: string }; models?: string[] };
+        agents?: {
+          defaults?: { model?: string; provider?: string };
+          models?: string[];
+          profiles?: Array<{ name?: string; provider?: string; model?: string; models?: string[] }>;
+        };
       };
+      const p = cfg?.agents?.defaults?.provider;
       const m = cfg?.agents?.defaults?.model;
-      if (m && typeof m === "string") setSelectedModel(m);
-      const list = cfg?.agents?.models;
-      if (Array.isArray(list)) {
-        const cleaned = list
-          .map((x) => (typeof x === "string" ? x.trim() : ""))
-          .filter((x) => x);
-        setModelOptions(cleaned);
-      }
+
+      const profiles = Array.isArray(cfg?.agents?.profiles)
+        ? cfg.agents.profiles
+            .map((x) => ({
+              name: String(x?.name || "").trim(),
+              provider: String(x?.provider || "").trim(),
+              model: String(x?.model || "").trim(),
+              models: Array.isArray(x?.models) ? x!.models!.map((mm) => String(mm || "").trim()).filter((mm) => mm) : [],
+            }))
+            .filter((x) => x.name && x.provider)
+        : [];
+      setAgentProfiles(profiles);
+
+      const provider = typeof p === "string" && p.trim() ? p.trim() : "";
+      const model = typeof m === "string" && m.trim() ? m.trim() : "";
+
+      // If we have a profile for the current provider, prefer it as the source
+      // of common models for the header selector.
+      const prof = provider ? profiles.find((x) => x.provider === provider || x.name === provider) : undefined;
+      const list = prof?.models ?? (Array.isArray(cfg?.agents?.models) ? cfg.agents.models : []);
+      const cleaned = Array.isArray(list) ? list.map((x) => (typeof x === "string" ? x.trim() : "")).filter((x) => x) : [];
+      setModelOptions(cleaned);
+      if (provider) setSelectedProvider(provider);
+      if (model) setSelectedModel(model);
     } catch {
       // keep default
     }
-  }, [apiBase]);
+  }, [configUrl]);
 
   useEffect(() => {
     void loadModelFromConfig();
   }, [loadModelFromConfig]);
+
+  const providerOptions = useMemo(() => {
+    const names = agentProfiles.map((p) => p.provider);
+    const unique = Array.from(new Set(names)).filter((x) => x);
+    return unique;
+  }, [agentProfiles]);
+
+  const applyProviderProfile = useCallback(
+    async (providerName: string) => {
+      const provider = providerName.trim();
+      if (!provider) return;
+      const prof = agentProfiles.find((x) => x.provider === provider || x.name === provider);
+      const nextModel = prof?.model || "";
+      const nextModels = prof?.models || [];
+
+      // Persist provider+model so chat uses the correct provider server-side.
+      try {
+        const patch = { agents: { defaults: { provider, model: nextModel || undefined }, models: nextModels } };
+        await fetch(configUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(patch),
+        });
+      } catch {
+        // best effort; still update local state
+      }
+
+      setSelectedProvider(provider);
+      if (nextModel) setSelectedModel(nextModel);
+      setModelOptions(nextModels);
+    },
+    [agentProfiles, configUrl],
+  );
 
   const openFilePreview = useCallback((path: string) => {
     setPreviewPath(path);
@@ -389,7 +445,39 @@ export default function Home() {
 
             {/* Right-side action buttons */}
             <div className="flex items-center gap-1.5 shrink-0">
-              <ModelSelector value={selectedModel} onChange={setSelectedModel} models={modelOptions} compact={headerWidth < 760} />
+              {providerOptions.length > 0 && (
+                <label className="inline-flex items-center gap-2 text-xs ui-text-secondary">
+                  {headerWidth >= 760 && <span className="whitespace-nowrap">提供商</span>}
+                  <select
+                    value={selectedProvider}
+                    onChange={(e) => void applyProviderProfile(e.target.value)}
+                    className="rounded-lg border px-2 py-1 text-xs"
+                    style={{ borderColor: "var(--border-subtle)", background: "var(--surface-2)", color: "var(--text-primary)" }}
+                    aria-label="选择提供商"
+                  >
+                    {providerOptions.map((p) => (
+                      <option key={p} value={p}>
+                        {p}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              <ModelSelector
+                value={selectedModel}
+                onChange={(m) => {
+                  setSelectedModel(m);
+                  // Optional: when the user switches model in the header, persist it
+                  // so the backend uses the same model on the next turn.
+                  void fetch(configUrl, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ agents: { defaults: { provider: selectedProvider || undefined, model: m } } }),
+                  }).catch(() => {});
+                }}
+                models={modelOptions}
+                compact={headerWidth < 760}
+              />
               <button
                 type="button"
                 onClick={openConfig}

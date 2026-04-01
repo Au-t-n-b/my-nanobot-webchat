@@ -42,11 +42,21 @@ class AgentDefaults(Base):
     reasoning_effort: str | None = None  # low / medium / high - enables LLM thinking mode
 
 
+class AgentProfile(Base):
+    """Named agent profile for quick switching in UI."""
+
+    name: str = ""
+    provider: str = "auto"
+    model: str = ""
+    models: list[str] = Field(default_factory=list)  # UI model quick-switch list for this profile
+
+
 class AgentsConfig(Base):
     """Agent configuration."""
 
     defaults: AgentDefaults = Field(default_factory=AgentDefaults)
     models: list[str] = Field(default_factory=list)  # UI model quick-switch list
+    profiles: list[AgentProfile] = Field(default_factory=list)
 
 
 class ProviderConfig(Base):

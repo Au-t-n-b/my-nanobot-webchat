@@ -46,6 +46,7 @@ class AgentsConfig(Base):
     """Agent configuration."""
 
     defaults: AgentDefaults = Field(default_factory=AgentDefaults)
+    models: list[str] = Field(default_factory=list)  # UI model quick-switch list
 
 
 class ProviderConfig(Base):

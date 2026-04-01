@@ -1161,6 +1161,25 @@ async def handle_config_get(request: web.Request) -> web.Response:
     cors = _cors_headers(request)
     from nanobot.config.loader import get_config_path  # local import to avoid circular deps
 
+    SENSITIVE_PATTERNS = ("password", "apikey", "api_key", "token", "secret", "passwd")
+
+    def _is_sensitive(key: str) -> bool:
+        k = (key or "").lower()
+        return any(p in k for p in SENSITIVE_PATTERNS)
+
+    def _mask(value: Any) -> Any:
+        if isinstance(value, dict):
+            out: dict[str, Any] = {}
+            for k, v in value.items():
+                if _is_sensitive(str(k)) and isinstance(v, str) and v:
+                    out[k] = "******"
+                else:
+                    out[k] = _mask(v)
+            return out
+        if isinstance(value, list):
+            return [_mask(v) for v in value]
+        return value
+
     config_path = get_config_path()
     if not config_path.exists():
         return web.json_response({"detail": "config not found"}, status=404, headers=cors)
@@ -1170,28 +1189,274 @@ async def handle_config_get(request: web.Request) -> web.Response:
         return web.json_response({"detail": "invalid config.json"}, status=500, headers=cors)
     except OSError as exc:
         return web.json_response({"detail": str(exc)}, status=500, headers=cors)
-    return web.json_response(payload, headers=cors)
+    return web.json_response(_mask(payload), headers=cors)
 
 
 async def handle_config_post(request: web.Request) -> web.Response:
     """POST /api/config — overwrite ~/.nanobot/config.json with request body."""
     cors = _cors_headers(request)
     from nanobot.config.loader import get_config_path
+    from nanobot.web.run_registry import RunRegistry
+    from nanobot.web.keys import AGENT_LOOP_KEY, CONFIG_KEY, RUN_REGISTRY_KEY
+
+    SENSITIVE_PATTERNS = ("password", "apikey", "api_key", "token", "secret", "passwd")
+
+    def _is_sensitive(key: str) -> bool:
+        k = (key or "").lower()
+        return any(p in k for p in SENSITIVE_PATTERNS)
+
+    def _merge_with_original(incoming: Any, original: Any) -> Any:
+        # If user posts "******" for a sensitive field, keep the existing value.
+        if isinstance(incoming, dict) and isinstance(original, dict):
+            out: dict[str, Any] = dict(original)
+            for k, v in incoming.items():
+                if _is_sensitive(str(k)) and v == "******":
+                    continue
+                out[k] = _merge_with_original(v, original.get(k))
+            return out
+        return incoming
 
     try:
         body = await request.json()
     except Exception:
         return web.json_response({"detail": "request body must be valid JSON"}, status=400, headers=cors)
 
+    # Prevent hot-reload while any chat run is active (avoids swapping providers mid-stream).
+    registry: RunRegistry = request.app[RUN_REGISTRY_KEY]
+    if await registry.active_count() > 0:
+        return web.json_response(
+            {"detail": "busy: chat run in progress"},
+            status=409,
+            headers=cors,
+        )
+
+    # Merge with existing config so masked sensitive fields ("******") keep their original values.
     config_path = get_config_path()
+    existing: dict[str, Any] = {}
+    if config_path.exists():
+        try:
+            existing = json.loads(config_path.read_text(encoding="utf-8"))
+        except Exception:
+            existing = {}
+    merged_body = _merge_with_original(body, existing)
+
+    # Validate config against schema and build provider BEFORE writing to disk.
+    try:
+        from nanobot.config.schema import Config
+
+        cfg = Config.model_validate(merged_body)
+    except Exception as exc:
+        return web.json_response({"detail": f"invalid config: {exc}"}, status=400, headers=cors)
+
+    try:
+        from nanobot.providers.factory import make_provider
+
+        provider = make_provider(cfg)
+    except Exception as exc:
+        return web.json_response({"detail": f"invalid provider config: {exc}"}, status=400, headers=cors)
+
     try:
         config_path.parent.mkdir(parents=True, exist_ok=True)
-        config_path.write_text(json.dumps(body, indent=2, ensure_ascii=False), encoding="utf-8")
+        payload = cfg.model_dump(mode="json", by_alias=True)
+        config_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
     except OSError as exc:
         return web.json_response({"detail": str(exc)}, status=500, headers=cors)
 
-    logger.info("config.json updated via API")
-    return web.json_response({"ok": True}, headers=cors)
+    # Update in-memory config and hot-reload the running AgentLoop (if present).
+    request.app[CONFIG_KEY] = cfg
+    agent = request.app[AGENT_LOOP_KEY]
+    if agent is not None:
+        try:
+            await agent.reload_provider_and_model(
+                provider=provider,
+                model=cfg.agents.defaults.model,
+            )
+        except Exception as exc:
+            logger.warning("Hot reload failed after config update: {}", exc)
+            return web.json_response({"detail": f"hot reload failed: {exc}"}, status=500, headers=cors)
+
+    logger.info("config.json updated via API (hot reload applied)")
+    return web.json_response({"ok": True, "reloaded": agent is not None}, headers=cors)
+
+
+async def handle_providers_list(request: web.Request) -> web.Response:
+    """GET /api/providers — list provider registry metadata for UI dropdowns."""
+    cors = _cors_headers(request)
+    from nanobot.providers.registry import PROVIDERS
+
+    items: list[dict[str, Any]] = []
+    for spec in PROVIDERS:
+        items.append(
+            {
+                "name": spec.name,
+                "label": spec.label,
+                "keywords": list(spec.keywords),
+                "isGateway": bool(spec.is_gateway),
+                "isLocal": bool(spec.is_local),
+                "isOAuth": bool(spec.is_oauth),
+                "isDirect": bool(spec.is_direct),
+                "defaultApiBase": spec.default_api_base or "",
+                "litellmPrefix": spec.litellm_prefix or "",
+                "stripModelPrefix": bool(spec.strip_model_prefix),
+            }
+        )
+    return web.json_response({"providers": items}, headers=cors)
+
+
+async def handle_welink_chat_stream(request: web.Request) -> web.StreamResponse | web.Response:
+    """POST /welink/chat/stream — WeLink SSE chat bridge (MVP: text only).
+
+    - Auth (optional): if env WELINK_AUTH_TOKEN is set, require Authorization match.
+    - Input: WeLink JSON body (type/content/sendUserAccount/topicId/messageId/...).
+    - Output: SSE lines of the form `data: <json>\\n\\n` with `code` and `isFinish`.
+    - Heartbeat: emits an empty text chunk every 20s to avoid idle timeouts.
+    """
+    # Optional fixed-token auth (for quick internal integration)
+    required = (os.environ.get("WELINK_AUTH_TOKEN") or "").strip()
+    if required:
+        got = (request.headers.get("Authorization") or "").strip()
+        if got != required:
+            return web.json_response({"code": "401", "message": "unauthorized"}, status=401)
+
+    agent: AgentLoop | None = request.app[AGENT_LOOP_KEY]
+    registry: RunRegistry = request.app[RUN_REGISTRY_KEY]
+
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({"code": "400", "message": "request body must be valid JSON"}, status=400)
+
+    msg_type = str(data.get("type") or "").strip()
+    raw_content = data.get("content")
+    send_user = str(data.get("sendUserAccount") or "").strip()
+    topic_id = data.get("topicId")
+    message_id = data.get("messageId")
+
+    if not send_user:
+        return web.json_response({"code": "400", "message": "sendUserAccount is required"}, status=400)
+    if topic_id is None:
+        return web.json_response({"code": "400", "message": "topicId is required"}, status=400)
+    if message_id is None:
+        return web.json_response({"code": "400", "message": "messageId is required"}, status=400)
+
+    # Thread aggregation: multi-turn by (user, topicId)
+    thread_id = f"welink:{send_user}:{topic_id}"
+    run_id = str(message_id)
+
+    if not await registry.try_begin(thread_id, run_id):
+        return web.json_response({"code": "409", "message": "busy"}, status=409)
+
+    # WeLink SSE headers (no CORS needed for server-to-server, but harmless if present)
+    headers = {
+        "Content-Type": "text/event-stream; charset=utf-8",
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+        "X-Accel-Buffering": "no",
+    }
+    response = web.StreamResponse(status=200, headers=headers)
+
+    write_lock = asyncio.Lock()
+    client_disconnected = False
+    finished = False
+    process_task: asyncio.Task | None = None
+
+    def _welink_sse_line(payload: dict[str, Any]) -> bytes:
+        return ("data: " + json.dumps(payload, ensure_ascii=False) + "\n\n").encode("utf-8")
+
+    async def safe_write(payload: dict[str, Any]) -> None:
+        nonlocal client_disconnected
+        if client_disconnected:
+            return
+        async with write_lock:
+            try:
+                await response.write(_welink_sse_line(payload))
+            except (ClientConnectionResetError, ConnectionResetError, RuntimeError):
+                client_disconnected = True
+                if process_task is not None and not process_task.done():
+                    process_task.cancel()
+
+    def _coerce_user_text() -> str:
+        if msg_type.upper() == "IMAGE-V1":
+            # MVP: degrade to text to keep the interface stable.
+            # raw_content is a JSON string per PDF; keep it as-is for debugging.
+            return (
+                "用户发送了图片消息（暂不支持解析）。\n"
+                "请用户补充文字描述或重新发送文本。\n\n"
+                f"原始 content={raw_content}"
+            )
+        # Default: treat as plain text.
+        return str(raw_content or "")
+
+    async def _heartbeat() -> None:
+        """Keepalive every ~20s to avoid WeLink idle timeout."""
+        try:
+            while not finished and not client_disconnected:
+                await asyncio.sleep(20)
+                if finished or client_disconnected:
+                    break
+                await safe_write({"code": "0", "isFinish": False, "data": {"type": "text", "text": ""}})
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            pass
+
+    try:
+        await response.prepare(request)
+
+        # If agent isn't running, still return a deterministic response for smoke tests.
+        if agent is None:
+            await safe_write({"code": "0", "isFinish": False, "data": {"type": "text", "text": "agent not running"}})
+            await safe_write({"code": "0", "isFinish": True, "data": {"type": "text", "text": ""}})
+            finished = True
+            return response
+
+        user_text = _coerce_user_text()
+        chunks: list[str] = []
+        hb_task = asyncio.create_task(_heartbeat())
+        try:
+            async def on_stream(delta: str) -> None:
+                if not delta:
+                    return
+                chunks.append(delta)
+                await safe_write({"code": "0", "isFinish": False, "data": {"type": "text", "text": delta}})
+
+            # on_progress could be mapped to planning/think later; MVP: ignore.
+            process_task = asyncio.create_task(
+                agent.process_direct(
+                    user_text,
+                    session_key=thread_id,
+                    channel="welink",
+                    chat_id=thread_id,
+                    on_stream=on_stream,
+                )
+            )
+            await process_task
+            await safe_write({"code": "0", "isFinish": True, "data": {"type": "text", "text": ""}})
+            finished = True
+        finally:
+            hb_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await hb_task
+    except asyncio.CancelledError:
+        client_disconnected = True
+        if process_task is not None and not process_task.done():
+            process_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await process_task
+        raise
+    except Exception as e:
+        msg = str(e) or type(e).__name__
+        logger.exception("WeLink /welink/chat/stream failed: {}", msg)
+        # Always send terminal frame if we can.
+        await safe_write({"code": "500", "message": msg, "isFinish": True, "data": {"type": "text", "text": ""}})
+        finished = True
+    finally:
+        await registry.end(thread_id)
+        if not client_disconnected:
+            with contextlib.suppress(Exception):
+                await response.write_eof()
+
+    return response
 
 
 async def handle_browser(request: web.Request) -> web.WebSocketResponse:
@@ -1398,4 +1663,8 @@ def setup_routes(app: web.Application) -> None:
     app.router.add_options("/api/trash-files", handle_options)
     app.router.add_get("/api/config", handle_config_get)
     app.router.add_post("/api/config", handle_config_post)
+    app.router.add_get("/api/providers", handle_providers_list)
+    app.router.add_post("/welink/chat/stream", handle_welink_chat_stream)
     app.router.add_options("/api/config", handle_options)
+    app.router.add_options("/api/providers", handle_options)
+    app.router.add_options("/welink/chat/stream", handle_options)

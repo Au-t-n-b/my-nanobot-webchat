@@ -65,6 +65,7 @@ export default function Home() {
   const [leftWidth, setLeftWidth] = useState(SIDEBAR_DEFAULT);
   const [rightWidth, setRightWidth] = useState(RIGHT_PANEL_DEFAULT);
   const [selectedModel, setSelectedModel] = useState<string>("glm-4");
+  const [modelOptions, setModelOptions] = useState<string[]>([]);
   const lastInputRef = useRef("");
   const draggingRef = useRef<null | "left" | "right">(null);
   const dragStartX = useRef(0);
@@ -84,10 +85,17 @@ export default function Home() {
       const res = await fetch(url);
       if (!res.ok) return;
       const cfg = (await res.json()) as {
-        agents?: { defaults?: { model?: string } };
+        agents?: { defaults?: { model?: string }; models?: string[] };
       };
       const m = cfg?.agents?.defaults?.model;
       if (m && typeof m === "string") setSelectedModel(m);
+      const list = cfg?.agents?.models;
+      if (Array.isArray(list)) {
+        const cleaned = list
+          .map((x) => (typeof x === "string" ? x.trim() : ""))
+          .filter((x) => x);
+        setModelOptions(cleaned);
+      }
     } catch {
       // keep default
     }
@@ -381,7 +389,7 @@ export default function Home() {
 
             {/* Right-side action buttons */}
             <div className="flex items-center gap-1.5 shrink-0">
-              <ModelSelector value={selectedModel} onChange={setSelectedModel} compact={headerWidth < 760} />
+              <ModelSelector value={selectedModel} onChange={setSelectedModel} models={modelOptions} compact={headerWidth < 760} />
               <button
                 type="button"
                 onClick={openConfig}

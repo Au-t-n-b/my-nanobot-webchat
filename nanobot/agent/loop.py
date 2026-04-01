@@ -166,6 +166,7 @@ class AgentLoop:
         self._active_tasks: dict[str, list[asyncio.Task]] = {}  # session_key -> tasks
         self._background_tasks: list[asyncio.Task] = []
         self._session_locks: dict[str, asyncio.Lock] = {}
+        self._reload_lock = asyncio.Lock()
         # NANOBOT_MAX_CONCURRENT_REQUESTS: <=0 means unlimited; default 3.
         _max = int(os.environ.get("NANOBOT_MAX_CONCURRENT_REQUESTS", "3"))
         self._concurrency_gate: asyncio.Semaphore | None = (
@@ -184,6 +185,32 @@ class AgentLoop:
         self._register_default_tools()
         self.commands = CommandRouter()
         register_builtin_commands(self.commands)
+
+    async def reload_provider_and_model(
+        self,
+        *,
+        provider: LLMProvider,
+        model: str | None = None,
+    ) -> None:
+        """Hot-reload runtime provider/model.
+
+        This updates all long-lived components that retain provider/model
+        references (subagents, memory consolidator). Callers should avoid
+        invoking this while a chat run is in progress.
+        """
+        async with self._reload_lock:
+            self.provider = provider
+            if model and model.strip():
+                self.model = model.strip()
+
+            # Subagents retain their own provider/model references.
+            self.subagents.provider = provider
+            self.subagents.model = self.model
+
+            # Memory consolidation uses provider/model for summarization and token estimation.
+            self.memory_consolidator.provider = provider
+            self.memory_consolidator.model = self.model
+            self.memory_consolidator.max_completion_tokens = provider.generation.max_tokens
 
     def set_tool_approval_callback(self, callback: ToolApprovalCallback | None) -> Token:
         """Bind per-request HITL callback in context-local storage."""

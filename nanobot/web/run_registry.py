@@ -23,6 +23,11 @@ class RunRegistry:
         async with self._lock:
             self._active.pop(thread_id, None)
 
+    async def active_count(self) -> int:
+        """Return number of currently active runs (threadIds)."""
+        async with self._lock:
+            return len(self._active)
+
 
 class ApprovalRegistry:
     """Store pending HITL approvals by (thread, run, tool_call)."""

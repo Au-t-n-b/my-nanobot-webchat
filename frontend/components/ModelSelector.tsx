@@ -8,13 +8,19 @@ export type AvailableModel = (typeof PRESET_MODELS)[number];
 type Props = {
   value: string;
   onChange: (model: string) => void;
+  models?: string[];
   compact?: boolean;
 };
 
-export function ModelSelector({ value, onChange, compact = false }: Props) {
+export function ModelSelector({ value, onChange, models, compact = false }: Props) {
+  const extra = (models ?? [])
+    .map((m) => (typeof m === "string" ? m.trim() : ""))
+    .filter((m) => m);
+  const options = Array.from(new Set([...(PRESET_MODELS as readonly string[]), ...extra]));
+
   // If the current value is not a preset (e.g. set from config), show it as an
   // additional option at the top so the dropdown is consistent.
-  const showExtra = value && !(PRESET_MODELS as readonly string[]).includes(value);
+  const showExtra = value && !options.includes(value);
 
   return (
     <label className="inline-flex items-center gap-2 text-xs ui-text-secondary">
@@ -35,7 +41,7 @@ export function ModelSelector({ value, onChange, compact = false }: Props) {
             {value}
           </option>
         )}
-        {PRESET_MODELS.map((m) => (
+        {options.map((m) => (
           <option key={m} value={m}>
             {m}
           </option>

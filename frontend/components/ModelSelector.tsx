@@ -1,9 +1,7 @@
 "use client";
 
-// Preset quick-pick options shown in the dropdown.
-// If the config supplies a model not in this list it is shown as an extra option.
-const PRESET_MODELS = ["glm-4", "glm-4v", "glm-4.7"] as const;
-export type AvailableModel = (typeof PRESET_MODELS)[number];
+// Model options come from config (agents.models) so the dropdown matches the
+// user's provider and "common models" list. The current value is always shown.
 
 type Props = {
   value: string;
@@ -16,7 +14,7 @@ export function ModelSelector({ value, onChange, models, compact = false }: Prop
   const extra = (models ?? [])
     .map((m) => (typeof m === "string" ? m.trim() : ""))
     .filter((m) => m);
-  const options = Array.from(new Set([...(PRESET_MODELS as readonly string[]), ...extra]));
+  const options = Array.from(new Set([...extra]));
 
   // If the current value is not a preset (e.g. set from config), show it as an
   // additional option at the top so the dropdown is consistent.

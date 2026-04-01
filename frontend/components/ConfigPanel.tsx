@@ -1,7 +1,8 @@
 "use client";
 
-import { AlertCircle, CheckCircle2, RotateCcw, Save, Settings, Wifi, X } from "lucide-react";
+import { AlertCircle, CheckCircle2, Plus, RotateCcw, Save, Settings, Wifi, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { PROVIDER_MODEL_SUGGESTIONS } from "@/lib/providerModelSuggestions";
 
 function aguiRequestPath(path: string): string {
   // Force direct-to-backend requests so config writes always trigger:
@@ -49,6 +50,8 @@ export function ConfigPanel({ onClose, onSaved }: { onClose: () => void; onSaved
   const [savedMsg, setSavedMsg] = useState<string>("");
   const apiBaseTouchedRef = useRef(false);
   const lastAutoBaseRef = useRef<string>("");
+  const modelTouchedRef = useRef(false);
+  const modelsTouchedRef = useRef(false);
 
   const loadConfig = useCallback(async () => {
     setStatus("loading");
@@ -413,6 +416,8 @@ export function ConfigPanel({ onClose, onSaved }: { onClose: () => void; onSaved
                     lastAutoBaseRef.current = "";
                     setTestStatus("idle");
                     setTestMsg("");
+                    modelTouchedRef.current = false;
+                    modelsTouchedRef.current = false;
                     setForm((prev) => ({ ...prev, providerName: next, apiKey: "", apiKeyConfigured: false, apiBase: "" }));
                     // Re-hydrate from loaded config text (masked) for the newly selected provider
                     try {
@@ -433,18 +438,36 @@ export function ConfigPanel({ onClose, onSaved }: { onClose: () => void; onSaved
                       const shouldAutoFill = !fromConfig.trim() && defaultBase;
                       const nextBase = shouldAutoFill ? defaultBase : fromConfig;
                       if (shouldAutoFill) lastAutoBaseRef.current = defaultBase;
+                      const suggestion = PROVIDER_MODEL_SUGGESTIONS[next];
                       setForm((prev) => ({
                         ...prev,
                         providerName: next,
                         apiKeyConfigured: keyConfigured,
                         apiBase: nextBase,
+                        defaultModel: (prev.defaultModel.trim() && modelTouchedRef.current)
+                          ? prev.defaultModel
+                          : (suggestion?.defaultModel ?? prev.defaultModel),
+                        modelListText: (prev.modelListText.trim() && modelsTouchedRef.current)
+                          ? prev.modelListText
+                          : (suggestion?.models?.length ? suggestion.models.join("\n") : prev.modelListText),
                       }));
                     } catch {
                       const spec = providers.find((x) => x.name === next);
                       const defaultBase = (spec?.defaultApiBase || "").trim();
-                      if (defaultBase) {
+                      const suggestion = PROVIDER_MODEL_SUGGESTIONS[next];
+                      if (defaultBase || suggestion) {
                         lastAutoBaseRef.current = defaultBase;
-                        setForm((prev) => ({ ...prev, providerName: next, apiBase: defaultBase }));
+                        setForm((prev) => ({
+                          ...prev,
+                          providerName: next,
+                          apiBase: defaultBase,
+                          defaultModel: (prev.defaultModel.trim() && modelTouchedRef.current)
+                            ? prev.defaultModel
+                            : (suggestion?.defaultModel ?? prev.defaultModel),
+                          modelListText: (prev.modelListText.trim() && modelsTouchedRef.current)
+                            ? prev.modelListText
+                            : (suggestion?.models?.length ? suggestion.models.join("\n") : prev.modelListText),
+                        }));
                       }
                     }
                   }}
@@ -461,13 +484,37 @@ export function ConfigPanel({ onClose, onSaved }: { onClose: () => void; onSaved
 
               <label className="flex flex-col gap-1 text-xs ui-text-secondary">
                 <span>默认模型</span>
-                <input
-                  value={form.defaultModel}
-                  onChange={(e) => setForm((prev) => ({ ...prev, defaultModel: e.target.value }))}
-                  className="rounded-lg border px-2 py-1.5 text-xs"
-                  style={{ borderColor: "var(--border-subtle)", background: "var(--surface-2)", color: "var(--text-primary)" }}
-                  placeholder="例如：glm-4.7"
-                />
+                <div className="flex items-center gap-2">
+                  <input
+                    value={form.defaultModel}
+                    onChange={(e) => {
+                      modelTouchedRef.current = true;
+                      setForm((prev) => ({ ...prev, defaultModel: e.target.value }));
+                    }}
+                    className="flex-1 rounded-lg border px-2 py-1.5 text-xs"
+                    style={{ borderColor: "var(--border-subtle)", background: "var(--surface-2)", color: "var(--text-primary)" }}
+                    placeholder="例如：glm-4.7"
+                  />
+                  <button
+                    type="button"
+                    className="rounded-lg px-2.5 py-1.5 text-xs font-semibold ui-text-secondary hover:ui-text-primary transition-colors"
+                    style={{ background: "var(--surface-3)", border: "1px solid var(--border-subtle)" }}
+                    title="加入右上角常用模型列表"
+                    onClick={() => {
+                      const m = (form.defaultModel || "").trim();
+                      if (!m) return;
+                      const lines = (form.modelListText || "")
+                        .split(/\r?\n|,/g)
+                        .map((x) => x.trim())
+                        .filter((x) => x);
+                      const next = Array.from(new Set([m, ...lines]));
+                      modelsTouchedRef.current = true;
+                      setForm((prev) => ({ ...prev, modelListText: next.join("\n") }));
+                    }}
+                  >
+                    <Plus size={12} />
+                  </button>
+                </div>
                 <span className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>
                   配好 key 后，你只需要在右上角切换模型名（glm-4 / glm-4v / glm-4.7 / glm-5 等）
                 </span>
@@ -477,7 +524,10 @@ export function ConfigPanel({ onClose, onSaved }: { onClose: () => void; onSaved
                 <span>右上角模型列表（每行一个）</span>
                 <textarea
                   value={form.modelListText}
-                  onChange={(e) => setForm((prev) => ({ ...prev, modelListText: e.target.value }))}
+                  onChange={(e) => {
+                    modelsTouchedRef.current = true;
+                    setForm((prev) => ({ ...prev, modelListText: e.target.value }));
+                  }}
                   className="rounded-lg border px-2 py-1.5 text-xs font-mono min-h-[96px] resize-y"
                   style={{ borderColor: "var(--border-subtle)", background: "var(--surface-2)", color: "var(--text-primary)" }}
                   placeholder={"glm-4\nglm-4v\nglm-4.7\nglm-5"}

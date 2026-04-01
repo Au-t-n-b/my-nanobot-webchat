@@ -149,13 +149,13 @@ export function ConfigPanel({ onClose, onSaved }: { onClose: () => void; onSaved
         const body = (await res.json().catch(() => ({}))) as { detail?: string };
         throw new Error(body.detail ?? `HTTP ${res.status}`);
       }
-      const out = (await res.json().catch(() => ({}))) as { reloaded?: boolean; current_model?: string };
+      const out = (await res.json().catch(() => ({}))) as { reloaded?: boolean; current_model?: string; current_provider?: string };
       const formatted = JSON.stringify(parsed, null, 2);
       setText(formatted);
       setOriginalText(formatted);
       setStatus("success");
       if (out?.reloaded && out?.current_model) {
-        setSavedMsg(`配置已更新并热加载成功，当前模型：${out.current_model}`);
+        setSavedMsg(`配置已更新并热加载成功，当前：${out.current_provider ? `${out.current_provider} / ` : ""}${out.current_model}`);
       } else {
         setSavedMsg("配置已保存");
       }
@@ -200,7 +200,7 @@ export function ConfigPanel({ onClose, onSaved }: { onClose: () => void; onSaved
         .map((x) => x.trim())
         .filter((x) => x);
       const patch = {
-        agents: { defaults: { model }, models },
+        agents: { defaults: { model, provider: providerName }, models },
         providers: {
           [providerName]: {
             apiKey: apiKeyToSend,
@@ -221,11 +221,11 @@ export function ConfigPanel({ onClose, onSaved }: { onClose: () => void; onSaved
         const body = (await res.json().catch(() => ({}))) as { detail?: string };
         throw new Error(body.detail ?? `HTTP ${res.status}`);
       }
-      const out = (await res.json().catch(() => ({}))) as { reloaded?: boolean; current_model?: string };
+      const out = (await res.json().catch(() => ({}))) as { reloaded?: boolean; current_model?: string; current_provider?: string };
       setForm((prev) => ({ ...prev, apiKey: "", apiKeyConfigured: true }));
       setStatus("success");
       if (out?.reloaded && out?.current_model) {
-        setSavedMsg(`配置已更新并热加载成功，当前模型：${out.current_model}`);
+        setSavedMsg(`配置已更新并热加载成功，当前：${out.current_provider ? `${out.current_provider} / ` : ""}${out.current_model}`);
       } else {
         setSavedMsg("配置已保存");
       }

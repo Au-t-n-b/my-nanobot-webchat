@@ -1281,6 +1281,7 @@ async def handle_config_post(request: web.Request) -> web.Response:
             "ok": True,
             "reloaded": agent is not None,
             "current_model": cfg.agents.defaults.model,
+            "current_provider": cfg.agents.defaults.provider,
         },
         headers=cors,
     )

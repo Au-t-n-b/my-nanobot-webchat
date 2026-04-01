@@ -68,9 +68,11 @@ export function ConfigPanel({ onClose, onSaved }: { onClose: () => void; onSaved
       setOriginalText(formatted);
       // Best-effort: hydrate form fields from config (apiKey is masked server-side).
       const cfg = json as {
-        agents?: { defaults?: { model?: string }; models?: string[] };
+        agents?: { defaults?: { model?: string; provider?: string }; models?: string[] };
         providers?: Record<string, { apiKey?: string; api_key?: string; apiBase?: string; api_base?: string }>;
       };
+      const forcedProvider = cfg?.agents?.defaults?.provider;
+      const providerFromConfig = typeof forcedProvider === "string" && forcedProvider.trim() ? forcedProvider.trim() : null;
       const m = cfg?.agents?.defaults?.model;
       if (typeof m === "string" && m.trim()) {
         setForm((prev) => ({ ...prev, defaultModel: m.trim() }));
@@ -84,14 +86,30 @@ export function ConfigPanel({ onClose, onSaved }: { onClose: () => void; onSaved
         }
       }
       setForm((prev) => {
-        const p = cfg?.providers?.[prev.providerName];
+        const effectiveProviderName = providerFromConfig ?? prev.providerName;
+        const p = cfg?.providers?.[effectiveProviderName];
         const maskedKey = (p?.apiKey ?? p?.api_key) as unknown;
         const keyConfigured = typeof maskedKey === "string" && maskedKey === "******";
         const apiBase = ((p?.apiBase ?? p?.api_base) as unknown) ?? "";
+        const baseFromConfig = typeof apiBase === "string" ? apiBase : "";
+        const spec = providers.find((x) => x.name === effectiveProviderName);
+        const defaultBase = (spec?.defaultApiBase || "").trim();
+        const shouldAutoFill = !apiBaseTouchedRef.current && !baseFromConfig.trim() && defaultBase;
+        const nextBase = shouldAutoFill ? defaultBase : baseFromConfig;
+        if (shouldAutoFill) lastAutoBaseRef.current = defaultBase;
+        const suggestion = PROVIDER_MODEL_SUGGESTIONS[effectiveProviderName];
         return {
           ...prev,
+          providerName: effectiveProviderName,
           apiKeyConfigured: keyConfigured,
-          apiBase: typeof apiBase === "string" ? apiBase : prev.apiBase,
+          apiBase: nextBase || prev.apiBase,
+          defaultModel:
+            typeof m === "string" && m.trim()
+              ? m.trim()
+              : (modelTouchedRef.current ? prev.defaultModel : (suggestion?.defaultModel ?? prev.defaultModel)),
+          modelListText: Array.isArray(cfg?.agents?.models) && cfg.agents.models.length > 0
+            ? prev.modelListText
+            : (modelsTouchedRef.current ? prev.modelListText : (suggestion?.models?.length ? suggestion.models.join("\n") : prev.modelListText)),
         };
       });
       setStatus("idle");
@@ -100,7 +118,7 @@ export function ConfigPanel({ onClose, onSaved }: { onClose: () => void; onSaved
       setStatus("error");
       setErrorMsg(e instanceof Error ? e.message : "加载失败");
     }
-  }, []);
+  }, [providers]);
 
   useEffect(() => {
     void loadConfig();

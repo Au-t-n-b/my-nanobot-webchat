@@ -50,8 +50,10 @@ export function SkillUiWrapper({ syntheticPath }: Props) {
   const dataFile = parsed?.dataFile ?? null;
   const Inner = componentName ? SKILL_UI_REGISTRY[componentName] : undefined;
 
+  // 仅依赖 syntheticPath（字符串）。勿把 parsed 放依赖里：parseSkillUiPath 每次返回新对象会导致 effect 死循环、加载态闪烁。
   useEffect(() => {
-    if (!parsed || !dataFile) {
+    const p = parseSkillUiPath(syntheticPath);
+    if (!p?.dataFile) {
       setData(undefined);
       setLoading(false);
       setError(null);
@@ -63,7 +65,7 @@ export function SkillUiWrapper({ syntheticPath }: Props) {
     setError(null);
     setData(undefined);
 
-    const url = buildProxiedFileUrl(dataFile);
+    const url = buildProxiedFileUrl(p.dataFile);
     void (async () => {
       try {
         const res = await fetch(url);
@@ -89,7 +91,7 @@ export function SkillUiWrapper({ syntheticPath }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [parsed, dataFile]);
+  }, [syntheticPath]);
 
   if (!parsed) {
     return (

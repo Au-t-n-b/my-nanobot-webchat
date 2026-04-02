@@ -1,3 +1,6 @@
+# Root npm workspace (交付claw dev scripts)
+node_modules/
+
 .worktrees/
 .assets
 .docs

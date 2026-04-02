@@ -119,6 +119,9 @@ A：后端：`python -m nanobot agui --port 8765`；前端：`cd frontend && npm
 **Q：Windows 上 `npm run setup` 报 ParserError、中文乱码（如 `[浜や粯claw]`）？**  
 A：仓库中的 `scripts/setup.ps1` 已保存为 **UTF-8 with BOM**，供 **Windows PowerShell 5.1** 正确识别中文。若你本地改动了该文件，请仍用「UTF-8 带 BOM」保存，或改用 **PowerShell 7**（`pwsh`）执行。请勿将 `setup.ps1` 另存为 UTF-8 无 BOM，否则在简体中文系统上可能被误判编码导致解析失败。
 
+**Q：`npm run setup` 里 Python 报 `File "<string>", line 1` / SyntaxError？**  
+A：**Windows PowerShell 5.1** 把参数传给 `python.exe` 时，对「外层单引号 + 内层双引号」的引号规则与 PowerShell 7 不一致，可能把传给 `python -c` 的代码弄坏。当前脚本已改为在 **`-c` 的 Python 代码中不使用双引号**（例如用 `chr(46)` 表示点号），避免该问题。若你自行修改 `setup.ps1` 中的 `python -c`，请避免在 PS 5.1 下混用上述引号组合。
+
 ---
 
 ## 上游与致谢

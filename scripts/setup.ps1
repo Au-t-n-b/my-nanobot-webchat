@@ -16,8 +16,9 @@ Write-Host "[交付claw] 仓库根目录: $Root"
 if (-not (Test-Command python)) {
     Write-Error "未找到 python。请先安装 Python 3.11 或更高版本，并加入 PATH。"
 }
-# python -c 使用单引号包裹，避免 PS 5.1 误解析；本脚本须以 UTF-8 with BOM 保存（见 README「常见问题」）
-$pyver = & python -c 'import sys; print("{}.{}".format(sys.version_info.major, sys.version_info.minor))' 2>$null
+# python -c 参数在 PS 5.1 传至 python.exe 时会错误处理「外层单引号 + 内层双引号」；此处 Python 代码不使用任何双引号（见 README）
+# 本脚本须以 UTF-8 with BOM 保存（见 README「常见问题」）
+$pyver = & python -c 'import sys; v=sys.version_info; print(str(v.major)+chr(46)+str(v.minor))' 2>$null
 if (-not $pyver) {
     Write-Error "无法检测 Python 版本。"
 }

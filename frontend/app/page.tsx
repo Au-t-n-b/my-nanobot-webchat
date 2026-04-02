@@ -187,6 +187,25 @@ export default function Home() {
       }
     }
   }, [messages, openFilePreview]);
+
+  // ── RENDER_UI detector (skill-ui://...) ─────────────────────────────────
+  const renderUiOpenedRef = useRef(new Set<string>());
+  useEffect(() => {
+    const RENDER_UI_RE = /\[RENDER_UI\]\((skill-ui:\/\/[^)]+)\)/g;
+    for (const msg of messages) {
+      if (msg.role !== "assistant") continue;
+      RENDER_UI_RE.lastIndex = 0;
+      let match: RegExpExecArray | null;
+      while ((match = RENDER_UI_RE.exec(msg.content)) !== null) {
+        const uri = match[1].trim();
+        const dedupeKey = `${msg.id}::${uri}`;
+        if (!renderUiOpenedRef.current.has(dedupeKey)) {
+          renderUiOpenedRef.current.add(dedupeKey);
+          openFilePreview(uri);
+        }
+      }
+    }
+  }, [messages, openFilePreview]);
   // ─────────────────────────────────────────────────────────────────────────
 
   const openSettings = useCallback(() => {

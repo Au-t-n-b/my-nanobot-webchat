@@ -1,5 +1,6 @@
 export type PreviewKind =
   | "browser"
+  | "skill-ui"
   | "image"
   | "pdf"
   | "html"
@@ -12,6 +13,7 @@ export type PreviewKind =
 
 export function previewKindFromPath(path: string): PreviewKind {
   if (path.startsWith("browser://")) return "browser";
+  if (path.startsWith("skill-ui://")) return "skill-ui";
 
   const i = path.lastIndexOf(".");
   const ext = i >= 0 ? path.slice(i + 1).toLowerCase() : "";

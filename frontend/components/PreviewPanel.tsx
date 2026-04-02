@@ -11,6 +11,8 @@ import { AgentMarkdown } from "@/components/AgentMarkdown";
 import { RemoteBrowser } from "@/components/RemoteBrowser";
 import { buildProxiedFileUrl, openLocation } from "@/lib/apiFile";
 import { previewKindFromPath, type PreviewKind } from "@/lib/previewKind";
+import { parseSkillUiPath } from "@/lib/skillUiRegistry";
+import { SkillUiWrapper } from "@/components/SkillUiWrapper";
 
 type Props = {
   onClose: () => void;
@@ -50,6 +52,12 @@ function getLangFromPath(p: string): string | undefined {
 }
 
 function displayPreviewPath(fullPath: string): string {
+  if (fullPath.startsWith("skill-ui://")) {
+    const p = parseSkillUiPath(fullPath);
+    if (p?.component) {
+      return p.dataFile ? `Skill UI · ${p.component} ← ${p.dataFile}` : `Skill UI · ${p.component}`;
+    }
+  }
   const normalized = fullPath.replace(/\\/g, "/");
   const marker = "/.nanobot/workspace/";
   const idx = normalized.toLowerCase().indexOf(marker);
@@ -397,8 +405,9 @@ function FilePreviewBody({
   const mermaidId = useId().replace(/:/g, "");
 
   useEffect(() => {
-    // Remote browser kind is handled by direct render below; skip fetch logic.
+    // Remote browser / Skill UI: dedicated render below; skip file fetch.
     if (kind === "browser") return;
+    if (kind === "skill-ui") return;
 
     if (kind === "binary") {
       const name = path.split(/[/\\]/).pop() ?? "file";
@@ -475,6 +484,10 @@ function FilePreviewBody({
   // Remote browser – render after all hooks, before file-fetch status checks
   if (kind === "browser") {
     return <RemoteBrowser filePath={path} onClosePanel={onClosePanel} />;
+  }
+
+  if (kind === "skill-ui") {
+    return <SkillUiWrapper syntheticPath={path} />;
   }
 
   if (state.status === "loading") {
@@ -599,8 +612,14 @@ export function PreviewPanel({
 
   const handleOpenLocation = useCallback(() => {
     if (!filePath) return;
+    if (filePath.startsWith("skill-ui://") || filePath.startsWith("browser://")) return;
     void openLocation(filePath);
   }, [filePath]);
+
+  const showFileActions =
+    !!filePath &&
+    !filePath.startsWith("skill-ui://") &&
+    !filePath.startsWith("browser://");
 
   return (
     <aside className="ui-panel h-full rounded-2xl p-4 flex flex-col gap-3 min-h-0">
@@ -635,6 +654,7 @@ export function PreviewPanel({
                 ? <Check size={11} style={{ color: "var(--success)" }} />
                 : <Copy size={11} />}
             </button>
+            {showFileActions && (
             <button
               type="button"
               onClick={handleOpenLocation}
@@ -644,6 +664,7 @@ export function PreviewPanel({
             >
               <FolderOpen size={11} />
             </button>
+            )}
           </div>
         </div>
       )}

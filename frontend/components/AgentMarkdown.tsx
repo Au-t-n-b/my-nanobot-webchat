@@ -23,8 +23,9 @@ const FILE_EXT_RE =
 const BACKTICK_FILE_RE = new RegExp("`([^`\\n]+\\.(?:" + FILE_EXT_RE + "))`", "gi");
 
 // Bare Windows absolute path: C:\... or D:/... (not already in a Markdown link/code)
+// (?<![uU]) 避免匹配 skill-ui:// 中的「ui:」后的「i:」（会被误当成盘符 i:）
 const WIN_PATH_RE = new RegExp(
-  "(?<![`\\[(\\[])([A-Za-z]:[/\\\\][^\\s`\\]\\)\"'\\n]{3,}\\.(?:" + FILE_EXT_RE + "))",
+  "(?<![`\\[(\\[])(?<![uU])([A-Za-z]:[/\\\\][^\\s`\\]\\)\"'\\n]{3,}\\.(?:" + FILE_EXT_RE + "))",
   "gi",
 );
 // Bare Unix absolute path starting with /home /Users /tmp /var /opt /workspace
@@ -206,6 +207,22 @@ export function agentMarkdownComponents(options: {
         );
       }
 
+      // skill-ui:// → Skill UI 右栏（与 RENDER_UI 同源）
+      if (href?.startsWith("skill-ui://") && onFileLinkClick) {
+        const btnLabel =
+          typeof children === "string" ? children : "打开 Skill UI 预览";
+        return (
+          <button
+            type="button"
+            className="ui-link underline decoration-dotted bg-transparent border-none cursor-pointer p-0 font-inherit"
+            title={href}
+            onClick={() => onFileLinkClick(href)}
+          >
+            {btnLabel}
+          </button>
+        );
+      }
+
       // browser:// custom protocol → open in right-side PreviewPanel
       if (href?.startsWith("browser://") && onFileLinkClick) {
         // [AUTO_OPEN] marker → render as an inviting CTA button, not a raw link
@@ -351,7 +368,9 @@ export function AgentMarkdown({
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         urlTransform={(url) =>
-          url.startsWith("browser://") ? url : defaultUrlTransform(url)
+          url.startsWith("browser://") || url.startsWith("skill-ui://")
+            ? url
+            : defaultUrlTransform(url)
         }
         components={agentMarkdownComponents({ onFileLinkClick, searchQuery, onToggleInline: toggleInline })}
       >

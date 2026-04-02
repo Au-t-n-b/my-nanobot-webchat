@@ -116,6 +116,9 @@ A：确认 AGUI 已启动（`8765` 可访问），且 `NEXT_PUBLIC_API_BASE` 指
 **Q：只想单独启动后端或前端？**  
 A：后端：`python -m nanobot agui --port 8765`；前端：`cd frontend && npm run dev`。
 
+**Q：Windows 上 `npm run setup` 报 ParserError、中文乱码（如 `[浜や粯claw]`）？**  
+A：仓库中的 `scripts/setup.ps1` 已保存为 **UTF-8 with BOM**，供 **Windows PowerShell 5.1** 正确识别中文。若你本地改动了该文件，请仍用「UTF-8 带 BOM」保存，或改用 **PowerShell 7**（`pwsh`）执行。请勿将 `setup.ps1` 另存为 UTF-8 无 BOM，否则在简体中文系统上可能被误判编码导致解析失败。
+
 ---
 
 ## 上游与致谢

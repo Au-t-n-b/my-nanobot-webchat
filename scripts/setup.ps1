@@ -1,4 +1,4 @@
-# 交付claw — 一键安装依赖（Windows）
+﻿# 交付claw — 一键安装依赖（Windows）
 # 用法：在仓库根目录执行
 #   powershell -ExecutionPolicy Bypass -File scripts/setup.ps1
 # 或：npm run setup
@@ -16,7 +16,8 @@ Write-Host "[交付claw] 仓库根目录: $Root"
 if (-not (Test-Command python)) {
     Write-Error "未找到 python。请先安装 Python 3.11 或更高版本，并加入 PATH。"
 }
-$pyver = & python -c "import sys; print('%d.%d' % (sys.version_info[0], sys.version_info[1]))" 2>$null
+# python -c 使用单引号包裹，避免 PS 5.1 误解析；本脚本须以 UTF-8 with BOM 保存（见 README「常见问题」）
+$pyver = & python -c 'import sys; print("{}.{}".format(sys.version_info.major, sys.version_info.minor))' 2>$null
 if (-not $pyver) {
     Write-Error "无法检测 Python 版本。"
 }

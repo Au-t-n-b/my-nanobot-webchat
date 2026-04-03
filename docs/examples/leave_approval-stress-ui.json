@@ -1,0 +1,122 @@
+{
+  "schemaVersion": 1,
+  "type": "SduiDocument",
+  "root": {
+    "type": "Stack",
+    "gap": "lg",
+    "children": [
+      {
+        "type": "Card",
+        "title": "审批任务：长文本与表格压力测试",
+        "children": [
+          {
+            "type": "KeyValueList",
+            "items": [
+              {
+                "key": "申请人",
+                "value": "张三（工号 E1024）"
+              },
+              {
+                "key": "部门",
+                "value": "研发中心 · 平台组"
+              },
+              {
+                "key": "请假类型",
+                "value": "病假（意外伤害）"
+              },
+              {
+                "key": "拟请假期",
+                "value": "2026-04-01 至 2026-05-15"
+              },
+              {
+                "key": "请假原因",
+                "value": "申请人于上周末赴崇礼滑雪时不慎在高速雪道失控摔倒，造成右腿胫骨腓骨复合骨折，当场无法站立。雪场救援队将其送至县医院急诊，因夜间急诊床位紧张，排队约六小时才完成影像检查与石膏临时固定。次日转院至市三甲医院骨科，经评估后行钢板螺钉内固定手术，术后需卧床制动两周并遵医嘱进行踝泵与直腿抬高训练。出院后每周返院换药与复查，康复科评估目前仍需拄拐部分负重行走，预计四至六周内无法久坐办公。申请人已附诊断证明、手术记录及康复计划，说明因滑雪意外伤害导致需连续治疗与康复，故申请病假并请求主管根据公司制度予以审批。"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Card",
+        "title": "工作交接明细",
+        "children": [
+          {
+            "type": "DataGrid",
+            "columns": [
+              { "key": "handover_date", "label": "交接日期" },
+              { "key": "matter", "label": "交接事项" },
+              { "key": "assignee", "label": "接手人" },
+              { "key": "status", "label": "状态" }
+            ],
+            "rows": [
+              {
+                "handover_date": "2026-03-28",
+                "matter": "CI/CD 流水线与发布窗口日历",
+                "assignee": "李四",
+                "status": "已口头交接"
+              },
+              {
+                "handover_date": "2026-03-29",
+                "matter": "线上故障值班与告警群响应规范",
+                "assignee": "王五",
+                "status": "文档已更新"
+              },
+              {
+                "handover_date": "2026-03-30",
+                "matter": "核心服务配置中心变更单（待主管双签）",
+                "assignee": "赵六",
+                "status": "进行中"
+              }
+            ],
+            "editable": true,
+            "submitLabel": "更新交接单",
+            "submitActionPrefix": "【工作交接单】以下为提交时已编辑的交接明细（JSON），请同步至工单或 HR 备案："
+          }
+        ]
+      },
+      {
+        "type": "Card",
+        "title": "主管审批",
+        "children": [
+          {
+            "type": "TextArea",
+            "inputId": "audit_comment",
+            "label": "审批意见",
+            "placeholder": "请填写审批意见...",
+            "rows": 5
+          },
+          {
+            "type": "Row",
+            "gap": "sm",
+            "align": "end",
+            "children": [
+              {
+                "type": "Button",
+                "label": "驳回申请",
+                "variant": "secondary",
+                "action": {
+                  "kind": "post_user_message",
+                  "text": "驳回申请。主管意见：{{input:audit_comment}}"
+                }
+              },
+              {
+                "type": "Button",
+                "label": "同意并归档",
+                "variant": "primary",
+                "action": {
+                  "kind": "post_user_message",
+                  "text": "同意并归档。主管意见：{{input:audit_comment}}"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "meta": {
+    "skill": "leave_approval",
+    "scenario": "stress-test",
+    "description": "长文本 KeyValueList + 可编辑 DataGrid + 审批 TextArea / Button 压测"
+  }
+}

@@ -1,0 +1,216 @@
+/**
+ * SDUI（Skill Declarative UI）协议：JSON 文档 → 递归渲染 + 交互回传 Agent。
+ * 顶层 skill-ui 仅挂载 `SduiView`；文档内 `root` / `node.type` 驱动原子组件。
+ */
+
+import { scanIllegalPresentationKeysForDev } from "./sduiCompliance";
+
+export const SDUI_SCHEMA_VERSION = 1;
+
+/** 间距语义档位（禁止 JSON 中使用自由数字 gap） */
+export const SPACING_TOKENS = ["none", "xs", "sm", "md", "lg", "xl"] as const;
+export type SpacingToken = (typeof SPACING_TOKENS)[number];
+
+/** 支持的原子节点类型（MVP+） */
+export type SduiNodeType =
+  | "Stack"
+  | "Card"
+  | "Row"
+  | "Divider"
+  | "Text"
+  | "TextArea"
+  | "Markdown"
+  | "Badge"
+  | "Statistic"
+  | "KeyValueList"
+  | "Table"
+  | "DataGrid"
+  | "Button"
+  | "Link";
+
+export type SduiAction =
+  | { kind: "post_user_message"; text: string }
+  | { kind: "open_preview"; path: string };
+
+export type SduiDocument = {
+  schemaVersion: number;
+  /** 固定为 SduiDocument，便于与内部节点区分 */
+  type: "SduiDocument";
+  root: SduiNode;
+  meta?: Record<string, unknown>;
+};
+
+export type SduiNode =
+  | SduiStackNode
+  | SduiCardNode
+  | SduiRowNode
+  | SduiDividerNode
+  | SduiTextNode
+  | SduiTextAreaNode
+  | SduiMarkdownNode
+  | SduiBadgeNode
+  | SduiStatisticNode
+  | SduiKeyValueListNode
+  | SduiTableNode
+  | SduiDataGridNode
+  | SduiButtonNode
+  | SduiLinkNode;
+
+/** 各节点可选的稳定 id，用于列表 React key 与排查 */
+type SduiOptionalId = { id?: string };
+
+export type SduiStackNode = SduiOptionalId & {
+  type: "Stack";
+  /** 语义间距档位；禁止数字 */
+  gap?: SpacingToken;
+  children?: SduiNode[];
+};
+
+export type SduiCardNode = SduiOptionalId & {
+  type: "Card";
+  title?: string;
+  children?: SduiNode[];
+};
+
+export type SduiRowNode = SduiOptionalId & {
+  type: "Row";
+  gap?: SpacingToken;
+  align?: "start" | "center" | "end" | "stretch" | "baseline";
+  wrap?: boolean;
+  children?: SduiNode[];
+};
+
+export type SduiDividerNode = SduiOptionalId & { type: "Divider" };
+
+export type SduiTextNode = SduiOptionalId & {
+  type: "Text";
+  content: string;
+  variant?: "title" | "body" | "muted" | "mono";
+};
+
+export type SduiTextAreaNode = SduiOptionalId & {
+  type: "TextArea";
+  /** 与 {{input:xxx}} 占位符 id 对应 */
+  inputId: string;
+  label?: string;
+  placeholder?: string;
+  rows?: number;
+  defaultValue?: string;
+};
+
+export type SduiMarkdownNode = SduiOptionalId & {
+  type: "Markdown";
+  content: string;
+};
+
+export type SduiBadgeNode = SduiOptionalId & {
+  type: "Badge";
+  text: string;
+  tone?: "default" | "success" | "warning" | "danger";
+};
+
+export type SduiStatisticNode = SduiOptionalId & {
+  type: "Statistic";
+  title: string;
+  value: string | number;
+};
+
+export type SduiKeyValueListNode = SduiOptionalId & {
+  type: "KeyValueList";
+  items: Array<{ key: string; value: string }>;
+};
+
+export type SduiTableNode = SduiOptionalId & {
+  type: "Table";
+  headers?: string[];
+  rows: string[][];
+};
+
+export type SduiDataGridNode = SduiOptionalId & {
+  type: "DataGrid";
+  columns: Array<{ key: string; label: string }>;
+  rows: Array<Record<string, unknown>>;
+  editable?: boolean;
+  submitLabel?: string;
+  /** 提交时拼在用户消息前的说明前缀 */
+  submitActionPrefix?: string;
+};
+
+export type SduiButtonNode = SduiOptionalId & {
+  type: "Button";
+  label: string;
+  variant?: "primary" | "secondary" | "ghost";
+  action: SduiAction;
+};
+
+export type SduiLinkNode = SduiOptionalId & {
+  type: "Link";
+  label: string;
+  href?: string;
+  action?: SduiAction;
+};
+
+const INPUT_PLACEHOLDER_RE = /\{\{\s*input\s*:\s*([^}\s]+)\s*\}\}/g;
+
+/**
+ * 将 `{{input:someId}}` 替换为当前 TextArea / 输入框中对应 id 的值。
+ */
+export function expandInputPlaceholders(text: string, getInputValue: (id: string) => string): string {
+  return text.replace(INPUT_PLACEHOLDER_RE, (_m, rawId: string) => {
+    const id = String(rawId ?? "").trim();
+    if (!id) return "";
+    return getInputValue(id) ?? "";
+  });
+}
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return v !== null && typeof v === "object" && !Array.isArray(v);
+}
+
+function readNode(raw: unknown): SduiNode | null {
+  if (!isRecord(raw)) return null;
+  const t = raw.type;
+  if (typeof t !== "string" || !t.trim()) return null;
+  return raw as SduiNode;
+}
+
+/**
+ * 校验并解析 SDUI 文档（宽松：缺省字段尽量兜底）。
+ *
+ * - **合规键剥离**与 **开发期非法键告警**（对 `className` / `style` / `styles` / `css`）由
+ *   `normalizeSduiDocumentInput` 在解析前完成；此处额外做一次只读扫描，便于未走 normalizer 的调用方仍能在 development 下看到提示。
+ */
+export function parseSduiDocument(data: unknown): { ok: true; doc: SduiDocument } | { ok: false; error: string } {
+  scanIllegalPresentationKeysForDev(data);
+
+  if (!isRecord(data)) {
+    return { ok: false, error: "SDUI 根节点不是对象" };
+  }
+
+  const schemaVersion = data.schemaVersion;
+  if (typeof schemaVersion !== "number" || !Number.isFinite(schemaVersion)) {
+    return { ok: false, error: "缺少或非法的 schemaVersion" };
+  }
+  if (schemaVersion < 1 || schemaVersion > SDUI_SCHEMA_VERSION) {
+    return { ok: false, error: `不支持的 schemaVersion: ${schemaVersion}（当前支持 1–${SDUI_SCHEMA_VERSION}）` };
+  }
+
+  const docType = data.type;
+  if (docType !== undefined && docType !== "SduiDocument") {
+    return { ok: false, error: `文档 type 应为 "SduiDocument"，收到: ${String(docType)}` };
+  }
+
+  const root = readNode(data.root);
+  if (!root) {
+    return { ok: false, error: "缺少有效的 root 节点" };
+  }
+
+  const meta = data.meta;
+  const doc: SduiDocument = {
+    schemaVersion,
+    type: "SduiDocument",
+    root,
+    meta: isRecord(meta) ? meta : undefined,
+  };
+  return { ok: true, doc };
+}

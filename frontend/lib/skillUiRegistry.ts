@@ -5,13 +5,13 @@
 
 import type { ComponentType } from "react";
 
-import { SurveySummary } from "@/components/skills/SurveySummary";
+import { SduiView } from "@/components/skills/SduiView";
 
 /** 右栏 synthetic path 的 scheme，与 previewKind「skill-ui」对应 */
 export const SKILL_UI_SCHEME = "skill-ui://" as const;
 
 export type ParsedSkillUiUri = {
-  /** 注册表中的组件名，如 SurveySummary */
+  /** 注册表中的顶层外壳名，SDUI 固定为 SduiView */
   component: string;
   /** 供 GET /api/file?path= 使用的路径 */
   dataFile: string | null;
@@ -19,7 +19,7 @@ export type ParsedSkillUiUri = {
 };
 
 /**
- * 解析 `skill-ui://SurveySummary?dataFile=path/to/data.json`
+ * 解析 `skill-ui://SduiView?dataFile=path/to/data.json`
  * 组件名允许 URL 编码；dataFile 支持 encodeURIComponent。
  */
 export function parseSkillUiPath(path: string): ParsedSkillUiUri | null {
@@ -77,7 +77,7 @@ export type SkillUiComponentProps<T = unknown> = SkillUiDataProps<T>;
 
 export type SkillUiRegistryMap = Record<string, ComponentType<SkillUiComponentProps>>;
 
-/** 内置注册的 Skill UI 组件（可继续在此追加 import） */
+/** 顶层 Skill UI 外壳：SDUI 固定为 SduiView，内部由 JSON root 递归渲染 */
 export const SKILL_UI_REGISTRY: SkillUiRegistryMap = {
-  SurveySummary,
+  SduiView,
 };

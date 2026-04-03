@@ -20,6 +20,10 @@ type Props = {
   onOpenPath: (path: string) => void;
   activeSkillName?: string | null;
   onFillInput?: (text: string) => void;
+  /** SDUI：回传用户 Intent 到 Agent（通常封装自 sendMessage） */
+  postToAgent?: (text: string) => void;
+  /** SDUI：Agent 运行态，用于预览面板文件热更新 */
+  isAgentRunning?: boolean;
 };
 
 type PreviewState =
@@ -392,12 +396,16 @@ function FilePreviewBody({
   activeSkillName,
   onFillInput,
   onClosePanel,
+  postToAgent,
+  isAgentRunning,
 }: {
   path: string;
   onOpenPath: (path: string) => void;
   activeSkillName?: string | null;
   onFillInput?: (text: string) => void;
   onClosePanel?: () => void;
+  postToAgent?: (text: string) => void;
+  isAgentRunning?: boolean;
 }) {
   const [state, setState] = useState<PreviewState>({ status: "loading" });
   const url = useMemo(() => buildProxiedFileUrl(path), [path]);
@@ -487,7 +495,14 @@ function FilePreviewBody({
   }
 
   if (kind === "skill-ui") {
-    return <SkillUiWrapper syntheticPath={path} />;
+    return (
+      <SkillUiWrapper
+        syntheticPath={path}
+        postToAgent={postToAgent}
+        isAgentRunning={isAgentRunning}
+        onOpenPreview={onOpenPath}
+      />
+    );
   }
 
   if (state.status === "loading") {
@@ -599,6 +614,8 @@ export function PreviewPanel({
   onOpenPath,
   activeSkillName,
   onFillInput,
+  postToAgent,
+  isAgentRunning,
 }: Props) {
   const [copiedPath, setCopiedPath] = useState(false);
 
@@ -622,7 +639,7 @@ export function PreviewPanel({
     !filePath.startsWith("browser://");
 
   return (
-    <aside className="ui-panel h-full rounded-2xl p-4 flex flex-col gap-3 min-h-0">
+    <aside className="ui-panel h-full rounded-2xl p-4 flex flex-col gap-3 min-h-0 bg-[var(--surface-1)] text-[var(--text-primary)]">
       <div className="flex items-center justify-between gap-2 shrink-0">
         <span className="text-[11px] font-semibold uppercase tracking-wider ui-text-secondary">
           预览 <span className="font-normal normal-case tracking-normal ui-text-muted">Preview</span>
@@ -669,7 +686,7 @@ export function PreviewPanel({
         </div>
       )}
 
-      <div className="flex-1 min-h-0 overflow-auto rounded-xl p-3 ui-card">
+      <div className="flex-1 min-h-0 overflow-auto rounded-xl p-3 bg-[var(--surface-2)] border border-[var(--border-subtle)] text-[var(--text-primary)] shadow-[var(--shadow-card)]">
         {filePath ? (
           <FilePreviewBody
             key={filePath}
@@ -678,6 +695,8 @@ export function PreviewPanel({
             activeSkillName={activeSkillName}
             onFillInput={onFillInput}
             onClosePanel={onClose}
+            postToAgent={postToAgent}
+            isAgentRunning={isAgentRunning}
           />
         ) : (
           <p className="ui-text-muted text-sm">

@@ -1,5 +1,8 @@
 @import "tailwindcss";
 
+/* 与 html[data-theme] 同步：使 dark:* 在 data-theme="dark" 下生效（默认变体为 prefers-color-scheme） */
+@custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
+
 /* ─────────────────────────────────────────────
    深夜场景 — 防眩光，消除蓝紫光污染
    背景 zinc-950，文字 zinc-300，暖琥珀 accent

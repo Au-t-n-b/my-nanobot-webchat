@@ -77,6 +77,9 @@ export default function Home() {
 
   const apiBase = process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8765";
 
+  const isAgentRunning =
+    isLoading || runStatus === "running" || runStatus === "awaitingApproval";
+
   const configUrl = useMemo(() => {
     return process.env.NEXT_PUBLIC_AGUI_DIRECT === "1" ? `${apiBase}/api/config` : "/api/config";
   }, [apiBase]);
@@ -363,6 +366,8 @@ export default function Home() {
         onOpenPath={openFilePreview}
         activeSkillName={activeSkillName}
         onFillInput={handleFillInput}
+        postToAgent={(text) => void sendMessage(text, selectedModel)}
+        isAgentRunning={isAgentRunning}
       />
     );
 

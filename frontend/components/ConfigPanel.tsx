@@ -53,6 +53,10 @@ export function ConfigPanel({ onClose, onSaved }: { onClose: () => void; onSaved
     apiKey: "",
     apiKeyConfigured: false,
     apiBase: "",
+    proxyEnabled: false,
+    proxyUrl: "",
+    sslVerify: true,
+    syncModelProxy: false,
   });
   const [testStatus, setTestStatus] = useState<Status>("idle");
   const [testMsg, setTestMsg] = useState<string>("");
@@ -78,7 +82,8 @@ export function ConfigPanel({ onClose, onSaved }: { onClose: () => void; onSaved
       // Best-effort: hydrate form fields from config (apiKey is masked server-side).
       const cfg = json as {
         agents?: { defaults?: { model?: string; provider?: string }; models?: string[]; profiles?: AgentProfile[] };
-        providers?: Record<string, { apiKey?: string; api_key?: string; apiBase?: string; api_base?: string }>;
+        providers?: Record<string, { apiKey?: string; api_key?: string; apiBase?: string; api_base?: string; proxy?: string | null }>;
+        tools?: { web?: { proxy?: string | null; sslVerify?: boolean } };
       };
       if (Array.isArray(cfg?.agents?.profiles)) {
         const cleaned = cfg.agents.profiles
@@ -124,6 +129,11 @@ export function ConfigPanel({ onClose, onSaved }: { onClose: () => void; onSaved
         const nextBase = shouldAutoFill ? defaultBase : baseFromConfig;
         if (shouldAutoFill) lastAutoBaseRef.current = defaultBase;
         const suggestion = PROVIDER_MODEL_SUGGESTIONS[effectiveProviderName];
+        const web = cfg?.tools?.web ?? {};
+        const webProxy = typeof web.proxy === "string" ? web.proxy.trim() : "";
+        const webSslVerify = typeof web.sslVerify === "boolean" ? web.sslVerify : true;
+        const providerProxyRaw = p?.proxy;
+        const providerProxy = typeof providerProxyRaw === "string" ? providerProxyRaw.trim() : "";
         return {
           ...prev,
           providerName: effectiveProviderName,
@@ -136,6 +146,10 @@ export function ConfigPanel({ onClose, onSaved }: { onClose: () => void; onSaved
           modelListText: Array.isArray(cfg?.agents?.models) && cfg.agents.models.length > 0
             ? prev.modelListText
             : (modelsTouchedRef.current ? prev.modelListText : (suggestion?.models?.length ? suggestion.models.join("\n") : prev.modelListText)),
+          proxyEnabled: Boolean(webProxy),
+          proxyUrl: webProxy || prev.proxyUrl,
+          sslVerify: webSslVerify,
+          syncModelProxy: Boolean(webProxy && providerProxy && webProxy === providerProxy),
         };
       });
       setStatus("idle");
@@ -237,6 +251,7 @@ export function ConfigPanel({ onClose, onSaved }: { onClose: () => void; onSaved
       setErrorMsg("请填写 API Key（首次配置必须填写）");
       return;
     }
+    const proxyValue = form.proxyEnabled && form.proxyUrl.trim() ? form.proxyUrl.trim() : null;
     setStatus("saving");
     try {
       const models = form.modelListText
@@ -255,6 +270,13 @@ export function ConfigPanel({ onClose, onSaved }: { onClose: () => void; onSaved
           [providerName]: {
             apiKey: apiKeyToSend,
             apiBase: form.apiBase.trim() ? form.apiBase.trim() : undefined,
+            proxy: form.syncModelProxy ? proxyValue : null,
+          },
+        },
+        tools: {
+          web: {
+            proxy: proxyValue,
+            sslVerify: form.sslVerify,
           },
         },
       };
@@ -707,6 +729,117 @@ export function ConfigPanel({ onClose, onSaved }: { onClose: () => void; onSaved
                   placeholder={"glm-4\nglm-4v\nglm-4.7\nglm-5"}
                 />
               </label>
+            </section>
+
+            <section
+              className="rounded-xl p-4 flex flex-col gap-3"
+              style={{ background: "var(--surface-2)", border: "1px solid var(--border-subtle)" }}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <div className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+                    内网代理
+                  </div>
+                  <div className="text-[11px]" style={{ color: "var(--text-tertiary)" }}>
+                    tools.web.proxy / sslVerify
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={form.proxyEnabled}
+                  onClick={() => {
+                    setForm((prev) => {
+                      const nextEnabled = !prev.proxyEnabled;
+                      return {
+                        ...prev,
+                        proxyEnabled: nextEnabled,
+                        proxyUrl: nextEnabled ? prev.proxyUrl : "",
+                        syncModelProxy: nextEnabled ? prev.syncModelProxy : false,
+                      };
+                    });
+                  }}
+                  className="relative inline-flex h-5 w-9 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none"
+                  style={{
+                    background: form.proxyEnabled ? "var(--accent)" : "var(--surface-3)",
+                    boxShadow: "inset 0 0 0 1px var(--border-subtle)",
+                  }}
+                >
+                  <span
+                    className="pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow transition duration-200"
+                    style={{ transform: form.proxyEnabled ? "translateX(16px)" : "translateX(0)" }}
+                  />
+                </button>
+              </div>
+
+              {form.proxyEnabled && (
+                <div className="flex flex-col gap-3 pt-1">
+                  <label className="flex flex-col gap-1 text-xs ui-text-secondary">
+                    <span>完整代理 URL</span>
+                    <input
+                      type="text"
+                      value={form.proxyUrl}
+                      onChange={(e) => setForm((prev) => ({ ...prev, proxyUrl: e.target.value }))}
+                      placeholder="http://user:pass@host:port"
+                      className="rounded-lg px-2.5 py-1.5 text-xs ui-input ui-input-focusable"
+                    />
+                  </label>
+
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex flex-col gap-0.5">
+                      <span className="text-[11px]" style={{ color: "var(--text-secondary)" }}>
+                        关闭 SSL 证书校验
+                      </span>
+                      <span className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>
+                        对应 tools.web.sslVerify = false（内网代理常用）
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={!form.sslVerify}
+                      onClick={() => setForm((prev) => ({ ...prev, sslVerify: !prev.sslVerify }))}
+                      className="relative inline-flex h-5 w-9 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none"
+                      style={{
+                        background: !form.sslVerify ? "var(--accent)" : "var(--surface-3)",
+                        boxShadow: "inset 0 0 0 1px var(--border-subtle)",
+                      }}
+                    >
+                      <span
+                        className="pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow transition duration-200"
+                        style={{ transform: !form.sslVerify ? "translateX(16px)" : "translateX(0)" }}
+                      />
+                    </button>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex flex-col gap-0.5">
+                      <span className="text-[11px]" style={{ color: "var(--text-secondary)" }}>
+                        全局模型 API 走相同代理
+                      </span>
+                      <span className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>
+                        写入 providers[{form.providerName || "…"}].proxy
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={form.syncModelProxy}
+                      onClick={() => setForm((prev) => ({ ...prev, syncModelProxy: !prev.syncModelProxy }))}
+                      className="relative inline-flex h-5 w-9 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none"
+                      style={{
+                        background: form.syncModelProxy ? "var(--accent)" : "var(--surface-3)",
+                        boxShadow: "inset 0 0 0 1px var(--border-subtle)",
+                      }}
+                    >
+                      <span
+                        className="pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow transition duration-200"
+                        style={{ transform: form.syncModelProxy ? "translateX(16px)" : "translateX(0)" }}
+                      />
+                    </button>
+                  </div>
+                </div>
+              )}
             </section>
 
             <section className="ui-card rounded-xl p-4 flex flex-col gap-3">

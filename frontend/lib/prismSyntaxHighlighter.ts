@@ -29,23 +29,48 @@ export const PRISM_LANGUAGE_IDS = new Set([
 ]);
 
 let prismRegistered = false;
+const PRISM_REGISTERED_FLAG = "__NANOBOT_PRISM_LANGS_REGISTERED__";
+
+type MaybeWindow = Window & { [PRISM_REGISTERED_FLAG]?: boolean };
+
+function isAlreadyRegistered(): boolean {
+  if (prismRegistered) return true;
+  if (typeof window === "undefined") return false;
+  return Boolean((window as MaybeWindow)[PRISM_REGISTERED_FLAG]);
+}
+
+function markRegistered(): void {
+  prismRegistered = true;
+  if (typeof window !== "undefined") {
+    (window as MaybeWindow)[PRISM_REGISTERED_FLAG] = true;
+  }
+}
+
+function registerLanguageSafe(id: string, def: unknown): void {
+  try {
+    SyntaxHighlighter.registerLanguage(id, def as never);
+  } catch {
+    // HMR / Fast Refresh may reload modules and try to re-register the
+    // same Prism language; ignore duplicate-registration errors.
+  }
+}
 
 /** 仅在浏览器执行注册，避免 SSR / 静态生成时 refractor 未就绪导致告警 */
 export function ensurePrismLanguagesRegistered(): void {
-  if (typeof window === "undefined" || prismRegistered) return;
-  prismRegistered = true;
-  SyntaxHighlighter.registerLanguage("bash", bash);
-  SyntaxHighlighter.registerLanguage("css", css);
-  SyntaxHighlighter.registerLanguage("javascript", javascript);
-  SyntaxHighlighter.registerLanguage("json", json);
-  SyntaxHighlighter.registerLanguage("jsx", jsx);
-  SyntaxHighlighter.registerLanguage("markup", markup);
-  SyntaxHighlighter.registerLanguage("python", python);
-  SyntaxHighlighter.registerLanguage("rust", rust);
-  SyntaxHighlighter.registerLanguage("toml", toml);
-  SyntaxHighlighter.registerLanguage("tsx", tsx);
-  SyntaxHighlighter.registerLanguage("typescript", typescript);
-  SyntaxHighlighter.registerLanguage("yaml", yaml);
+  if (typeof window === "undefined" || isAlreadyRegistered()) return;
+  registerLanguageSafe("bash", bash);
+  registerLanguageSafe("css", css);
+  registerLanguageSafe("javascript", javascript);
+  registerLanguageSafe("json", json);
+  registerLanguageSafe("jsx", jsx);
+  registerLanguageSafe("markup", markup);
+  registerLanguageSafe("python", python);
+  registerLanguageSafe("rust", rust);
+  registerLanguageSafe("toml", toml);
+  registerLanguageSafe("tsx", tsx);
+  registerLanguageSafe("typescript", typescript);
+  registerLanguageSafe("yaml", yaml);
+  markRegistered();
 }
 
 export { SyntaxHighlighter };

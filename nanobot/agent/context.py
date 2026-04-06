@@ -116,7 +116,16 @@ When executing a multi-step workflow (e.g. 智慧工勘 Steps 1→2→3→4), yo
 - Complete the current step fully, then call `present_choices` to ask whether to continue.
 - NEVER chain multiple skill steps together in one turn without user confirmation between each step.
 - If a SKILL.md file instructs you to call `present_choices` before the next step, do so IMMEDIATELY — do not read or execute the next skill file first.
-- The only exception is when a skill file explicitly says "auto-continue without confirmation"."""
+- The only exception is when a skill file explicitly says "auto-continue without confirmation".
+
+## Skill UI · Open Pipeline Dashboard (CRITICAL)
+When the user only asks to **open / show** the engineering survey overview (e.g. 打开工勘大盘, 打开智慧工勘大盘, show pipeline dashboard):
+- Output **exactly one** line in your assistant reply (no tools required for this):
+  `[RENDER_UI](skill-ui://SduiView?dataFile=skills/zhgk-pipeline/data/dashboard.json)`
+- Do **NOT** write or run Python scripts, do **NOT** use `exec` or `generate_dashboard.py` just to "open" the panel — `dashboard.json` is already served from `skills/zhgk-pipeline/data/`; opening is a UI mount, not a code generation task.
+- Only if the user explicitly asks to **refresh / rebuild** the dashboard from `state.json`, follow `skills/zhgk-pipeline/SKILL.md` (template substitution) — still without inventing one-off scripts when the skill already defines the process.
+- The `dataFile` path must contain the substring `-pipeline/data/dashboard.json` so the host routes it to the **base** preview layer (not a blocking overlay)."""
+
 
     @staticmethod
     def _build_runtime_context(channel: str | None, chat_id: str | None) -> str:

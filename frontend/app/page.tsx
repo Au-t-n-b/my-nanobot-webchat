@@ -63,7 +63,8 @@ export default function Home() {
   const [baseDashboardUrl, setBaseDashboardUrl] = useState<string | null>(null);
   const [blockingActionPath, setBlockingActionPath] = useState<string | null>(null);
   const [previewTabs, setPreviewTabs] = useState<Array<{ id: string; path: string; label: string }>>([]);
-  const [activePreviewTabId, setActivePreviewTabId] = useState<string | null>(null);
+  /** 右栏当前激活 Tab：__dashboard__ / __blocking__ / 具体 previewTab.id(path) */
+  const [activeRightTabId, setActiveRightTabId] = useState<string | null>(null);
   const [systemModal, setSystemModal] = useState<SystemModal>(null);
   const [activeSkillName, setActiveSkillName] = useState<string | null>(null);
   const [selectedOrgAssetId, setSelectedOrgAssetId] = useState<string | null>(null);
@@ -178,39 +179,48 @@ export default function Home() {
 
   const closeBlockingAction = useCallback(() => {
     setBlockingActionPath(null);
-  }, []);
+    setActiveRightTabId((cur) => {
+      if (cur !== "__blocking__") return cur;
+      if (baseDashboardUrl) return "__dashboard__";
+      return previewTabs[0]?.id ?? null;
+    });
+  }, [baseDashboardUrl, previewTabs]);
 
   const closePreviewTab = useCallback((id: string) => {
     setPreviewTabs((prev) => {
       const next = prev.filter((t) => t.id !== id);
-      setActivePreviewTabId((cur) => {
+      setActiveRightTabId((cur) => {
         if (cur !== id) return cur;
+        if (blockingActionPath) return "__blocking__";
+        if (baseDashboardUrl) return "__dashboard__";
         return next[0]?.id ?? null;
       });
       return next;
     });
-  }, []);
+  }, [blockingActionPath, baseDashboardUrl]);
 
   const openFilePreview = useCallback((path: string) => {
     if (isBaseLayerDashboardSkillUi(path)) {
       setBaseDashboardUrl(path);
       setIsPreviewOpen(true);
+      setActiveRightTabId("__dashboard__");
       return;
     }
     if (isBlockingActionSkillUi(path)) {
       setBlockingActionPath(path);
       setIsPreviewOpen(true);
+      setActiveRightTabId("__blocking__");
       return;
     }
     const id = path;
     setPreviewTabs((prev) => {
       const exists = prev.some((t) => t.id === id);
       if (exists) {
-        setActivePreviewTabId(id);
+        setActiveRightTabId(id);
         return prev;
       }
       const label = previewTabLabel(path);
-      setActivePreviewTabId(id);
+      setActiveRightTabId(id);
       return [...prev, { id, path, label }];
     });
     setIsPreviewOpen(true);
@@ -379,13 +389,15 @@ export default function Home() {
     setBaseDashboardUrl(null);
     setBlockingActionPath(null);
     setPreviewTabs([]);
-    setActivePreviewTabId(null);
+    setActiveRightTabId(null);
   }, []);
 
-  const activePreviewTabPath = useMemo(
-    () => previewTabs.find((t) => t.id === activePreviewTabId)?.path ?? null,
-    [previewTabs, activePreviewTabId],
-  );
+  const activePreviewTabPath = useMemo(() => {
+    if (!activeRightTabId) return null;
+    if (activeRightTabId === "__dashboard__") return baseDashboardUrl;
+    if (activeRightTabId === "__blocking__") return blockingActionPath;
+    return previewTabs.find((t) => t.id === activeRightTabId)?.path ?? null;
+  }, [activeRightTabId, baseDashboardUrl, blockingActionPath, previewTabs]);
 
   const sidebarProps = {
     threadId,
@@ -419,8 +431,8 @@ export default function Home() {
       blockingActionPath={blockingActionPath}
       onCloseBlockingAction={closeBlockingAction}
       previewTabs={previewTabs}
-      activeTabId={activePreviewTabId}
-      onSelectPreviewTab={setActivePreviewTabId}
+      activeTabId={activeRightTabId}
+      onSelectTab={setActiveRightTabId}
       onClosePreviewTab={closePreviewTab}
       onOpenPath={openFilePreview}
       activeSkillName={activeSkillName}

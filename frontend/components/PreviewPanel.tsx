@@ -26,7 +26,7 @@ type Props = {
   /** 预览类 Tab（文件 / browser / 非阻断 skill-ui），与大盘上下分栏 */
   previewTabs: PreviewTabItem[];
   activeTabId: string | null;
-  onSelectPreviewTab: (id: string) => void;
+  onSelectTab: (id: string) => void;
   onClosePreviewTab: (id: string) => void;
   onOpenPath: (path: string) => void;
   activeSkillName?: string | null;
@@ -643,7 +643,7 @@ export function PreviewPanel({
   onCloseBlockingAction,
   previewTabs,
   activeTabId,
-  onSelectPreviewTab,
+  onSelectTab,
   onClosePreviewTab,
   onOpenPath,
   activeSkillName,
@@ -653,13 +653,33 @@ export function PreviewPanel({
 }: Props) {
   const [copiedPath, setCopiedPath] = useState(false);
 
-  const activeTabIdResolved = activeTabId ?? previewTabs[0]?.id ?? null;
-  const activePreviewPath = useMemo(() => {
-    if (!activeTabIdResolved) return null;
-    return previewTabs.find((t) => t.id === activeTabIdResolved)?.path ?? null;
-  }, [previewTabs, activeTabIdResolved]);
+  const DASHBOARD_TAB_ID = "__dashboard__";
+  const BLOCKING_TAB_ID = "__blocking__";
 
-  const pathForChrome = blockingActionPath ?? activePreviewPath ?? baseDashboardUrl;
+  const tabs = useMemo(() => {
+    const out: Array<{ id: string; label: string; path: string; kind: "dashboard" | "blocking" | "preview" }> = [];
+    if (baseDashboardUrl) out.push({ id: DASHBOARD_TAB_ID, label: "全局大盘", path: baseDashboardUrl, kind: "dashboard" });
+    if (blockingActionPath) {
+      out.push({ id: BLOCKING_TAB_ID, label: "待办任务", path: blockingActionPath, kind: "blocking" });
+    }
+    for (const t of previewTabs) out.push({ id: t.id, label: t.label, path: t.path, kind: "preview" });
+    return out;
+  }, [baseDashboardUrl, blockingActionPath, previewTabs]);
+
+  const effectiveActiveTabId = useMemo(() => {
+    if (activeTabId && tabs.some((t) => t.id === activeTabId)) return activeTabId;
+    // 默认优先级：阻断任务 > 大盘 > 第一个预览
+    if (blockingActionPath) return BLOCKING_TAB_ID;
+    if (baseDashboardUrl) return DASHBOARD_TAB_ID;
+    return previewTabs[0]?.id ?? null;
+  }, [activeTabId, baseDashboardUrl, blockingActionPath, previewTabs, tabs]);
+
+  const activeTab = useMemo(
+    () => (effectiveActiveTabId ? tabs.find((t) => t.id === effectiveActiveTabId) ?? null : null),
+    [tabs, effectiveActiveTabId],
+  );
+
+  const pathForChrome = activeTab?.path ?? null;
 
   const copyPath = useCallback(() => {
     if (!pathForChrome) return;
@@ -680,11 +700,7 @@ export function PreviewPanel({
     !pathForChrome.startsWith("skill-ui://") &&
     !pathForChrome.startsWith("browser://");
 
-  const showPathRow = Boolean(!blockingActionPath && baseDashboardUrl);
-
-  const closeActivePreviewTab = useCallback(() => {
-    if (activeTabIdResolved) onClosePreviewTab(activeTabIdResolved);
-  }, [activeTabIdResolved, onClosePreviewTab]);
+  const showPathRow = Boolean(activeTab?.kind === "dashboard" && baseDashboardUrl);
 
   return (
     <aside className="h-full min-h-0 flex flex-col gap-3 p-0 bg-transparent border-0 shadow-none text-[var(--text-primary)]">
@@ -734,132 +750,86 @@ export function PreviewPanel({
         </div>
       )}
 
-      <div className="relative flex-1 min-h-0 overflow-hidden rounded-xl bg-[var(--paper-card)] border border-black/[0.06] dark:border-white/10 text-[var(--text-primary)] shadow-sm">
-        {/* 业务层：上半区预览 Tab + 下半区常驻大盘 */}
-        <div className="absolute inset-0 flex flex-col min-h-0">
-          {previewTabs.length > 0 && (
-            <div className="flex min-h-0 flex-[1_1_48%] flex-col border-b border-[var(--border-subtle)] dark:border-white/10">
+      <div className="flex flex-col flex-1 min-h-0 overflow-hidden rounded-xl bg-[var(--paper-card)] border border-black/[0.06] dark:border-white/10 text-[var(--text-primary)] shadow-sm">
+        <div
+          className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-[var(--border-subtle)] dark:border-white/10 bg-[var(--surface-3)]/80 dark:bg-black/25 px-1 py-1"
+          role="tablist"
+          aria-label="右侧面板标签"
+        >
+          {tabs.map((tab) => {
+            const selected = tab.id === effectiveActiveTabId;
+            const closable = tab.kind === "preview" || tab.kind === "blocking";
+            return (
               <div
-                className="flex shrink-0 items-center gap-0.5 overflow-x-auto border-b border-[var(--border-subtle)] dark:border-white/10 bg-[var(--surface-3)]/80 dark:bg-black/25 px-1 py-1"
-                role="tablist"
-                aria-label="预览标签"
+                key={tab.id}
+                className={`group flex max-w-[12rem] shrink-0 items-center rounded-md border text-left text-[11px] transition-colors ${
+                  selected
+                    ? "border-[var(--accent)] bg-[var(--surface-2)] text-[var(--text-primary)]"
+                    : "border-transparent bg-transparent ui-text-secondary hover:bg-[var(--surface-2)]"
+                }`}
               >
-                {previewTabs.map((tab) => {
-                  const selected = tab.id === activeTabIdResolved;
-                  return (
-                    <div
-                      key={tab.id}
-                      className={`group flex max-w-[11rem] shrink-0 items-center rounded-md border text-left text-[11px] transition-colors ${
-                        selected
-                          ? "border-[var(--accent)] bg-[var(--surface-2)] text-[var(--text-primary)]"
-                          : "border-transparent bg-transparent ui-text-secondary hover:bg-[var(--surface-2)]"
-                      }`}
-                    >
-                      <button
-                        type="button"
-                        role="tab"
-                        aria-selected={selected}
-                        className="min-w-0 flex-1 truncate px-2 py-1 text-left"
-                        title={tab.path}
-                        onClick={() => onSelectPreviewTab(tab.id)}
-                      >
-                        {tab.label}
-                      </button>
-                      <button
-                        type="button"
-                        className="shrink-0 rounded p-1 ui-text-muted opacity-70 hover:opacity-100 hover:bg-[var(--surface-3)]"
-                        aria-label={`关闭 ${tab.label}`}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onClosePreviewTab(tab.id);
-                        }}
-                      >
-                        <XIcon size={12} />
-                      </button>
-                    </div>
-                  );
-                })}
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={selected}
+                  className="min-w-0 flex-1 truncate px-2 py-1 text-left"
+                  title={tab.path}
+                  onClick={() => onSelectTab(tab.id)}
+                >
+                  {tab.label}
+                </button>
+                {closable && (
+                  <button
+                    type="button"
+                    className="shrink-0 rounded p-1 ui-text-muted opacity-70 hover:opacity-100 hover:bg-[var(--surface-3)]"
+                    aria-label={`关闭 ${tab.label}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (tab.kind === "blocking") onCloseBlockingAction();
+                      else onClosePreviewTab(tab.id);
+                    }}
+                  >
+                    <XIcon size={12} />
+                  </button>
+                )}
               </div>
-              <div className="flex-1 min-h-0 overflow-auto p-3 rounded-lg dark:bg-black/15 dark:shadow-inner">
-                {activePreviewPath ? (
-                  <FilePreviewBody
-                    key={activePreviewPath}
-                    path={activePreviewPath}
-                    onOpenPath={onOpenPath}
-                    activeSkillName={activeSkillName}
-                    onFillInput={onFillInput}
-                    onClosePanel={closeActivePreviewTab}
-                    postToAgent={postToAgent}
-                    isAgentRunning={isAgentRunning}
-                  />
-                ) : null}
-              </div>
-            </div>
-          )}
-
-          <div
-            className={`relative flex min-h-0 flex-col ${
-              previewTabs.length > 0 ? "flex-[1_1_52%]" : "flex-1"
-            }`}
-          >
-            {baseDashboardUrl ? (
-              <div className="flex-1 min-h-0 overflow-auto p-3 rounded-xl dark:bg-black/20 dark:shadow-inner">
-                <SkillUiWrapper
-                  key={baseDashboardUrl}
-                  syntheticPath={baseDashboardUrl}
-                  postToAgent={postToAgent}
-                  isAgentRunning={isAgentRunning}
-                  onOpenPreview={onOpenPath}
-                />
-              </div>
-            ) : (
-              <div className="flex flex-1 min-h-0 items-center justify-center p-4 text-center text-sm ui-text-muted leading-relaxed">
-                尚未设置大模块看板。请使用约定路径的{" "}
-                <code className="ui-text-secondary">…-master/data/dashboard.json</code>{" "}
-                或{" "}
-                <code className="ui-text-secondary">…-pipeline/data/dashboard.json</code>
-                ，将在此常驻显示。
-              </div>
-            )}
-          </div>
+            );
+          })}
         </div>
 
-        {/* 强阻断层：Action SDUI，不可收到 Tab 后 */}
-        {blockingActionPath && (
-          <div
-            className="absolute inset-0 z-40 flex flex-col h-full w-full min-h-0 bg-[var(--paper-chat)] shadow-[0_-4px_24px_rgba(0,0,0,0.35)] dark:shadow-[0_-8px_32px_rgba(0,0,0,0.55)]"
-            role="dialog"
-            aria-modal="true"
-            aria-label="需要确认的界面"
-          >
-            <div className="flex h-12 shrink-0 items-center justify-between gap-2 border-b border-[var(--border-subtle)] dark:border-white/10 px-3">
-              <span
-                className="min-w-0 flex-1 truncate text-sm font-medium text-[var(--text-primary)]"
-                title={blockingActionPath}
-              >
-                {overlayHeaderTitle(blockingActionPath)}
-              </span>
-              <button
-                type="button"
-                onClick={onCloseBlockingAction}
-                className="rounded-md p-2 ui-text-muted hover:text-[var(--text-primary)] hover:bg-[var(--surface-3)] transition-colors"
-                aria-label="关闭"
-                title="关闭"
-              >
-                <XIcon size={18} />
-              </button>
+        <div className="flex-1 min-h-0 overflow-auto p-4 bg-[var(--paper-card)]">
+          {activeTab?.kind === "blocking" && activeTab.path ? (
+            <SkillUiWrapper
+              key={activeTab.path}
+              syntheticPath={activeTab.path}
+              postToAgent={postToAgent}
+              isAgentRunning={isAgentRunning}
+              onOpenPreview={onOpenPath}
+            />
+          ) : activeTab?.kind === "dashboard" && activeTab.path ? (
+            <SkillUiWrapper
+              key={activeTab.path}
+              syntheticPath={activeTab.path}
+              postToAgent={postToAgent}
+              isAgentRunning={isAgentRunning}
+              onOpenPreview={onOpenPath}
+            />
+          ) : activeTab?.kind === "preview" && activeTab.path ? (
+            <FilePreviewBody
+              key={activeTab.path}
+              path={activeTab.path}
+              onOpenPath={onOpenPath}
+              activeSkillName={activeSkillName}
+              onFillInput={onFillInput}
+              postToAgent={postToAgent}
+              isAgentRunning={isAgentRunning}
+            />
+          ) : (
+            <div className="flex h-full items-center justify-center text-sm ui-text-muted">
+              暂无可预览内容
             </div>
-            <div className="flex-1 min-h-0 overflow-auto p-4 rounded-b-xl bg-[var(--paper-card)]">
-              <SkillUiWrapper
-                key={blockingActionPath}
-                syntheticPath={blockingActionPath}
-                postToAgent={postToAgent}
-                isAgentRunning={isAgentRunning}
-                onOpenPreview={onOpenPath}
-              />
-            </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
     </aside>
   );

@@ -635,7 +635,7 @@ export function RemoteBrowser({ filePath, onClosePanel }: Props) {
       {/* ── Viewport ── */}
       <div
         ref={containerRef}
-        className="relative flex-1 min-h-0 rounded-xl overflow-hidden"
+        className="relative flex-1 min-h-0 rounded-xl overflow-hidden shadow-inner dark:bg-black/40 ring-1 ring-black/[0.06] dark:ring-white/10"
         style={{ background: "var(--surface-1, #111)" }}
         onMouseDownCapture={focusImeProxy}
         onTouchStartCapture={focusImeProxy}

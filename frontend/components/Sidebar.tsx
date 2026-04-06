@@ -299,7 +299,7 @@ export function Sidebar({
   if (isCollapsed) {
     const iconBtn = "rounded-lg p-2 ui-text-muted hover:bg-[var(--surface-3)] hover:ui-text-primary transition-colors w-10 h-10 flex items-center justify-center";
     return (
-      <aside className="ui-panel h-full min-h-0 rounded-2xl flex flex-col items-center py-3 gap-1 overflow-hidden">
+      <aside className="h-full min-h-0 rounded-none flex flex-col items-center py-3 gap-1 overflow-hidden bg-transparent border-0 shadow-none">
         {/* Logo */}
         <span className="text-lg leading-none mb-0.5" aria-hidden="true">🦞</span>
         <span className="w-1.5 h-1.5 rounded-full mb-2" style={{ background: "var(--success)" }} title="已连接" />
@@ -352,7 +352,7 @@ export function Sidebar({
   }
 
   return (
-    <aside className="ui-panel h-full min-h-0 overflow-y-auto rounded-2xl p-4 flex flex-col gap-4">
+    <aside className="h-full min-h-0 overflow-y-auto rounded-none p-4 flex flex-col gap-0 bg-transparent border-0 shadow-none">
       <div className="flex items-center gap-2">
         <span className="text-base leading-none shrink-0" aria-hidden="true">🦞</span>
         <span className="font-semibold text-sm ui-text-primary leading-tight">
@@ -372,10 +372,10 @@ export function Sidebar({
         onDelete={onDeleteSession}
       />
 
-      <section className="ui-card rounded-xl p-3 flex flex-col gap-2 min-h-0">
+      <section className="mt-6 flex flex-col gap-2 min-h-0">
         <div className="flex items-center justify-between gap-2">
-          <span className="text-[11px] font-semibold uppercase tracking-wider ui-text-secondary whitespace-nowrap">
-            产物 <span className="font-normal normal-case tracking-normal ui-text-muted">Artifacts</span>
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-muted)] whitespace-nowrap">
+            产物 <span className="font-normal normal-case tracking-normal opacity-90">Artifacts</span>
           </span>
           <button
             type="button"
@@ -397,7 +397,7 @@ export function Sidebar({
             <p className="text-[11px] ui-text-muted">本轮生成的文件会出现在这里，点击后统一在右侧预览。</p>
           ) : (
             artifacts.map((artifact, index) => (
-              <div key={artifact.path} className="flex items-center gap-1 rounded-lg px-2 py-1.5 hover:bg-[var(--surface-3)] transition-colors group">
+              <div key={artifact.path} className="flex items-center gap-1 rounded-md px-2 py-1.5 hover:bg-[var(--surface-3)] transition-colors group">
                 <button
                   type="button"
                   onClick={() => togglePreview(artifact.path)}
@@ -451,10 +451,10 @@ export function Sidebar({
         </div>
       </section>
 
-      <section className="ui-card rounded-xl p-3 flex flex-col gap-2 min-h-0">
+      <section className="mt-6 flex flex-col gap-2 min-h-0">
         <div className="flex items-center justify-between gap-2">
-          <span className="text-[11px] font-semibold uppercase tracking-wider ui-text-secondary whitespace-nowrap">
-            技能 <span className="font-normal normal-case tracking-normal ui-text-muted">Skills</span>
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-muted)] whitespace-nowrap">
+            技能 <span className="font-normal normal-case tracking-normal opacity-90">Skills</span>
           </span>
           <div className="flex items-center gap-1">
             <button
@@ -525,10 +525,10 @@ export function Sidebar({
                   setTooltipPos(null);
                 }}
                 className={
-                  "relative rounded-lg border transition-colors group " +
+                  "relative rounded-md border border-transparent transition-colors group " +
                   (isActive
-                    ? "border-[var(--accent)] bg-[var(--accent-soft)]"
-                    : "border-[var(--border-subtle)] bg-[var(--surface-3)] hover:border-[var(--border-strong)]")
+                    ? "bg-[var(--accent-soft)] ring-1 ring-[var(--accent)]/40"
+                    : "hover:bg-[var(--surface-3)]")
                 }
               >
                 <button
@@ -606,10 +606,10 @@ export function Sidebar({
       </section>
 
       {/* ── 组织资产 Organization Assets ── */}
-      <section className="ui-card rounded-xl p-3 flex flex-col gap-2 min-h-0">
+      <section className="mt-6 flex flex-col gap-2 min-h-0">
         <div className="flex items-center justify-between gap-2">
-          <span className="text-[11px] font-semibold uppercase tracking-wider ui-text-secondary whitespace-nowrap">
-            组织资产 <span className="font-normal normal-case tracking-normal ui-text-muted">Org Assets</span>
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-muted)] whitespace-nowrap">
+            组织资产 <span className="font-normal normal-case tracking-normal opacity-90">Org Assets</span>
           </span>
           <button
             type="button"
@@ -624,8 +624,7 @@ export function Sidebar({
         </div>
         {!orgAssetsConnected ? (
           <div
-            className="flex flex-col items-center justify-center gap-2 py-4 rounded-lg border border-dashed"
-            style={{ borderColor: "var(--border-subtle)", background: "var(--surface-2)" }}
+            className="flex flex-col items-center justify-center gap-2 py-4 rounded-lg border border-dashed border-[var(--border-subtle)] bg-[var(--surface-3)]/50 dark:bg-black/20"
           >
             <span className="text-xl" aria-hidden="true">🏛️</span>
             <p className="text-[11px] ui-text-muted text-center leading-relaxed px-2">
@@ -645,8 +644,7 @@ export function Sidebar({
           <div className="max-h-44 overflow-y-auto overflow-x-hidden space-y-2">
             {!orgAssetsLoading && orgAssets.length === 0 ? (
               <div
-                className="flex flex-col items-center justify-center gap-1.5 py-4 rounded-lg border border-dashed"
-                style={{ borderColor: "var(--border-subtle)", background: "var(--surface-2)" }}
+                className="flex flex-col items-center justify-center gap-1.5 py-4 rounded-lg border border-dashed border-[var(--border-subtle)] bg-[var(--surface-3)]/50 dark:bg-black/20"
               >
                 <span className="text-xl" aria-hidden="true">🏛️</span>
                 <p className="text-[11px] ui-text-muted text-center leading-relaxed px-2">当前没有可展示的组织资产。</p>
@@ -655,8 +653,7 @@ export function Sidebar({
               orgAssets.map((asset) => (
                 <div
                   key={asset.id}
-                  className="rounded-lg border p-2.5 flex flex-col gap-2"
-                  style={{ borderColor: "var(--border-subtle)", background: "var(--surface-2)" }}
+                  className="rounded-lg p-2.5 flex flex-col gap-2 transition-colors hover:bg-[var(--surface-3)] border border-transparent"
                 >
                   <div className="min-w-0">
                     <p className="text-xs font-medium ui-text-primary truncate">{asset.title || asset.name}</p>
@@ -680,7 +677,7 @@ export function Sidebar({
       </section>
 
       {trashModal.open && (
-        <div className="ui-card rounded-xl p-3 text-xs space-y-2" style={{ borderColor: "rgba(247,184,75,0.28)", background: "rgba(247,184,75,0.08)" }}>
+        <div className="mt-4 rounded-xl p-3 text-xs space-y-2 shadow-sm border border-amber-500/25 dark:border-amber-400/20 bg-amber-500/[0.08] dark:bg-amber-400/[0.06]">
           <p className="ui-text-primary">
             {trashModal.mode === "all"
               ? `确认将 ${trashModal.targets.length} 个产物移入回收站？`
@@ -710,7 +707,7 @@ export function Sidebar({
       )}
 
       {skillPublishModal.open && skillPublishModal.skill && (
-        <div className="ui-card rounded-xl p-3 text-xs space-y-3" style={{ borderColor: "rgba(94,129,244,0.28)", background: "rgba(94,129,244,0.08)" }}>
+        <div className="mt-4 rounded-xl p-3 text-xs space-y-3 shadow-sm border border-blue-500/25 dark:border-blue-400/20 bg-blue-500/[0.08] dark:bg-blue-400/[0.06]">
           <div className="space-y-1">
             <p className="ui-text-primary font-medium">
               {skillPublishModal.skill.source === "remote-imported" ? "回收 Skill" : "上传 Skill"}
@@ -771,8 +768,7 @@ export function Sidebar({
 
       {/* ── Bottom control bar ── */}
       <div
-        className="mt-auto -mx-4 px-3 pt-3 pb-1 flex items-center gap-1"
-        style={{ borderTop: "1px solid var(--border-subtle)" }}
+        className="mt-6 -mx-4 px-3 pt-4 pb-1 flex items-center gap-1 border-t border-[var(--border-subtle)]"
       >
         {/* Clear session — ghost, destructive on hover */}
         <button

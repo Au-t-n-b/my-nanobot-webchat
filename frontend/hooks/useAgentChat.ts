@@ -492,11 +492,15 @@ export function useAgentChat() {
         if (!res.ok) {
           let msg = `HTTP ${res.status}`;
           try {
-            const j = (await res.json()) as { detail?: string };
-            if (j?.detail) msg = j.detail;
+            const text = await res.text();
+            try {
+              const j = JSON.parse(text) as { detail?: string };
+              if (j?.detail) msg = j.detail;
+            } catch {
+              if (text) msg = text;
+            }
           } catch {
-            const t = await res.text();
-            if (t) msg = t;
+            // ignore body read errors
           }
           setError(msg);
           setRunStatus("error");

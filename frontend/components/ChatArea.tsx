@@ -47,7 +47,7 @@ export function ChatArea({
       : null;
 
   return (
-    <section className="ui-panel h-full min-h-0 overflow-hidden rounded-2xl p-4 flex flex-col gap-3">
+    <section className="h-full min-h-0 overflow-hidden p-4 flex flex-col gap-3 bg-transparent border-0 shadow-none">
 
       {pendingTool && (
         <div className="rounded-xl px-3 py-3 text-sm" style={{ border: "1px solid rgba(247,184,75,0.32)", background: "rgba(247,184,75,0.08)" }}>

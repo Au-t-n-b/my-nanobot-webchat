@@ -10,12 +10,14 @@ import { RemoteAssetDetailPanel } from "@/components/RemoteAssetDetailPanel";
 import { RemoteAssetUploadPanel } from "@/components/RemoteAssetUploadPanel";
 import { SearchOverlay } from "@/components/SearchOverlay";
 import { SettingsPanel } from "@/components/SettingsPanel";
+import { SystemShellModal } from "@/components/SystemShellModal";
 import { Sidebar } from "@/components/Sidebar";
 import { ModelSelector } from "@/components/ModelSelector";
 import { ConfigPanel } from "@/components/ConfigPanel";
 import { TaskProgressBar } from "@/components/TaskProgressBar";
 import { useAgentChat } from "@/hooks/useAgentChat";
 import { previewKindFromPath } from "@/lib/previewKind";
+import { isBaseLayerDashboardSkillUi, isBlockingActionSkillUi } from "@/lib/skillUiRegistry";
 
 const SIDEBAR_MIN = 200;
 const SIDEBAR_MAX = 560;       // left panel max
@@ -25,7 +27,13 @@ const RIGHT_PANEL_MAX = typeof window !== "undefined"
   ? Math.floor(window.innerWidth * 0.62)
   : 900;
 
-type RightPanelMode = "preview" | "settings" | "config" | "remoteAssetDetail" | "remoteAssetUpload";
+type SystemModal = null | "settings" | "config" | "remoteAssetDetail" | "remoteUpload";
+
+function previewTabLabel(path: string): string {
+  if (path.startsWith("browser://")) return "浏览器";
+  const base = path.split(/[/\\]/).pop() ?? path;
+  return base.length > 36 ? `${base.slice(0, 34)}…` : base;
+}
 
 export default function Home() {
   const {
@@ -51,8 +59,12 @@ export default function Home() {
   } = useAgentChat();
   const [inputPrefill, setInputPrefill] = useState("");
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
-  const [previewPath, setPreviewPath] = useState<string | null>(null);
-  const [rightPanelMode, setRightPanelMode] = useState<RightPanelMode>("preview");
+  /** 右栏业务视窗：底层大盘 + 预览类 Tab + 强阻断 Action SDUI */
+  const [baseDashboardUrl, setBaseDashboardUrl] = useState<string | null>(null);
+  const [blockingActionPath, setBlockingActionPath] = useState<string | null>(null);
+  const [previewTabs, setPreviewTabs] = useState<Array<{ id: string; path: string; label: string }>>([]);
+  const [activePreviewTabId, setActivePreviewTabId] = useState<string | null>(null);
+  const [systemModal, setSystemModal] = useState<SystemModal>(null);
   const [activeSkillName, setActiveSkillName] = useState<string | null>(null);
   const [selectedOrgAssetId, setSelectedOrgAssetId] = useState<string | null>(null);
   const [sidebarRefreshNonce, setSidebarRefreshNonce] = useState(0);
@@ -164,9 +176,43 @@ export default function Home() {
     [agentProfiles, configUrl],
   );
 
+  const closeBlockingAction = useCallback(() => {
+    setBlockingActionPath(null);
+  }, []);
+
+  const closePreviewTab = useCallback((id: string) => {
+    setPreviewTabs((prev) => {
+      const next = prev.filter((t) => t.id !== id);
+      setActivePreviewTabId((cur) => {
+        if (cur !== id) return cur;
+        return next[0]?.id ?? null;
+      });
+      return next;
+    });
+  }, []);
+
   const openFilePreview = useCallback((path: string) => {
-    setPreviewPath(path);
-    setRightPanelMode("preview");
+    if (isBaseLayerDashboardSkillUi(path)) {
+      setBaseDashboardUrl(path);
+      setIsPreviewOpen(true);
+      return;
+    }
+    if (isBlockingActionSkillUi(path)) {
+      setBlockingActionPath(path);
+      setIsPreviewOpen(true);
+      return;
+    }
+    const id = path;
+    setPreviewTabs((prev) => {
+      const exists = prev.some((t) => t.id === id);
+      if (exists) {
+        setActivePreviewTabId(id);
+        return prev;
+      }
+      const label = previewTabLabel(path);
+      setActivePreviewTabId(id);
+      return [...prev, { id, path, label }];
+    });
     setIsPreviewOpen(true);
   }, []);
 
@@ -211,20 +257,21 @@ export default function Home() {
   }, [messages, openFilePreview]);
   // ─────────────────────────────────────────────────────────────────────────
 
+  const closeSystemModal = useCallback(() => {
+    setSystemModal(null);
+  }, []);
+
   const openSettings = useCallback(() => {
-    setRightPanelMode("settings");
-    setIsPreviewOpen(true);
+    setSystemModal("settings");
   }, []);
 
   const openRemoteAssetDetail = useCallback((assetId: string) => {
     setSelectedOrgAssetId(assetId);
-    setRightPanelMode("remoteAssetDetail");
-    setIsPreviewOpen(true);
+    setSystemModal("remoteAssetDetail");
   }, []);
 
   const openRemoteAssetUpload = useCallback(() => {
-    setRightPanelMode("remoteAssetUpload");
-    setIsPreviewOpen(true);
+    setSystemModal("remoteUpload");
   }, []);
 
   const refreshSidebarAssets = useCallback(() => {
@@ -306,27 +353,48 @@ export default function Home() {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "f") {
         e.preventDefault();
         setSearchOpen(true);
+        return;
       }
       if (e.key === "Escape") {
+        if (blockingActionPath) {
+          e.preventDefault();
+          closeBlockingAction();
+          return;
+        }
+        if (systemModal) {
+          e.preventDefault();
+          closeSystemModal();
+          return;
+        }
         setSearchOpen(false);
         setSearchQuery("");
       }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
+  }, [blockingActionPath, systemModal, closeBlockingAction, closeSystemModal]);
 
   const closePreview = useCallback(() => {
     setIsPreviewOpen(false);
-    setPreviewPath(null);
+    setBaseDashboardUrl(null);
+    setBlockingActionPath(null);
+    setPreviewTabs([]);
+    setActivePreviewTabId(null);
   }, []);
+
+  const activePreviewTabPath = useMemo(
+    () => previewTabs.find((t) => t.id === activePreviewTabId)?.path ?? null,
+    [previewTabs, activePreviewTabId],
+  );
 
   const sidebarProps = {
     threadId,
     apiBase,
     onClear: clearChat,
     onPreviewPath: openFilePreview,
-    currentPreviewPath: (isPreviewOpen && rightPanelMode === "preview") ? previewPath : null,
+    currentPreviewPath: isPreviewOpen
+      ? blockingActionPath ?? activePreviewTabPath ?? baseDashboardUrl
+      : null,
     onClosePreview: closePreview,
     messages,
     isLoading,
@@ -341,35 +409,26 @@ export default function Home() {
   };
 
   const openConfig = useCallback(() => {
-    setRightPanelMode("config");
-    setIsPreviewOpen(true);
+    setSystemModal("config");
   }, []);
 
-  const rightPanel =
-    rightPanelMode === "settings" ? (
-      <SettingsPanel onClose={() => setIsPreviewOpen(false)} onOpenRemoteUpload={openRemoteAssetUpload} />
-    ) : rightPanelMode === "config" ? (
-      <ConfigPanel onClose={() => setIsPreviewOpen(false)} onSaved={loadModelFromConfig} />
-    ) : rightPanelMode === "remoteAssetDetail" ? (
-      <RemoteAssetDetailPanel
-        assetId={selectedOrgAssetId}
-        onClose={() => setIsPreviewOpen(false)}
-        onOpenUpload={openRemoteAssetUpload}
-        onImported={refreshSidebarAssets}
-      />
-    ) : rightPanelMode === "remoteAssetUpload" ? (
-      <RemoteAssetUploadPanel onClose={() => setIsPreviewOpen(false)} onUploaded={refreshSidebarAssets} />
-    ) : (
-      <PreviewPanel
-        onClose={() => setIsPreviewOpen(false)}
-        filePath={previewPath}
-        onOpenPath={openFilePreview}
-        activeSkillName={activeSkillName}
-        onFillInput={handleFillInput}
-        postToAgent={(text) => void sendMessage(text, selectedModel)}
-        isAgentRunning={isAgentRunning}
-      />
-    );
+  const rightPanel = (
+    <PreviewPanel
+      onClose={closePreview}
+      baseDashboardUrl={baseDashboardUrl}
+      blockingActionPath={blockingActionPath}
+      onCloseBlockingAction={closeBlockingAction}
+      previewTabs={previewTabs}
+      activeTabId={activePreviewTabId}
+      onSelectPreviewTab={setActivePreviewTabId}
+      onClosePreviewTab={closePreviewTab}
+      onOpenPath={openFilePreview}
+      activeSkillName={activeSkillName}
+      onFillInput={handleFillInput}
+      postToAgent={(text) => void sendMessage(text, selectedModel)}
+      isAgentRunning={isAgentRunning}
+    />
+  );
 
   return (
     <main className="h-dvh overflow-hidden p-4" style={{ background: "var(--surface-0)", color: "var(--text-primary)" }}>
@@ -397,6 +456,40 @@ export default function Home() {
         onClose={clearPendingChoices}
       />
 
+      {systemModal === "settings" && (
+        <SystemShellModal onClose={closeSystemModal} title="设置">
+          <div className="max-h-[92vh] min-h-0 overflow-y-auto">
+            <SettingsPanel onClose={closeSystemModal} onOpenRemoteUpload={openRemoteAssetUpload} />
+          </div>
+        </SystemShellModal>
+      )}
+      {systemModal === "config" && (
+        <SystemShellModal onClose={closeSystemModal} title="配置中心">
+          <div className="h-[85vh] min-h-[480px] max-h-[92vh] overflow-hidden flex flex-col">
+            <ConfigPanel onClose={closeSystemModal} onSaved={loadModelFromConfig} />
+          </div>
+        </SystemShellModal>
+      )}
+      {systemModal === "remoteAssetDetail" && (
+        <SystemShellModal onClose={closeSystemModal} title="资源详情">
+          <div className="max-h-[92vh] min-h-0 overflow-y-auto">
+            <RemoteAssetDetailPanel
+              assetId={selectedOrgAssetId}
+              onClose={closeSystemModal}
+              onOpenUpload={() => setSystemModal("remoteUpload")}
+              onImported={refreshSidebarAssets}
+            />
+          </div>
+        </SystemShellModal>
+      )}
+      {systemModal === "remoteUpload" && (
+        <SystemShellModal onClose={closeSystemModal} title="上传资源">
+          <div className="max-h-[92vh] min-h-0 overflow-y-auto">
+            <RemoteAssetUploadPanel onClose={closeSystemModal} onUploaded={refreshSidebarAssets} />
+          </div>
+        </SystemShellModal>
+      )}
+
       {/* Mobile hamburger */}
       <button
         type="button"
@@ -417,7 +510,7 @@ export default function Home() {
         />
       )}
       {sidebarOpen && (
-        <div className="md:hidden fixed inset-y-0 left-0 z-40 w-[21rem] p-3">
+        <div className="md:hidden fixed inset-y-0 left-0 z-40 w-[21rem] p-2 bg-[var(--canvas-rail)] rounded-r-2xl shadow-xl border-r border-[var(--border-subtle)] dark:border-white/10">
           <button
             type="button"
             onClick={() => setSidebarOpen(false)}
@@ -436,11 +529,11 @@ export default function Home() {
         </div>
       )}
 
-      {/* Desktop layout: flex with resizable panels */}
+      {/* Desktop layout: flex with resizable panels — Canvas | Paper | Canvas */}
       <div className="hidden md:flex h-full min-h-0 gap-0">
         {/* Left sidebar — always present; collapses to 64 px icon strip */}
         <div
-          className="min-h-0 shrink-0 transition-[width] duration-200"
+          className="min-h-0 shrink-0 transition-[width] duration-200 bg-[var(--canvas-rail)] rounded-l-2xl overflow-hidden"
           style={{ width: sidebarCollapsed ? 64 : leftWidth }}
         >
           <Sidebar
@@ -460,8 +553,8 @@ export default function Home() {
           </div>
         )}
 
-        {/* Chat area */}
-        <div className="flex-1 min-w-0 min-h-0 flex flex-col">
+        {/* Chat area — Paper */}
+        <div className="flex-1 min-w-0 min-h-0 flex flex-col bg-[var(--paper-chat)] rounded-2xl shadow-[var(--shadow-card)] ring-1 ring-black/[0.05] dark:ring-white/10 overflow-hidden">
           {/* Top control bar — progress rail on left, actions on right */}
           <div ref={headerRef} className="flex items-start gap-1.5 mb-2 shrink-0 min-w-0">
             {/* Inline progress rail — flex-1 so it fills available space */}
@@ -568,9 +661,9 @@ export default function Home() {
             </div>
             {/* Browser panels get extra width for comfortable viewing */}
             <div
-              className="min-h-0 shrink-0"
+              className="min-h-0 shrink-0 flex flex-col bg-[var(--canvas-rail)] rounded-r-2xl overflow-hidden p-2 min-w-0"
               style={{
-                width: previewKindFromPath(previewPath ?? "") === "browser"
+                width: previewKindFromPath(blockingActionPath ?? activePreviewTabPath ?? baseDashboardUrl ?? "") === "browser"
                   ? Math.max(rightWidth, Math.min(RIGHT_PANEL_MAX, Math.floor((typeof window !== "undefined" ? window.innerWidth : 1200) * 0.55)))
                   : rightWidth,
               }}
@@ -581,8 +674,8 @@ export default function Home() {
         )}
       </div>
 
-      {/* Mobile layout */}
-      <div className="md:hidden h-full min-h-0">
+      {/* Mobile layout — single Paper column */}
+      <div className="md:hidden h-full min-h-0 flex flex-col rounded-2xl overflow-hidden bg-[var(--paper-chat)] shadow-[var(--shadow-card)] ring-1 ring-black/[0.05] dark:ring-white/10">
         <ChatArea
           messages={messages}
           stepLogs={stepLogs}

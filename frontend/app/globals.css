@@ -13,8 +13,13 @@
   --surface-1: #18181b;
   --surface-2: #1c1c1f;
   --surface-3: #27272a;
-  --border-subtle: #2e2e32;
-  --border-strong: #3f3f46;
+  /* 极弱线框，避免暗色下边框“发亮” */
+  --border-subtle: rgba(255, 255, 255, 0.1);
+  --border-strong: rgba(255, 255, 255, 0.16);
+  /* 三列纵深：左右 Canvas / 中间 Paper */
+  --canvas-rail: #111111;
+  --paper-chat: #18181b;
+  --paper-card: #1c1c1f;
   --text-primary: #d4d4d8;
   --text-secondary: #a1a1aa;
   --text-muted: #71717a;
@@ -43,6 +48,9 @@
   --surface-1: #ffffff;
   --surface-2: #f8fafc;
   --surface-3: #f1f5f9;
+  --canvas-rail: #f9fafb;
+  --paper-chat: #ffffff;
+  --paper-card: #ffffff;
   --border-subtle: #e2e8f0;
   --border-strong: #cbd5e1;
   --text-primary: #0f172a;
@@ -67,6 +75,9 @@
   --surface-1: #fafaf9;
   --surface-2: #f5f5f4;
   --surface-3: #e7e5e4;
+  --canvas-rail: #efe8de;
+  --paper-chat: #fafaf9;
+  --paper-card: #fafaf9;
   --border-subtle: #e7e5e4;
   --border-strong: #d6d3d1;
   --text-primary: #44403c;

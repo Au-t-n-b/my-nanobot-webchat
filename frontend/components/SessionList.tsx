@@ -18,15 +18,15 @@ function formatUpdatedAt(ts: number): string {
 
 export function SessionList({ currentThreadId, sessions, onCreate, onSelect, onDelete }: Props) {
   return (
-    <section className="ui-card rounded-xl p-3 flex flex-col gap-2 min-h-0">
+    <section className="flex flex-col gap-2 min-h-0">
       <div className="flex items-center justify-between gap-2">
-        <span className="text-[11px] font-semibold uppercase tracking-wider ui-text-secondary">
-          会话 <span className="font-normal normal-case tracking-normal ui-text-muted">Sessions</span>
+        <span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-muted)]">
+          会话 <span className="font-normal normal-case tracking-normal opacity-90">Sessions</span>
         </span>
         <button
           type="button"
           onClick={onCreate}
-          className="ui-subtle inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-[11px] font-medium transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)]"
+          className="inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-[11px] font-medium transition-colors hover:bg-[var(--surface-3)] text-[var(--text-secondary)] hover:text-[var(--accent)]"
           aria-label="创建新会话"
           title="创建新会话"
         >
@@ -35,7 +35,7 @@ export function SessionList({ currentThreadId, sessions, onCreate, onSelect, onD
         </button>
       </div>
 
-      <div className="max-h-40 overflow-auto space-y-1">
+      <div className="max-h-40 overflow-auto space-y-0.5">
         {sessions.map((session) => {
           const active = session.id === currentThreadId;
           return (
@@ -51,10 +51,10 @@ export function SessionList({ currentThreadId, sessions, onCreate, onSelect, onD
               role="button"
               tabIndex={0}
               className={
-                "group relative w-full rounded-lg border px-2.5 py-2 text-left transition-colors cursor-pointer outline-none " +
+                "group relative w-full rounded-md px-2.5 py-2 text-left transition-colors cursor-pointer outline-none border border-transparent " +
                 (active
-                  ? "border-[var(--accent)] bg-[var(--accent-soft)]/70"
-                  : "border-[var(--border-subtle)] bg-[var(--surface-3)] hover:border-[var(--border-strong)]")
+                  ? "bg-[var(--accent-soft)] ring-1 ring-[var(--accent)]/35"
+                  : "hover:bg-[var(--surface-3)]")
               }
             >
               <div className="flex items-center justify-between gap-2">

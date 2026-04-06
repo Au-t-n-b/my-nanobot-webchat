@@ -50,6 +50,38 @@ export function parseSkillUiPath(path: string): ParsedSkillUiUri | null {
   return { component, dataFile, rawSearchParams };
 }
 
+/**
+ * 大模块看板（Base Layer）命名约定（Convention）：
+ * - `skill-ui://…?dataFile=…` 中，路径（不区分大小写）**包含**以下任一段即视为常驻大盘，路由到右栏底层：
+ *   - `-master/data/dashboard.json`
+ *   - `-pipeline/data/dashboard.json`
+ * - 其余 `skill-ui`（如各 Step 的 `ui.json`）与文件 / 浏览器预览 → Overlay Layer。
+ */
+export function isBaseLayerDashboardSkillUi(path: string): boolean {
+  if (!path.trim().toLowerCase().startsWith("skill-ui://")) return false;
+  const p = parseSkillUiPath(path);
+  const df = (p?.dataFile ?? "").toLowerCase().replace(/\\/g, "/");
+  if (!df) return false;
+  return (
+    df.includes("-master/data/dashboard.json") ||
+    df.includes("-pipeline/data/dashboard.json")
+  );
+}
+
+/** @deprecated 请改用 {@link isBaseLayerDashboardSkillUi}（语义相同，名称更准确） */
+export function isPipelineDashboardSkillUi(path: string): boolean {
+  return isBaseLayerDashboardSkillUi(path);
+}
+
+/**
+ * 强阻断 Action SDUI：非大盘约定的 `skill-ui`（如各 Step 的 ui.json）。
+ * 必须全幅盖在业务视窗之上，不可收入 Tab。
+ */
+export function isBlockingActionSkillUi(path: string): boolean {
+  if (!path.trim().toLowerCase().startsWith("skill-ui://")) return false;
+  return !isBaseLayerDashboardSkillUi(path);
+}
+
 /** 构造供 openFilePreview 使用的 synthetic path */
 export function buildSkillUiPreviewPath(
   component: string,

@@ -827,7 +827,7 @@ export function PreviewPanel({
         {/* 强阻断层：Action SDUI，不可收到 Tab 后 */}
         {blockingActionPath && (
           <div
-            className="absolute inset-0 z-30 flex flex-col min-h-0 bg-[var(--paper-chat)] shadow-[0_-4px_24px_rgba(0,0,0,0.35)] dark:shadow-[0_-8px_32px_rgba(0,0,0,0.55)]"
+            className="absolute inset-0 z-40 flex flex-col h-full w-full min-h-0 bg-[var(--paper-chat)] shadow-[0_-4px_24px_rgba(0,0,0,0.35)] dark:shadow-[0_-8px_32px_rgba(0,0,0,0.55)]"
             role="dialog"
             aria-modal="true"
             aria-label="需要确认的界面"

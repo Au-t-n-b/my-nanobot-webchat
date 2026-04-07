@@ -52,6 +52,11 @@ export function SkillUiRuntimeProvider({ children, postToAgentRaw, onOpenPreview
     (path: string) => {
       const p = path.trim();
       if (!p) return;
+      // 兼容：允许 SDUI 直接传 http(s) 链接（内部转为 browser:// 分屏打开）
+      if (/^https?:\/\//i.test(p)) {
+        onOpenPreview?.(`browser://${p}`);
+        return;
+      }
       onOpenPreview?.(p);
     },
     [onOpenPreview],

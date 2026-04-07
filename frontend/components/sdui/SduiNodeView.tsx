@@ -38,6 +38,10 @@ import { SduiTabs } from "@/components/sdui/SduiTabs";
 
 import { SduiStepper } from "@/components/sdui/SduiStepper";
 
+import { SduiChartPlaceholder } from "@/components/sdui/SduiChartPlaceholder";
+
+import { SduiFileKindBadge } from "@/components/sdui/SduiFileKindBadge";
+
 
 
 function UnknownNode({ type }: { type: string }) {
@@ -118,7 +122,7 @@ export function SduiNodeView({ node, pathPrefix = "root" }: Props) {
       const rowChildren = node.children ?? [];
       const rowAllStatistic = rowChildren.length > 0 && rowChildren.every((c) => c.type === "Statistic");
       return (
-        <SduiRow gap={node.gap} align={node.align} wrap={node.wrap}>
+        <SduiRow gap={node.gap} align={node.align} justify={node.justify} wrap={node.wrap}>
           {rowChildren.map((child, i) => {
             const seg = stableChildKey(child, i, pathPrefix);
             const inner = <SduiNodeView node={child} pathPrefix={seg} />;
@@ -208,6 +212,14 @@ export function SduiNodeView({ node, pathPrefix = "root" }: Props) {
     case "Link":
 
       return <SduiLink label={node.label} href={node.href} action={node.action} />;
+
+    case "ChartPlaceholder":
+
+      return <SduiChartPlaceholder variant={node.variant} caption={node.caption} />;
+
+    case "FileKindBadge":
+
+      return <SduiFileKindBadge kind={node.kind} />;
 
     default:
 

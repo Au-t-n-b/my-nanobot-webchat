@@ -85,6 +85,7 @@
 | `type` | `"Row"` | 是 | |
 | `gap` | `SpacingToken` | 否 | 横向（及折行后行内）间距语义。 |
 | `align` | `"start" \| "center" \| "end" \| "stretch" \| "baseline"` | 否 | 交叉轴对齐语义。 |
+| `justify` | `"start" \| "end" \| "center" \| "between" \| "around"` | 否 | 主轴对齐（如产物行左右分布）。 |
 | `wrap` | `boolean` | 否 | 是否允许折行。 |
 | `children` | `SduiNode[]` | 否 | |
 
@@ -127,7 +128,7 @@
 
 ### 2.8 `Stepper`
 
-流程步骤条：根据每步 `status` 显示不同颜色与图标（宿主使用 Lucide：`waiting` 空心圆、`running` 旋转加载、`done` 对勾圆、`error` 叉圆）。连线颜色在相邻步之间：若**前一步**为 `done` 则使用成功色，否则为弱边框色。样式使用 `var(--surface-*)`、`var(--border-subtle)`、`var(--success)`、`var(--warning)`、`var(--danger)`、`var(--text-*)`。
+流程步骤条：**横向**时节点为 **32px** 圆形容器；`waiting` 显示灰色序号；`running` 为蓝色脉冲环 + 旋转加载图标；`done` 为绿色对勾；`error` 为危险色叉。连线位于**相邻两步之间**，若**前一步**为 `done` 则线段为成功色，否则为弱边框色。样式使用 `var(--canvas-rail)`、`var(--border-subtle)`、`var(--success)`、`var(--danger)`、`var(--text-*)`。
 
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
@@ -142,6 +143,25 @@
 | `id` | `string` | 是 | 稳定标识。 |
 | `title` | `string` | 是 | 步骤标题。 |
 | `status` | `"waiting"` \| `"running"` \| `"done"` \| `"error"` | 是 | 步骤状态。 |
+
+### 2.9 `ChartPlaceholder`
+
+无矢量图表时的**占位区**：虚线边框、弱背景、居中 Lucide 图标（`pie`→饼图语义，`bar`→柱状图语义）。**禁止**在 JSON 中写任意 SVG/HTML。
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `type` | `"ChartPlaceholder"` | 是 | |
+| `variant` | `"pie"` \| `"bar"` | 是 | 图标与语义。 |
+| `caption` | `string` | 否 | 图标下方短文案。 |
+
+### 2.10 `FileKindBadge`
+
+产物文件类型图标（Word 蓝 / Excel 绿 / PDF 红系 / 其它中性），用于列表行首。
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `type` | `"FileKindBadge"` | 是 | |
+| `kind` | `"docx"` \| `"xlsx"` \| `"pdf"` \| `"other"` | 是 | 宿主映射颜色与图标。 |
 
 ---
 
@@ -252,7 +272,7 @@
 |------|------|------|------|
 | `type` | `"Button"` | 是 | |
 | `label` | `string` | 是 | 按钮文案。 |
-| `variant` | `"primary" \| "secondary" \| "ghost"` | 否 | **语义强度**：主操作 / 次操作 / 弱操作；宿主映射主题。 |
+| `variant` | `"primary" \| "secondary" \| "ghost" \| "outline"` | 否 | **语义强度**：主操作 / 次操作 / 弱操作 / 线框；宿主映射主题。 |
 | `action` | `SduiAction` | 是 | 见下。 |
 
 **`SduiAction` 封闭形式**：
@@ -313,11 +333,13 @@
 |--------|------|------|
 | `SduiDocument` | §1.3 | `schemaVersion`, `type`, `root`, `meta?` |
 | `Stack` | §2.3 | `gap?`, `children?` |
-| `Row` | §2.4 | `gap?`, `align?`, `wrap?`, `children?` |
+| `Row` | §2.4 | `gap?`, `align?`, `justify?`, `wrap?`, `children?` |
 | `Card` | §2.5 | `title?`, `children?` |
 | `Divider` | §2.6 | — |
 | `Tabs` | §2.7 | `tabs`, `defaultTabId?` |
 | `Stepper` | §2.8 | `steps`, `orientation?` |
+| `ChartPlaceholder` | §2.9 | `variant`, `caption?` |
+| `FileKindBadge` | §2.10 | `kind` |
 | `Text` | §3.1 | `content`, `variant?` |
 | `Markdown` | §3.2 | `content` |
 | `Badge` | §3.3 | `text`, `tone?` |

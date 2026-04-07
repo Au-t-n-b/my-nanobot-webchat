@@ -28,7 +28,9 @@ export type SduiNodeType =
   | "Table"
   | "DataGrid"
   | "Button"
-  | "Link";
+  | "Link"
+  | "ChartPlaceholder"
+  | "FileKindBadge";
 
 /** Tabs 子项图标的封闭枚举（宿主映射到 Lucide，禁止自由 SVG/URL） */
 export type SduiTabIconName =
@@ -71,7 +73,9 @@ export type SduiNode =
   | SduiTableNode
   | SduiDataGridNode
   | SduiButtonNode
-  | SduiLinkNode;
+  | SduiLinkNode
+  | SduiChartPlaceholderNode
+  | SduiFileKindBadgeNode;
 
 /** 各节点可选的稳定 id，用于列表 React key 与排查 */
 type SduiOptionalId = { id?: string };
@@ -93,6 +97,8 @@ export type SduiRowNode = SduiOptionalId & {
   type: "Row";
   gap?: SpacingToken;
   align?: "start" | "center" | "end" | "stretch" | "baseline";
+  /** 主轴对齐（如产物行左右分布） */
+  justify?: "start" | "end" | "center" | "between" | "around";
   wrap?: boolean;
   children?: SduiNode[];
 };
@@ -187,8 +193,26 @@ export type SduiDataGridNode = SduiOptionalId & {
 export type SduiButtonNode = SduiOptionalId & {
   type: "Button";
   label: string;
-  variant?: "primary" | "secondary" | "ghost";
+  variant?: "primary" | "secondary" | "ghost" | "outline";
   action: SduiAction;
+};
+
+/** 图表占位（饼图/柱状图等），宿主渲染虚线框 + 图标 */
+export type SduiChartVariant = "pie" | "bar";
+
+export type SduiChartPlaceholderNode = SduiOptionalId & {
+  type: "ChartPlaceholder";
+  variant: SduiChartVariant;
+  /** 图标下方说明 */
+  caption?: string;
+};
+
+/** 产物文件类型图标（Word 蓝 / Excel 绿） */
+export type SduiFileKind = "docx" | "xlsx" | "pdf" | "other";
+
+export type SduiFileKindBadgeNode = SduiOptionalId & {
+  type: "FileKindBadge";
+  kind: SduiFileKind;
 };
 
 export type SduiLinkNode = SduiOptionalId & {

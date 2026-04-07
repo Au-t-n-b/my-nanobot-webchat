@@ -154,7 +154,7 @@ class SduiButtonNode(BaseModel):
     type: Literal["Button"] = "Button"
     id: str | None = None
     label: str
-    variant: Literal["primary", "secondary", "ghost"] | None = None
+    variant: Literal["primary", "secondary", "ghost", "outline"] | None = None
     action: SduiPostUserMessage | SduiOpenPreview
 
 
@@ -193,6 +193,7 @@ class SduiRowNode(BaseModel):
     id: str | None = None
     gap: SpacingToken | None = None
     align: Literal["start", "center", "end", "stretch", "baseline"] | None = None
+    justify: Literal["start", "end", "center", "between", "around"] | None = None
     wrap: bool | None = None
     children: list["SduiNode"] | None = None
 
@@ -243,6 +244,23 @@ class SduiStepperNode(BaseModel):
     orientation: Literal["horizontal", "vertical"] | None = None
 
 
+class SduiChartPlaceholderNode(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    type: Literal["ChartPlaceholder"] = "ChartPlaceholder"
+    id: str | None = None
+    variant: Literal["pie", "bar"]
+    caption: str | None = None
+
+
+class SduiFileKindBadgeNode(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    type: Literal["FileKindBadge"] = "FileKindBadge"
+    id: str | None = None
+    kind: Literal["docx", "xlsx", "pdf", "other"]
+
+
 SduiNode = Annotated[
     Union[
         SduiStackNode,
@@ -261,6 +279,8 @@ SduiNode = Annotated[
         SduiDataGridNode,
         SduiButtonNode,
         SduiLinkNode,
+        SduiChartPlaceholderNode,
+        SduiFileKindBadgeNode,
     ],
     Field(discriminator="type"),
 ]

@@ -8,9 +8,9 @@ type Props = {
 export function SduiStatistic({ title, value }: Props) {
   const v = value === null || value === undefined ? "" : value;
   return (
-    <div className="min-w-0">
-      <div className="text-sm font-medium text-slate-500 mb-1 dark:text-zinc-400">{title ?? ""}</div>
-      <div className="text-2xl font-bold tracking-tight text-slate-900 tabular-nums dark:text-zinc-100">{v}</div>
+    <div className="min-w-0 w-full text-center">
+      <div className="mb-1 text-xs font-medium text-[var(--text-muted)]">{title ?? ""}</div>
+      <div className="text-3xl font-bold tabular-nums tracking-tight text-[var(--text-primary)]">{v}</div>
     </div>
   );
 }

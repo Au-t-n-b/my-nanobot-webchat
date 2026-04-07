@@ -5,7 +5,7 @@ import { useSkillUiRuntime } from "@/components/sdui/SkillUiRuntimeProvider";
 
 type Props = {
   label?: string | null;
-  variant?: "primary" | "secondary" | "ghost";
+  variant?: "primary" | "secondary" | "ghost" | "outline";
   action?: SduiAction;
 };
 
@@ -13,7 +13,10 @@ const variantClass: Record<NonNullable<Props["variant"]>, string> = {
   primary:
     "bg-slate-900 text-white shadow-sm hover:bg-slate-800 hover:shadow-md dark:bg-white dark:text-slate-900",
   secondary: "bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 hover:border-slate-300 shadow-sm",
-  ghost: "bg-transparent text-slate-600 hover:bg-slate-100 hover:text-slate-900",
+  ghost:
+    "bg-transparent text-[var(--text-secondary)] hover:bg-[var(--surface-3)] hover:text-[var(--text-primary)]",
+  outline:
+    "border border-[var(--border-strong)] bg-transparent text-[var(--text-primary)] hover:bg-[var(--surface-3)] shadow-sm",
 };
 
 export function SduiButton({ label, variant = "primary", action }: Props) {

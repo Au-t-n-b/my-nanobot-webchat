@@ -62,16 +62,24 @@ export function SduiView({ data, loading, error, dataFilePath }: SkillUiComponen
     );
   }
 
+  const meta = parsed.doc.meta;
+  const isDashboardChromeHidden =
+    meta !== null &&
+    typeof meta === "object" &&
+    (meta as { role?: string }).role === "dashboard";
+
   return (
     <div className="flex flex-col gap-3 min-h-0 min-w-0">
-      <div className="flex items-center justify-between gap-2 flex-wrap shrink-0">
-        <h3 className="text-sm font-semibold ui-text-primary">Skill UI · SDUI</h3>
-        {dataFilePath ? (
-          <code className="text-[10px] px-2 py-1 rounded-md ui-text-muted truncate max-w-full" title={dataFilePath}>
-            {dataFilePath}
-          </code>
-        ) : null}
-      </div>
+      {!isDashboardChromeHidden ? (
+        <div className="flex items-center justify-between gap-2 flex-wrap shrink-0">
+          <h3 className="text-sm font-semibold ui-text-primary">Skill UI · SDUI</h3>
+          {dataFilePath ? (
+            <code className="text-[10px] px-2 py-1 rounded-md ui-text-muted truncate max-w-full" title={dataFilePath}>
+              {dataFilePath}
+            </code>
+          ) : null}
+        </div>
+      ) : null}
       <div className="min-h-0 min-w-0 flex-1 overflow-auto">
         <SduiNodeView node={parsed.doc.root} />
       </div>

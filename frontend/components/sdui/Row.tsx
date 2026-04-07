@@ -2,7 +2,15 @@
 
 import type { ReactNode } from "react";
 import type { SpacingToken } from "@/lib/sdui";
-import { spacingTokenToGapPx } from "@/lib/sduiTokens";
+
+const gapClassMap: Record<string, string> = {
+  none: "gap-0",
+  xs: "gap-1",
+  sm: "gap-2",
+  md: "gap-3",
+  lg: "gap-4",
+  xl: "gap-6",
+};
 
 const alignMap: Record<string, string> = {
   start: "items-start",
@@ -31,9 +39,9 @@ type Props = {
 export function SduiRow({ gap, align = "start", justify = "start", wrap = true, children }: Props) {
   const a = alignMap[align] ?? "items-start";
   const j = justifyMap[justify] ?? "justify-start";
-  const px = spacingTokenToGapPx(gap);
+  const g = gap ? (gapClassMap[gap] ?? "") : "";
   return (
-    <div className={`flex min-w-0 ${j} ${a} ${wrap ? "flex-wrap" : "flex-nowrap"}`.trim()} style={{ gap: px }}>
+    <div className={`flex min-w-0 ${j} ${a} ${wrap ? "flex-wrap" : "flex-nowrap"} ${g}`.trim()}>
       {children}
     </div>
   );

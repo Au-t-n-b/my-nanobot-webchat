@@ -1,5 +1,12 @@
 "use client";
 
-export function SduiDivider() {
-  return <hr className="border-0 h-px my-2 bg-slate-100 dark:bg-white/5" />;
+type Props = {
+  orientation?: "horizontal" | "vertical";
+};
+
+export function SduiDivider({ orientation = "horizontal" }: Props) {
+  if (orientation === "vertical") {
+    return <div className="my-0 self-stretch w-px bg-[var(--border-subtle)]" aria-hidden />;
+  }
+  return <hr className="my-2 h-px border-0 bg-[var(--border-subtle)]" aria-hidden />;
 }

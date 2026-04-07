@@ -26,12 +26,7 @@ import { SduiFileKindBadge } from "@/components/sdui/SduiFileKindBadge";
 function UnknownNode({ type }: { type: string }) {
   return (
     <div
-      className="rounded-lg border px-3 py-2 text-xs"
-      style={{
-        borderColor: "color-mix(in oklab, var(--warning) 35%, transparent)",
-        background: "color-mix(in oklab, var(--warning) 8%, var(--surface-2))",
-        color: "var(--text-primary)",
-      }}
+      className="rounded-lg border px-3 py-2 text-xs text-[var(--text-primary)] border-[color-mix(in_oklab,var(--warning)_35%,transparent)] bg-[color-mix(in_oklab,var(--warning)_8%,var(--surface-2))]"
     >
       未知 SDUI 节点类型：<code className="font-mono">{type}</code>
     </div>
@@ -45,10 +40,11 @@ type Props = {
 };
 
 export function SduiNodeView({ node, pathPrefix = "root" }: Props) {
-  switch (node.type) {
+  const inner = (() => {
+    switch (node.type) {
     case "Stack":
       return (
-        <SduiStack gap={node.gap}>
+        <SduiStack gap={node.gap} justify={node.justify}>
           {node.children?.map((child, i) => {
             const seg = stableChildKey(child, i, pathPrefix);
             return <SduiNodeView key={seg} node={child} pathPrefix={seg} />;
@@ -88,7 +84,7 @@ export function SduiNodeView({ node, pathPrefix = "root" }: Props) {
     }
 
     case "Divider":
-      return <SduiDivider />;
+      return <SduiDivider orientation={node.orientation} />;
 
     case "Tabs":
       return <SduiTabs tabs={node.tabs} defaultTabId={node.defaultTabId} pathPrefix={pathPrefix} />;
@@ -97,7 +93,7 @@ export function SduiNodeView({ node, pathPrefix = "root" }: Props) {
       return <SduiStepper steps={node.steps} orientation={node.orientation} />;
 
     case "Text":
-      return <SduiText content={node.content} variant={node.variant} />;
+      return <SduiText content={node.content} variant={node.variant} color={node.color} align={node.align} />;
 
     case "TextArea":
       return (
@@ -114,13 +110,13 @@ export function SduiNodeView({ node, pathPrefix = "root" }: Props) {
       return <SduiMarkdown content={node.content} />;
 
     case "Badge":
-      return <SduiBadge text={node.text} tone={node.tone} />;
+      return <SduiBadge text={node.text} label={node.label} tone={node.tone} color={node.color} size={node.size} />;
 
     case "Statistic":
-      return <SduiStatistic title={node.title} value={node.value} />;
+      return <SduiStatistic title={node.title} value={node.value} color={node.color} />;
 
     case "KeyValueList":
-      return <SduiKeyValueList items={node.items} />;
+      return <SduiKeyValueList items={node.items} color={node.color} />;
 
     case "Table":
       return <SduiTable headers={node.headers} rows={node.rows} />;
@@ -129,7 +125,7 @@ export function SduiNodeView({ node, pathPrefix = "root" }: Props) {
       return <SduiDataGrid {...node} />;
 
     case "Button":
-      return <SduiButton label={node.label} variant={node.variant} action={node.action} />;
+      return <SduiButton label={node.label} variant={node.variant} color={node.color} action={node.action} />;
 
     case "Link":
       return <SduiLink label={node.label} href={node.href} action={node.action} />;
@@ -154,5 +150,18 @@ export function SduiNodeView({ node, pathPrefix = "root" }: Props) {
 
     default:
       return <UnknownNode type={(node as { type?: string }).type ?? "?"} />;
+    }
+  })();
+
+  if (typeof node.flex === "number" && Number.isFinite(node.flex) && node.flex > 0) {
+    // v2：布局比例（允许 inline style，仅用于 flex 分配）
+    const f = node.flex;
+    return (
+      <div className="min-w-0" style={{ flex: `${f} ${f} 0%` }}>
+        {inner}
+      </div>
+    );
   }
+
+  return inner;
 }

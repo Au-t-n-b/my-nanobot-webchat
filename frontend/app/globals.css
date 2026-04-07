@@ -37,6 +37,13 @@
     0 1px 4px rgba(0, 0, 0, 0.28),
     inset 0 1px 0 rgba(255, 255, 255, 0.03);
   --scrollbar-thumb: rgba(113, 113, 122, 0.5);
+
+  /* SDUI v2 semantic palette (accent stays blue in dark) */
+  --sdui-success: #22c55e; /* green-500 */
+  --sdui-warning: #eab308; /* yellow-500 */
+  --sdui-error: var(--danger);
+  --sdui-accent-blue: #60a5fa; /* blue-400 for dark */
+  --sdui-subtle: rgba(113, 113, 122, 0.9);
 }
 
 /* ─────────────────────────────────────────────
@@ -64,6 +71,13 @@
   --shadow-panel: 0 4px 16px rgba(15, 23, 42, 0.09), 0 1px 4px rgba(15, 23, 42, 0.06);
   --shadow-card: 0 1px 3px rgba(15, 23, 42, 0.06), 0 1px 2px rgba(15, 23, 42, 0.04);
   --scrollbar-thumb: rgba(100, 116, 139, 0.40);
+
+  /* SDUI v2 semantic palette */
+  --sdui-success: #22c55e; /* green-500 */
+  --sdui-warning: #eab308; /* yellow-500 */
+  --sdui-error: var(--danger);
+  --sdui-accent-blue: #2563eb; /* blue-600 for light */
+  --sdui-subtle: rgba(100, 116, 139, 0.9);
 }
 
 /* ─────────────────────────────────────────────

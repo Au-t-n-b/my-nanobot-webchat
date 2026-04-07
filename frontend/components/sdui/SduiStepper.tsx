@@ -59,10 +59,10 @@ function StepGlyph({ status }: { status: SduiStepperStatus }) {
 function Connector({ prevDone }: { prevDone: boolean }) {
   return (
     <div
-      className="mx-0.5 h-0.5 min-h-[2px] min-w-[8px] flex-1 rounded-full sm:mx-1"
-      style={{
-        background: prevDone ? "var(--success)" : "var(--border-subtle)",
-      }}
+      className={[
+        "mx-0.5 h-0.5 min-h-[2px] min-w-[8px] flex-1 rounded-full sm:mx-1",
+        prevDone ? "bg-[var(--success)]" : "bg-[var(--border-subtle)]",
+      ].join(" ")}
       aria-hidden
     />
   );
@@ -91,10 +91,10 @@ export function SduiStepper({ steps, orientation = "horizontal" }: Props) {
                 <StepGlyph status={step.status} />
                 {i < steps.length - 1 ? (
                   <div
-                    className="my-1 min-h-[12px] w-px flex-1 rounded-full"
-                    style={{
-                      background: step.status === "done" ? "var(--success)" : "var(--border-subtle)",
-                    }}
+                    className={[
+                      "my-1 min-h-[12px] w-px flex-1 rounded-full",
+                      step.status === "done" ? "bg-[var(--success)]" : "bg-[var(--border-subtle)]",
+                    ].join(" ")}
                   />
                 ) : null}
               </div>

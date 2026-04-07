@@ -11,6 +11,9 @@ export const SDUI_SCHEMA_VERSION = 1;
 export const SPACING_TOKENS = ["none", "xs", "sm", "md", "lg", "xl"] as const;
 export type SpacingToken = (typeof SPACING_TOKENS)[number];
 
+/** v2 语义化颜色（禁止自由色板污染主题） */
+export type SduiSemanticColor = "success" | "warning" | "error" | "accent" | "subtle";
+
 /** 支持的原子节点类型（MVP+） */
 export type SduiNodeType =
   | "Stack"
@@ -106,12 +109,18 @@ export type SduiNode =
   | SduiFileKindBadgeNode;
 
 /** 各节点可选的稳定 id，用于列表 React key 与排查 */
-type SduiOptionalId = { id?: string };
+type SduiOptionalId = {
+  id?: string;
+  /** v2：布局比例（Row/Stack 等容器按 flex 分配空间） */
+  flex?: number;
+};
 
 export type SduiStackNode = SduiOptionalId & {
   type: "Stack";
   /** 语义间距档位；禁止数字 */
   gap?: SpacingToken;
+  /** v2：主轴对齐（Stack 为纵向 flex-col） */
+  justify?: "start" | "center" | "end" | "between";
   children?: SduiNode[];
 };
 
@@ -133,7 +142,10 @@ export type SduiRowNode = SduiOptionalId & {
   children?: SduiNode[];
 };
 
-export type SduiDividerNode = SduiOptionalId & { type: "Divider" };
+export type SduiDividerNode = SduiOptionalId & {
+  type: "Divider";
+  orientation?: "horizontal" | "vertical";
+};
 
 /** 单个 Tab：独立子树，由宿主切换展示 */
 export type SduiTabPanel = {
@@ -170,7 +182,9 @@ export type SduiStepperNode = SduiOptionalId & {
 export type SduiTextNode = SduiOptionalId & {
   type: "Text";
   content: string;
-  variant?: "title" | "body" | "muted" | "mono";
+  variant?: "caption" | "body" | "heading" | "mono";
+  color?: SduiSemanticColor;
+  align?: "start" | "center" | "end";
 };
 
 export type SduiTextAreaNode = SduiOptionalId & {
@@ -190,19 +204,26 @@ export type SduiMarkdownNode = SduiOptionalId & {
 
 export type SduiBadgeNode = SduiOptionalId & {
   type: "Badge";
-  text: string;
+  /** v1 */
+  text?: string;
   tone?: "default" | "success" | "warning" | "danger";
+  /** v2 */
+  label?: string;
+  color?: SduiSemanticColor;
+  size?: "sm" | "md";
 };
 
 export type SduiStatisticNode = SduiOptionalId & {
   type: "Statistic";
   title: string;
   value: string | number;
+  color?: SduiSemanticColor;
 };
 
 export type SduiKeyValueListNode = SduiOptionalId & {
   type: "KeyValueList";
-  items: Array<{ key: string; value: string }>;
+  items: Array<{ key: string; value: string; color?: SduiSemanticColor }>;
+  color?: SduiSemanticColor;
 };
 
 export type SduiTableNode = SduiOptionalId & {
@@ -225,6 +246,7 @@ export type SduiButtonNode = SduiOptionalId & {
   type: "Button";
   label: string;
   variant?: "primary" | "secondary" | "ghost" | "outline";
+  color?: SduiSemanticColor;
   action: SduiAction;
 };
 
@@ -252,8 +274,8 @@ export type SduiFileKindBadgeNode = SduiOptionalId & {
 export type SduiDonutSegment = {
   label: string;
   value: number;
-  /** 可选 CSS 颜色；缺省使用宿主语义色板 */
-  color?: string;
+  /** v2：优先语义色；也允许 hex/rgb/var(...) 回退 */
+  color?: SduiSemanticColor | string;
 };
 
 export type SduiDonutChartNode = SduiOptionalId & {
@@ -269,7 +291,7 @@ export type SduiDonutChartNode = SduiOptionalId & {
 export type SduiBarDatum = {
   label: string;
   value: number;
-  color?: string;
+  color?: SduiSemanticColor | string;
 };
 
 export type SduiBarChartNode = SduiOptionalId & {

@@ -1,8 +1,14 @@
 "use client";
 
+import type { SduiSemanticColor } from "@/lib/sdui";
+import { semanticSoftBadgeClass } from "@/components/sdui/sduiSemanticColor";
+
 type Props = {
   text?: string | null;
   tone?: "default" | "success" | "warning" | "danger";
+  label?: string | null;
+  color?: SduiSemanticColor;
+  size?: "sm" | "md";
 };
 
 const toneClass: Record<NonNullable<Props["tone"]>, string> = {
@@ -16,10 +22,13 @@ const toneClass: Record<NonNullable<Props["tone"]>, string> = {
     "bg-red-50 text-red-700 ring-1 ring-inset ring-red-600/10 dark:bg-red-500/10 dark:text-red-400 dark:ring-red-500/20",
 };
 
-export function SduiBadge({ text, tone = "default" }: Props) {
+export function SduiBadge({ text, label, tone = "default", color, size = "md" }: Props) {
+  const display = (label ?? text ?? "").toString();
+  const pad = size === "sm" ? "px-1.5 py-0.5 text-[10px]" : "px-2 py-0.5 text-[11px]";
+  const cls = color ? semanticSoftBadgeClass(color) : (toneClass[tone] ?? toneClass.default);
   return (
-    <span className={`inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-medium ${toneClass[tone] ?? toneClass.default}`.trim()}>
-      {text ?? ""}
+    <span className={`inline-flex items-center rounded-md font-medium ${pad} ${cls}`.trim()}>
+      {display}
     </span>
   );
 }

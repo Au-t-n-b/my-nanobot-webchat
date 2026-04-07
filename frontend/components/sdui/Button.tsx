@@ -1,11 +1,14 @@
 "use client";
 
 import type { SduiAction } from "@/lib/sdui";
+import type { SduiSemanticColor } from "@/lib/sdui";
 import { useSkillUiRuntime } from "@/components/sdui/SkillUiRuntimeProvider";
+import { semanticBgClass, semanticTextClass } from "@/components/sdui/sduiSemanticColor";
 
 type Props = {
   label?: string | null;
   variant?: "primary" | "secondary" | "ghost" | "outline";
+  color?: SduiSemanticColor;
   action?: SduiAction;
 };
 
@@ -19,7 +22,7 @@ const variantClass: Record<NonNullable<Props["variant"]>, string> = {
     "border border-[var(--border-strong)] bg-transparent text-[var(--text-primary)] hover:bg-[var(--surface-3)] shadow-sm",
 };
 
-export function SduiButton({ label, variant = "primary", action }: Props) {
+export function SduiButton({ label, variant = "primary", color, action }: Props) {
   const { postToAgent, openPreview } = useSkillUiRuntime();
 
   const onClick = () => {
@@ -34,7 +37,17 @@ export function SduiButton({ label, variant = "primary", action }: Props) {
   return (
     <button
       type="button"
-      className={`rounded-lg px-3 py-1.5 text-sm font-medium active:scale-[0.98] transition-all duration-200 flex items-center justify-center gap-2 ${variantClass[variant]}`.trim()}
+      className={[
+        "rounded-lg px-3 py-1.5 text-sm font-medium active:scale-[0.98] transition-all duration-200 flex items-center justify-center gap-2",
+        variantClass[variant],
+        // v2：语义色（accent 固定蓝色，不走主题 var(--accent)）
+        (variant === "primary" && color)
+          ? `${semanticBgClass(color)} text-white shadow-sm hover:opacity-95`
+          : "",
+        (variant !== "primary" && color)
+          ? `${semanticTextClass(color)}`
+          : "",
+      ].join(" ").trim()}
       onClick={onClick}
     >
       {label ?? ""}

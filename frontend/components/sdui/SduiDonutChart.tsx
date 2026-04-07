@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 
 import type { SduiDonutSegment } from "@/lib/sdui";
+import { isSemanticColor, semanticToCssColorValue } from "@/components/sdui/sduiSemanticColor";
 
 const DEFAULT_COLORS = [
   "var(--success)",
@@ -62,7 +63,11 @@ export function SduiDonutChart({ segments, centerLabel, centerValue }: Props) {
       const sweep = (seg.value / sum) * Math.PI * 2;
       const a0 = angle;
       const a1 = angle + sweep;
-      const color = seg.color ?? DEFAULT_COLORS[i % DEFAULT_COLORS.length];
+      const raw = seg.color;
+      const color =
+        (isSemanticColor(raw) ? semanticToCssColorValue(raw) : null) ??
+        (typeof raw === "string" && raw.trim() ? raw : null) ??
+        DEFAULT_COLORS[i % DEFAULT_COLORS.length];
       out.push({
         d: donutSlicePath(cx, cy, rInner, rOuter, a0, a1),
         color,
@@ -108,14 +113,17 @@ export function SduiDonutChart({ segments, centerLabel, centerValue }: Props) {
       <ul className="flex min-w-0 flex-1 flex-col gap-1.5 text-xs sm:text-[13px]">
         {legend.map((seg, i) => {
           const pct = total > 0 ? Math.round((seg.value / total) * 1000) / 10 : 0;
-          const c = seg.color ?? DEFAULT_COLORS[i % DEFAULT_COLORS.length];
+          const raw = seg.color;
+          const c =
+            (isSemanticColor(raw) ? semanticToCssColorValue(raw) : null) ??
+            (typeof raw === "string" && raw.trim() ? raw : null) ??
+            DEFAULT_COLORS[i % DEFAULT_COLORS.length];
           return (
             <li key={`${seg.label}-${i}`} className="flex min-w-0 items-center justify-between gap-2">
               <span className="flex min-w-0 items-center gap-2">
-                <span
-                  className="h-2.5 w-2.5 shrink-0 rounded-sm ring-1 ring-[var(--border-subtle)]"
-                  style={{ background: c }}
-                />
+                <svg className="h-3 w-3 shrink-0" viewBox="0 0 10 10" aria-hidden>
+                  <rect x="1" y="1" width="8" height="8" rx="1.5" fill={c} stroke="var(--border-subtle)" strokeWidth="1" />
+                </svg>
                 <span className="truncate text-[var(--text-secondary)]">{seg.label}</span>
               </span>
               <span className="shrink-0 tabular-nums text-[var(--text-primary)]">

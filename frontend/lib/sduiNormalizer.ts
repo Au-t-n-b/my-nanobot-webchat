@@ -5,7 +5,7 @@
  * 节点层再将历史数字 gap 规范为 SpacingToken。
  */
 
-import { SPACING_TOKENS } from "@/lib/sdui";
+import { SDUI_NODE_TYPE_VALUES, SPACING_TOKENS } from "@/lib/sdui";
 import { isIllegalPresentationKey, warnIllegalPresentationField } from "@/lib/sduiCompliance";
 import { coerceLegacyGapToToken } from "@/lib/sduiTokens";
 
@@ -30,6 +30,16 @@ function normalizeLayoutGapField(n: Record<string, unknown>): void {
 
 function coerceLayoutGapOnly(n: Record<string, unknown>): void {
   normalizeLayoutGapField(n);
+}
+
+/** 将 `type` 纠正为协议中的 PascalCase（兼容大小写漂移，避免落入 UnknownNode） */
+function canonicalizeNodeTypeInPlace(n: Record<string, unknown>): void {
+  const t = n.type;
+  if (typeof t !== "string" || !t.length) return;
+  if ((SDUI_NODE_TYPE_VALUES as readonly string[]).includes(t)) return;
+  const lower = t.toLowerCase();
+  const found = SDUI_NODE_TYPE_VALUES.find((k) => k.toLowerCase() === lower);
+  if (found) n.type = found;
 }
 
 /**
@@ -63,6 +73,7 @@ export function normalizeSduiNode(raw: unknown): unknown {
   }
 
   const n: Record<string, unknown> = { ...(raw as Record<string, unknown>) };
+  canonicalizeNodeTypeInPlace(n);
   const props = n.props;
 
   if (isRecord(props)) {

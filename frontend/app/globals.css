@@ -109,6 +109,32 @@ body {
   min-height: 100vh;
 }
 
+/* SDUI Stepper：当前步「运行中」微弱呼吸灯（不透底，仅用 ring 光晕） */
+@keyframes stepper-breathe {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in oklab, #2563eb 0%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 4px color-mix(in oklab, #2563eb 22%, transparent);
+  }
+}
+[data-theme="dark"] .stepper-node-running {
+  animation: stepper-breathe-dark 2.6s ease-in-out infinite;
+}
+@keyframes stepper-breathe-dark {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in oklab, #38bdf8 0%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 5px color-mix(in oklab, #38bdf8 20%, transparent);
+  }
+}
+.stepper-node-running {
+  animation: stepper-breathe 2.6s ease-in-out infinite;
+}
+
 .ui-panel {
   background: var(--surface-1);
   border: 1px solid var(--border-subtle);

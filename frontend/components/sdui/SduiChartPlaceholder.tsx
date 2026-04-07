@@ -15,11 +15,11 @@ export function SduiChartPlaceholder({ variant, caption }: Props) {
 
   return (
     <div
-      className="flex min-h-[168px] w-full min-w-0 flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-[var(--border-subtle)] bg-[var(--surface-2)] px-4 py-8 dark:bg-[var(--surface-3)]/60"
+      className="flex min-h-[168px] w-full min-w-0 flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-[var(--border-subtle)] bg-[var(--surface-2)] px-4 py-8 shadow-[inset_0_1px_0_color-mix(in_oklab,var(--border-subtle)_80%,transparent)]"
       role="img"
       aria-label={label}
     >
-      <Icon className="h-10 w-10 text-[var(--text-muted)] opacity-80" strokeWidth={1.25} aria-hidden />
+      <Icon className="h-10 w-10 text-[var(--text-muted)]" strokeWidth={1.25} aria-hidden />
       <p className="text-center text-xs text-[var(--text-muted)]">{caption ?? `${label}（数据就绪后展示）`}</p>
     </div>
   );

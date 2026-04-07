@@ -183,6 +183,7 @@ class SduiCardNode(BaseModel):
     type: Literal["Card"] = "Card"
     id: str | None = None
     title: str | None = None
+    density: Literal["default", "compact"] | None = None
     children: list["SduiNode"] | None = None
 
 
@@ -258,7 +259,43 @@ class SduiFileKindBadgeNode(BaseModel):
 
     type: Literal["FileKindBadge"] = "FileKindBadge"
     id: str | None = None
-    kind: Literal["docx", "xlsx", "pdf", "other"]
+    kind: Literal["docx", "xlsx", "pdf", "html", "other"]
+    size: Literal["default", "lg"] | None = None
+
+
+class SduiDonutSegment(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    label: str
+    value: float | int
+    color: str | None = None
+
+
+class SduiDonutChartNode(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    type: Literal["DonutChart"] = "DonutChart"
+    id: str | None = None
+    segments: list[SduiDonutSegment]
+    centerLabel: str | None = None
+    centerValue: str | None = None
+
+
+class SduiBarDatum(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    label: str
+    value: float | int
+    color: str | None = None
+
+
+class SduiBarChartNode(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    type: Literal["BarChart"] = "BarChart"
+    id: str | None = None
+    data: list[SduiBarDatum]
+    valueUnit: str | None = None
 
 
 SduiNode = Annotated[
@@ -280,6 +317,8 @@ SduiNode = Annotated[
         SduiButtonNode,
         SduiLinkNode,
         SduiChartPlaceholderNode,
+        SduiDonutChartNode,
+        SduiBarChartNode,
         SduiFileKindBadgeNode,
     ],
     Field(discriminator="type"),

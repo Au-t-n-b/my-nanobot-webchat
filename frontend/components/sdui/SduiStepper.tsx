@@ -10,23 +10,22 @@ type Props = {
   orientation?: "horizontal" | "vertical";
 };
 
-const NODE = "flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold transition-colors";
+const NODE =
+  "flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold transition-colors";
 
-function StepGlyph({ status, index }: { status: SduiStepperStatus; index: number }) {
+function StepGlyph({ status }: { status: SduiStepperStatus }) {
   switch (status) {
     case "waiting":
       return (
         <div
-          className={`${NODE} border-2 border-[var(--border-subtle)] bg-[var(--surface-3)] text-[var(--text-muted)]`}
+          className={`${NODE} border-2 border-[var(--border-subtle)] bg-[var(--surface-2)] shadow-[inset_0_0_0_1px_var(--surface-3)]`}
           aria-hidden
-        >
-          {index}
-        </div>
+        />
       );
     case "running":
       return (
         <div
-          className={`${NODE} bg-blue-500/15 ring-2 ring-blue-500/40 animate-pulse dark:bg-sky-500/15 dark:ring-sky-400/45`}
+          className={`stepper-node-running ${NODE} bg-[color-mix(in_oklab,#2563eb_14%,var(--surface-2))] ring-2 ring-[color-mix(in_oklab,#2563eb_42%,var(--border-subtle))] dark:bg-[color-mix(in_oklab,#38bdf8_14%,var(--surface-2))] dark:ring-[color-mix(in_oklab,#38bdf8_45%,var(--border-subtle))]`}
           aria-hidden
         >
           <Loader2 className="h-4 w-4 animate-spin text-blue-600 dark:text-sky-300" />
@@ -49,9 +48,10 @@ function StepGlyph({ status, index }: { status: SduiStepperStatus; index: number
       );
     default:
       return (
-        <div className={`${NODE} border-2 border-[var(--border-subtle)] bg-[var(--surface-3)] text-[var(--text-muted)]`} aria-hidden>
-          {index}
-        </div>
+        <div
+          className={`${NODE} border-2 border-[var(--border-subtle)] bg-[var(--surface-2)]`}
+          aria-hidden
+        />
       );
   }
 }
@@ -88,7 +88,7 @@ export function SduiStepper({ steps, orientation = "horizontal" }: Props) {
           {steps.map((step, i) => (
             <div key={step.id} className="flex gap-3" role="listitem">
               <div className="flex flex-col items-center">
-                <StepGlyph status={step.status} index={i + 1} />
+                <StepGlyph status={step.status} />
                 {i < steps.length - 1 ? (
                   <div
                     className="my-1 min-h-[12px] w-px flex-1 rounded-full"
@@ -98,7 +98,7 @@ export function SduiStepper({ steps, orientation = "horizontal" }: Props) {
                   />
                 ) : null}
               </div>
-              <div className="min-w-0 flex-1 pb-4">
+              <div className="min-w-0 flex-1 space-y-1 pb-4">
                 <p
                   className={`text-sm font-medium ${
                     step.status === "running" ? "text-blue-600 dark:text-sky-300" : "text-[var(--text-primary)]"
@@ -106,6 +106,12 @@ export function SduiStepper({ steps, orientation = "horizontal" }: Props) {
                 >
                   {step.title}
                 </p>
+                {step.status === "running" ? (
+                  <span className="inline-flex w-fit items-center gap-1 rounded-full border border-blue-500/25 bg-blue-500/10 px-2 py-0.5 text-[10px] font-medium text-blue-700 dark:border-sky-500/35 dark:bg-sky-500/12 dark:text-sky-300">
+                    <Loader2 className="h-3 w-3 shrink-0 animate-spin" aria-hidden />
+                    执行中
+                  </span>
+                ) : null}
               </div>
             </div>
           ))}
@@ -124,8 +130,8 @@ export function SduiStepper({ steps, orientation = "horizontal" }: Props) {
         {steps.map((step, i) => (
           <Fragment key={step.id}>
             {i > 0 ? <Connector prevDone={steps[i - 1]?.status === "done"} /> : null}
-            <div className="flex min-w-0 flex-1 flex-col items-center gap-2 px-0.5" role="listitem">
-              <StepGlyph status={step.status} index={i + 1} />
+            <div className="flex min-w-0 flex-1 flex-col items-center gap-1 px-0.5" role="listitem">
+              <StepGlyph status={step.status} />
               <span
                 className={`w-full max-w-[9rem] text-center text-[10px] font-medium leading-tight sm:max-w-none sm:text-xs ${
                   step.status === "running" ? "text-blue-600 dark:text-sky-300" : "text-[var(--text-secondary)]"
@@ -133,6 +139,12 @@ export function SduiStepper({ steps, orientation = "horizontal" }: Props) {
               >
                 {step.title}
               </span>
+              {step.status === "running" ? (
+                <span className="inline-flex max-w-full items-center justify-center gap-0.5 rounded-full border border-blue-500/25 bg-blue-500/10 px-1.5 py-px text-[9px] font-medium leading-none text-blue-700 dark:border-sky-500/35 dark:bg-sky-500/12 dark:text-sky-300">
+                  <Loader2 className="h-2.5 w-2.5 shrink-0 animate-spin" aria-hidden />
+                  执行中
+                </span>
+              ) : null}
             </div>
           </Fragment>
         ))}

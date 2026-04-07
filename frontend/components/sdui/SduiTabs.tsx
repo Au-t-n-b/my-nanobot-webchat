@@ -58,7 +58,7 @@ export function SduiTabs({ tabs, defaultTabId, pathPrefix }: Props) {
   }
 
   return (
-    <div className="flex min-h-0 min-w-0 flex-col overflow-hidden rounded-xl border border-[var(--border-subtle)] bg-[var(--paper-card)] shadow-sm">
+    <div className="flex min-h-0 min-w-0 flex-col overflow-hidden rounded-xl border border-[var(--border-subtle)] bg-[var(--paper-card)] shadow-[var(--shadow-card)]">
       <div
         className="flex min-h-0 w-full flex-shrink-0 flex-wrap gap-0 border-b border-[var(--border-subtle)] bg-[var(--canvas-rail)] px-1"
         role="tablist"
@@ -73,10 +73,10 @@ export function SduiTabs({ tabs, defaultTabId, pathPrefix }: Props) {
               role="tab"
               aria-selected={isActive}
               className={[
-                "-mb-px flex items-center gap-1.5 border-b-2 px-3 py-2.5 text-xs font-medium transition-colors sm:text-sm",
+                "-mb-px flex items-center gap-1.5 border-b-2 px-3 py-2.5 text-xs font-medium transition-[color,border-color,background-color] duration-200 sm:text-sm",
                 isActive
-                  ? "border-[var(--accent)] text-[var(--text-primary)]"
-                  : "border-transparent text-[var(--text-muted)] hover:bg-[var(--surface-3)]/50 hover:text-[var(--text-secondary)]",
+                  ? "border-blue-600 text-[var(--text-primary)] dark:border-sky-400"
+                  : "border-transparent text-[var(--text-muted)] hover:bg-[var(--surface-3)] hover:text-[var(--text-secondary)]",
               ].join(" ")}
               onClick={() => setActiveId(tab.id)}
             >
@@ -87,7 +87,8 @@ export function SduiTabs({ tabs, defaultTabId, pathPrefix }: Props) {
         })}
       </div>
       <div
-        className="min-h-0 min-w-0 flex-1 overflow-auto bg-[var(--surface-1)] p-3 sm:p-4"
+        key={activeId}
+        className="min-h-0 min-w-0 flex-1 overflow-auto bg-[var(--surface-1)] p-3 animate-in fade-in duration-200 sm:p-4"
         role="tabpanel"
       >
         {activePanel?.children?.map((child, i) => {

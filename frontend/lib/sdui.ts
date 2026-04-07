@@ -30,7 +30,33 @@ export type SduiNodeType =
   | "Button"
   | "Link"
   | "ChartPlaceholder"
+  | "DonutChart"
+  | "BarChart"
   | "FileKindBadge";
+
+/** 运行时校验 / normalizer 用：全部合法 `type` 字面量 */
+export const SDUI_NODE_TYPE_VALUES: readonly SduiNodeType[] = [
+  "Stack",
+  "Card",
+  "Row",
+  "Divider",
+  "Tabs",
+  "Stepper",
+  "Text",
+  "TextArea",
+  "Markdown",
+  "Badge",
+  "Statistic",
+  "KeyValueList",
+  "Table",
+  "DataGrid",
+  "Button",
+  "Link",
+  "ChartPlaceholder",
+  "DonutChart",
+  "BarChart",
+  "FileKindBadge",
+] as const;
 
 /** Tabs 子项图标的封闭枚举（宿主映射到 Lucide，禁止自由 SVG/URL） */
 export type SduiTabIconName =
@@ -75,6 +101,8 @@ export type SduiNode =
   | SduiButtonNode
   | SduiLinkNode
   | SduiChartPlaceholderNode
+  | SduiDonutChartNode
+  | SduiBarChartNode
   | SduiFileKindBadgeNode;
 
 /** 各节点可选的稳定 id，用于列表 React key 与排查 */
@@ -90,6 +118,8 @@ export type SduiStackNode = SduiOptionalId & {
 export type SduiCardNode = SduiOptionalId & {
   type: "Card";
   title?: string;
+  /** 紧凑布局：更低内边距，适合产物行等列表 */
+  density?: "default" | "compact";
   children?: SduiNode[];
 };
 
@@ -129,6 +159,7 @@ export type SduiStepperStep = {
   status: SduiStepperStatus;
 };
 
+/** 横向/纵向流程步骤条 */
 export type SduiStepperNode = SduiOptionalId & {
   type: "Stepper";
   steps: SduiStepperStep[];
@@ -203,16 +234,49 @@ export type SduiChartVariant = "pie" | "bar";
 export type SduiChartPlaceholderNode = SduiOptionalId & {
   type: "ChartPlaceholder";
   variant: SduiChartVariant;
-  /** 图标下方说明 */
+  /** 图标下方说明；缺省时由宿主给默认占位句 */
   caption?: string;
 };
 
-/** 产物文件类型图标（Word 蓝 / Excel 绿） */
-export type SduiFileKind = "docx" | "xlsx" | "pdf" | "other";
+/** 产物文件类型图标（Word / Excel / PDF / HTML 等） */
+export type SduiFileKind = "docx" | "xlsx" | "pdf" | "html" | "other";
 
 export type SduiFileKindBadgeNode = SduiOptionalId & {
   type: "FileKindBadge";
   kind: SduiFileKind;
+  /** 产物行等场景使用更大色块图标 */
+  size?: "default" | "lg";
+};
+
+/** 圆环图扇区 */
+export type SduiDonutSegment = {
+  label: string;
+  value: number;
+  /** 可选 CSS 颜色；缺省使用宿主语义色板 */
+  color?: string;
+};
+
+export type SduiDonutChartNode = SduiOptionalId & {
+  type: "DonutChart";
+  segments: SduiDonutSegment[];
+  /** 圆心主文案（如「满足度」） */
+  centerLabel?: string;
+  /** 圆心副文案（如「80%」） */
+  centerValue?: string;
+};
+
+/** 柱状图数据项 */
+export type SduiBarDatum = {
+  label: string;
+  value: number;
+  color?: string;
+};
+
+export type SduiBarChartNode = SduiOptionalId & {
+  type: "BarChart";
+  data: SduiBarDatum[];
+  /** 数值单位后缀，如「项」 */
+  valueUnit?: string;
 };
 
 export type SduiLinkNode = SduiOptionalId & {

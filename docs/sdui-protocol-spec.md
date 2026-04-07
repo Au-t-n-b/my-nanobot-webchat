@@ -15,6 +15,7 @@
 - [附录 A　节点类型与字段速查](#附录-a节点类型与字段速查)
 - [附录 B　间距枚举 SpacingToken 与宿主像素映射](#附录-b间距枚举-spacingtoken-与宿主像素映射)
 - [附录 C　最小合法 SduiDocument 示例](#附录-c最小合法-sduidocument-示例)
+- [附录 C-1　含 Stepper 与 Tabs 的示例](#附录-c-1含-stepper-与-tabs-的示例智慧工勘看板布局)
 
 ---
 
@@ -100,6 +101,47 @@
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
 | `type` | `"Divider"` | 是 | 分隔线语义，无额外字段。 |
+
+### 2.7 `Tabs`
+
+多标签容器：顶部为标签栏，**仅当前选中标签**的子树被渲染；激活标签底部有 **2px** 的强调下划线（宿主使用 `var(--accent)`）。
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `type` | `"Tabs"` | 是 | |
+| `tabs` | `SduiTabPanel[]` | 是 | 至少一项；见下表。 |
+| `defaultTabId` | `string` | 否 | 初始选中标签的 `id`；缺省为 `tabs[0].id`。 |
+
+**`SduiTabPanel` 单项：**
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `id` | `string` | 是 | 在同一 `Tabs` 内唯一。 |
+| `label` | `string` | 是 | 标签文案。 |
+| `icon` | 见下 | 否 | 语义图标枚举；宿主映射到内置图标（Lucide），**禁止**自定义 SVG/URL。 |
+| `children` | `SduiNode[]` | 否 | 该标签下面板内容，递归渲染。 |
+
+**`icon` 封闭枚举**：`"terminal"` \| `"clipboardCheck"` \| `"alertTriangle"` \| `"image"` \| `"fileText"` \| `"layoutDashboard"` \| `"circle"`。
+
+**禁止**：§1.2 所列键；不得在 `Tabs` 上使用数字 `gap`（本节点不使用 `gap` 字段）。
+
+### 2.8 `Stepper`
+
+流程步骤条：根据每步 `status` 显示不同颜色与图标（宿主使用 Lucide：`waiting` 空心圆、`running` 旋转加载、`done` 对勾圆、`error` 叉圆）。连线颜色在相邻步之间：若**前一步**为 `done` 则使用成功色，否则为弱边框色。样式使用 `var(--surface-*)`、`var(--border-subtle)`、`var(--success)`、`var(--warning)`、`var(--danger)`、`var(--text-*)`。
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `type` | `"Stepper"` | 是 | |
+| `steps` | 见下 | 是 | 至少零项（零项时宿主展示空态）。 |
+| `orientation` | `"horizontal"` \| `"vertical"` | 否 | 默认 `horizontal`。 |
+
+**`steps` 单项：**
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `id` | `string` | 是 | 稳定标识。 |
+| `title` | `string` | 是 | 步骤标题。 |
+| `status` | `"waiting"` \| `"running"` \| `"done"` \| `"error"` | 是 | 步骤状态。 |
 
 ---
 
@@ -274,6 +316,8 @@
 | `Row` | §2.4 | `gap?`, `align?`, `wrap?`, `children?` |
 | `Card` | §2.5 | `title?`, `children?` |
 | `Divider` | §2.6 | — |
+| `Tabs` | §2.7 | `tabs`, `defaultTabId?` |
+| `Stepper` | §2.8 | `steps`, `orientation?` |
 | `Text` | §3.1 | `content`, `variant?` |
 | `Markdown` | §3.2 | `content` |
 | `Badge` | §3.3 | `text`, `tone?` |
@@ -322,6 +366,53 @@
         "type": "Text",
         "content": "Hello, SDUI",
         "variant": "title"
+      }
+    ]
+  }
+}
+```
+
+### 附录 C-1　含 `Stepper` 与 `Tabs` 的示例（智慧工勘看板布局）
+
+```json
+{
+  "schemaVersion": 1,
+  "type": "SduiDocument",
+  "root": {
+    "type": "Stack",
+    "gap": "md",
+    "children": [
+      {
+        "type": "Stepper",
+        "steps": [
+          { "id": "s1", "title": "场景过滤", "status": "running" },
+          { "id": "s2", "title": "勘测汇总", "status": "waiting" },
+          { "id": "s3", "title": "评估报告", "status": "waiting" },
+          { "id": "s4", "title": "审批分发", "status": "waiting" }
+        ]
+      },
+      {
+        "type": "Tabs",
+        "defaultTabId": "process",
+        "tabs": [
+          {
+            "id": "process",
+            "label": "执行详情",
+            "icon": "terminal",
+            "children": [
+              {
+                "type": "Markdown",
+                "content": "🚀 发送指令后，AI Agent 执行过程将实时显示在这里。"
+              }
+            ]
+          },
+          {
+            "id": "assess",
+            "label": "满足度评估",
+            "icon": "clipboardCheck",
+            "children": [{ "type": "Text", "content": "暂无数据", "variant": "muted" }]
+          }
+        ]
       }
     ]
   }

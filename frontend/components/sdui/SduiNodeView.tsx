@@ -34,6 +34,10 @@ import { SduiButton } from "@/components/sdui/Button";
 
 import { SduiLink } from "@/components/sdui/Link";
 
+import { SduiTabs } from "@/components/sdui/SduiTabs";
+
+import { SduiStepper } from "@/components/sdui/SduiStepper";
+
 
 
 function UnknownNode({ type }: { type: string }) {
@@ -134,6 +138,20 @@ export function SduiNodeView({ node, pathPrefix = "root" }: Props) {
     case "Divider":
 
       return <SduiDivider />;
+
+    case "Tabs":
+
+      return (
+        <SduiTabs
+          tabs={node.tabs}
+          defaultTabId={node.defaultTabId}
+          pathPrefix={pathPrefix}
+        />
+      );
+
+    case "Stepper":
+
+      return <SduiStepper steps={node.steps} orientation={node.orientation} />;
 
     case "Text":
 

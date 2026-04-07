@@ -197,12 +197,60 @@ class SduiRowNode(BaseModel):
     children: list["SduiNode"] | None = None
 
 
+SduiTabIconName = Literal[
+    "terminal",
+    "clipboardCheck",
+    "alertTriangle",
+    "image",
+    "fileText",
+    "layoutDashboard",
+    "circle",
+]
+
+
+class SduiTabPanel(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    id: str
+    label: str
+    icon: SduiTabIconName | None = None
+    children: list["SduiNode"] | None = None
+
+
+class SduiTabsNode(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    type: Literal["Tabs"] = "Tabs"
+    id: str | None = None
+    tabs: list[SduiTabPanel]
+    defaultTabId: str | None = None
+
+
+class SduiStepperStep(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    id: str
+    title: str
+    status: Literal["waiting", "running", "done", "error"]
+
+
+class SduiStepperNode(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    type: Literal["Stepper"] = "Stepper"
+    id: str | None = None
+    steps: list[SduiStepperStep]
+    orientation: Literal["horizontal", "vertical"] | None = None
+
+
 SduiNode = Annotated[
     Union[
         SduiStackNode,
         SduiCardNode,
         SduiRowNode,
         SduiDividerNode,
+        SduiTabsNode,
+        SduiStepperNode,
         SduiTextNode,
         SduiTextAreaNode,
         SduiMarkdownNode,
@@ -235,7 +283,7 @@ class SduiDocument(BaseModel):
 
 # Resolve forward references for recursive ``children``
 _ns = {"SduiNode": SduiNode}
-for _m in (SduiStackNode, SduiCardNode, SduiRowNode, SduiDocument):
+for _m in (SduiStackNode, SduiCardNode, SduiRowNode, SduiTabPanel, SduiTabsNode, SduiDocument):
     _m.model_rebuild(_types_namespace=_ns)
 
 

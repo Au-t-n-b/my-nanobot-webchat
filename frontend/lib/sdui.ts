@@ -17,6 +17,8 @@ export type SduiNodeType =
   | "Card"
   | "Row"
   | "Divider"
+  | "Tabs"
+  | "Stepper"
   | "Text"
   | "TextArea"
   | "Markdown"
@@ -27,6 +29,19 @@ export type SduiNodeType =
   | "DataGrid"
   | "Button"
   | "Link";
+
+/** Tabs 子项图标的封闭枚举（宿主映射到 Lucide，禁止自由 SVG/URL） */
+export type SduiTabIconName =
+  | "terminal"
+  | "clipboardCheck"
+  | "alertTriangle"
+  | "image"
+  | "fileText"
+  | "layoutDashboard"
+  | "circle";
+
+/** Stepper 每步状态 */
+export type SduiStepperStatus = "waiting" | "running" | "done" | "error";
 
 export type SduiAction =
   | { kind: "post_user_message"; text: string }
@@ -45,6 +60,8 @@ export type SduiNode =
   | SduiCardNode
   | SduiRowNode
   | SduiDividerNode
+  | SduiTabsNode
+  | SduiStepperNode
   | SduiTextNode
   | SduiTextAreaNode
   | SduiMarkdownNode
@@ -81,6 +98,37 @@ export type SduiRowNode = SduiOptionalId & {
 };
 
 export type SduiDividerNode = SduiOptionalId & { type: "Divider" };
+
+/** 单个 Tab：独立子树，由宿主切换展示 */
+export type SduiTabPanel = {
+  id: string;
+  label: string;
+  /** 可选语义图标，见 {@link SduiTabIconName} */
+  icon?: SduiTabIconName;
+  children?: SduiNode[];
+};
+
+export type SduiTabsNode = SduiOptionalId & {
+  type: "Tabs";
+  /** 至少一项；`id` 在同一 Tabs 内唯一 */
+  tabs: SduiTabPanel[];
+  /** 初始选中；缺省为第一项 `tabs[0].id` */
+  defaultTabId?: string;
+};
+
+/** 单个流程步骤（无子树，仅展示状态） */
+export type SduiStepperStep = {
+  id: string;
+  title: string;
+  status: SduiStepperStatus;
+};
+
+export type SduiStepperNode = SduiOptionalId & {
+  type: "Stepper";
+  steps: SduiStepperStep[];
+  /** 默认横向；纵向时适用于窄栏 */
+  orientation?: "horizontal" | "vertical";
+};
 
 export type SduiTextNode = SduiOptionalId & {
   type: "Text";

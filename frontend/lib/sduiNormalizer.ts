@@ -79,6 +79,18 @@ export function normalizeSduiNode(raw: unknown): unknown {
     n.children = ch.map((c) => normalizeSduiNode(c));
   }
 
+  if (n.type === "Tabs" && Array.isArray(n.tabs)) {
+    n.tabs = n.tabs.map((tab) => {
+      if (!isRecord(tab)) return tab;
+      const panel: Record<string, unknown> = { ...tab };
+      const pch = panel.children;
+      if (Array.isArray(pch)) {
+        panel.children = pch.map((c) => normalizeSduiNode(c));
+      }
+      return panel;
+    });
+  }
+
   coerceLayoutGapOnly(n);
   return n;
 }

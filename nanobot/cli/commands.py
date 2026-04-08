@@ -705,7 +705,10 @@ def agui(
         "NANOBOT_AGUI_CORS_ORIGINS",
         "http://localhost:3000,http://127.0.0.1:3000",
     )
-    console.print(f"{__logo__} AGUI on http://{host}:{port} ({mode}; CORS: {cors})")
+    cors_items = [c.strip() for c in str(cors or "").split(",") if c.strip()]
+    cors_block = "\n".join([f"  - {c}" for c in cors_items]) if cors_items else "  - (none)"
+    # Print CORS origins one-per-line so terminals can click URLs reliably (commas often break link detection).
+    console.print(f"{__logo__} AGUI on http://{host}:{port} ({mode})\nCORS origins:\n{cors_block}")
     web.run_app(aio_app, host=host, port=port, print=lambda *_args, **_kw: None)
 
 

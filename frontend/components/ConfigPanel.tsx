@@ -66,6 +66,8 @@ export function ConfigPanel({ onClose, onSaved }: { onClose: () => void; onSaved
   const modelTouchedRef = useRef(false);
   const modelsTouchedRef = useRef(false);
 
+  const providerDefaultApiBase = (providers.find((p) => p.name === form.providerName)?.defaultApiBase || "").trim();
+
   const loadConfig = useCallback(async () => {
     setStatus("loading");
     setErrorMsg("");
@@ -954,16 +956,37 @@ export function ConfigPanel({ onClose, onSaved }: { onClose: () => void; onSaved
               </label>
               <label className="flex flex-col gap-1 text-xs ui-text-secondary">
                 <span>API Base（可选）</span>
-                <input
-                  value={form.apiBase}
-                  onChange={(e) => {
-                    apiBaseTouchedRef.current = true;
-                    setForm((prev) => ({ ...prev, apiBase: e.target.value }));
-                  }}
-                  className="rounded-lg border px-2 py-1.5 text-xs font-mono"
-                  style={{ borderColor: "var(--border-subtle)", background: "var(--surface-2)", color: "var(--text-primary)" }}
-                  placeholder="例如：https://open.bigmodel.cn/api/paas/v4"
-                />
+                <div className="flex items-center gap-2">
+                  <input
+                    value={form.apiBase}
+                    onChange={(e) => {
+                      apiBaseTouchedRef.current = true;
+                      setForm((prev) => ({ ...prev, apiBase: e.target.value }));
+                    }}
+                    className="flex-1 rounded-lg border px-2 py-1.5 text-xs font-mono"
+                    style={{ borderColor: "var(--border-subtle)", background: "var(--surface-2)", color: "var(--text-primary)" }}
+                    placeholder={providerDefaultApiBase || "例如：https://open.bigmodel.cn/api/paas/v4/"}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!providerDefaultApiBase) return;
+                      apiBaseTouchedRef.current = true;
+                      setForm((prev) => ({ ...prev, apiBase: providerDefaultApiBase }));
+                    }}
+                    disabled={!providerDefaultApiBase}
+                    className="rounded-lg px-2.5 py-1.5 text-xs font-semibold ui-text-secondary hover:ui-text-primary disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                    style={{ background: "var(--surface-3)", border: "1px solid var(--border-subtle)" }}
+                    title={providerDefaultApiBase ? "使用该提供商默认 API Base" : "该提供商未提供默认 API Base"}
+                  >
+                    使用默认
+                  </button>
+                </div>
+                {providerDefaultApiBase ? (
+                  <div className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>
+                    当前提供商默认：<code className="font-mono">{providerDefaultApiBase}</code>
+                  </div>
+                ) : null}
               </label>
               {testMsg && (
                 <div

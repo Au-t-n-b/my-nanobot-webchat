@@ -664,26 +664,42 @@ def agui(
         cfg = _load_runtime_config(config, workspace)
         sync_workspace_templates(cfg.workspace_path)
         bus = MessageBus()
-        provider = _make_provider(cfg)
-        cron_store_path = get_cron_dir() / "jobs.json"
-        cron = CronService(cron_store_path)
-        agent_loop = AgentLoop(
-            bus=bus,
-            provider=provider,
-            workspace=cfg.workspace_path,
-            model=cfg.agents.defaults.model,
-            max_iterations=cfg.agents.defaults.max_tool_iterations,
-            context_window_tokens=cfg.agents.defaults.context_window_tokens,
-            web_search_config=cfg.tools.web.search,
-            web_proxy=cfg.tools.web.proxy or None,
-            exec_config=cfg.tools.exec,
-            cron_service=cron,
-            restrict_to_workspace=cfg.tools.restrict_to_workspace,
-            mcp_servers=cfg.tools.mcp_servers,
-            channels_config=cfg.channels,
-        )
-        aio_app = create_app(agent_loop=agent_loop, config=cfg)
-        mode = f"model={agent_loop.model}"
+        # Provider config is optional for bootstrapping:
+        # if user hasn't initialized ~/.nanobot/config.json yet, we still want AGUI
+        # to come up so the frontend "配置中心" can write config via /api/config.
+        try:
+            from nanobot.providers.factory import make_provider
+
+            provider = make_provider(cfg)
+        except Exception as exc:
+            model = cfg.agents.defaults.model
+            provider_name = cfg.get_provider_name(model) or "auto"
+            console.print("[yellow]Warning: AGUI started without AgentLoop (provider not configured).[/yellow]")
+            console.print(f"[dim]{exc}[/dim]")
+            console.print(f"[dim]model={model} provider={provider_name}[/dim]")
+            console.print("[dim]Open the frontend Config Center to set API keys, then restart `npm run dev`.[/dim]")
+            aio_app = create_app(agent_loop=None, config=cfg)
+            mode = "unconfigured"
+        else:
+            cron_store_path = get_cron_dir() / "jobs.json"
+            cron = CronService(cron_store_path)
+            agent_loop = AgentLoop(
+                bus=bus,
+                provider=provider,
+                workspace=cfg.workspace_path,
+                model=cfg.agents.defaults.model,
+                max_iterations=cfg.agents.defaults.max_tool_iterations,
+                context_window_tokens=cfg.agents.defaults.context_window_tokens,
+                web_search_config=cfg.tools.web.search,
+                web_proxy=cfg.tools.web.proxy or None,
+                exec_config=cfg.tools.exec,
+                cron_service=cron,
+                restrict_to_workspace=cfg.tools.restrict_to_workspace,
+                mcp_servers=cfg.tools.mcp_servers,
+                channels_config=cfg.channels,
+            )
+            aio_app = create_app(agent_loop=agent_loop, config=cfg)
+            mode = f"model={agent_loop.model}"
 
     cors = os.environ.get(
         "NANOBOT_AGUI_CORS_ORIGINS",

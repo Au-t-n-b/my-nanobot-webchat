@@ -94,6 +94,7 @@ export default function Home() {
   const [headerWidth, setHeaderWidth] = useState(9999);
 
   const apiBase = process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8765";
+  const [runtimeMode, setRuntimeMode] = useState<"configured" | "unconfigured" | "fake" | null>(null);
 
   const isAgentRunning =
     isLoading || runStatus === "running" || runStatus === "awaitingApproval";
@@ -148,6 +149,24 @@ export default function Home() {
   useEffect(() => {
     void loadModelFromConfig();
   }, [loadModelFromConfig]);
+
+  const refreshRuntimeMode = useCallback(async () => {
+    const base = apiBase.replace(/\/$/, "");
+    try {
+      const r = await fetch(`${base}/api/runtime`);
+      if (!r.ok) return;
+      const j = (await r.json()) as { mode?: unknown };
+      const mode = j?.mode;
+      if (mode === "configured" || mode === "unconfigured" || mode === "fake") setRuntimeMode(mode);
+    } catch {
+      // ignore
+    }
+  }, [apiBase]);
+
+  // Detect backend runtime mode (for "unconfigured" banner).
+  useEffect(() => {
+    void refreshRuntimeMode();
+  }, [refreshRuntimeMode]);
 
   const providerOptions = useMemo(() => {
     const names = agentProfiles.map((p) => p.provider);
@@ -451,6 +470,13 @@ export default function Home() {
 
   return (
     <main className="h-dvh overflow-hidden p-4" style={{ background: "var(--surface-0)", color: "var(--text-primary)" }}>
+      {runtimeMode === "unconfigured" ? (
+        <div className="mb-3 rounded-xl border border-[color-mix(in_oklab,var(--warning)_35%,transparent)] bg-[color-mix(in_oklab,var(--warning)_10%,var(--surface-1))] px-4 py-3 text-xs text-[var(--text-primary)]">
+          <span className="font-medium">当前处于未初始化配置模式：</span>
+          可进入右上角「配置中心」填写模型与 API Key；保存后请重启{" "}
+          <code className="font-mono">npm run dev</code> 使配置生效。
+        </div>
+      ) : null}
       {showError && (
         <ErrorToast
           message={error}
@@ -485,7 +511,13 @@ export default function Home() {
       {systemModal === "config" && (
         <SystemShellModal onClose={closeSystemModal} title="配置中心">
           <div className="h-[85vh] min-h-[480px] max-h-[92vh] overflow-hidden flex flex-col">
-            <ConfigPanel onClose={closeSystemModal} onSaved={loadModelFromConfig} />
+            <ConfigPanel
+              onClose={closeSystemModal}
+              onSaved={() => {
+                void loadModelFromConfig();
+                void refreshRuntimeMode();
+              }}
+            />
           </div>
         </SystemShellModal>
       )}

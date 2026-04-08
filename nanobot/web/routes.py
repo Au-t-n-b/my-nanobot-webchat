@@ -1187,7 +1187,20 @@ async def handle_config_get(request: web.Request) -> web.Response:
 
     config_path = get_config_path()
     if not config_path.exists():
-        return web.json_response({"detail": "config not found"}, status=404, headers=cors)
+        # Bootstrap-friendly: allow frontend "配置中心" to load defaults even when the
+        # user has not created ~/.nanobot/config.json yet.
+        #
+        # NOTE: This is intentionally read-only; POST /api/config is the only way
+        # to persist configuration.
+        try:
+            from nanobot.config.schema import Config
+            from nanobot.web.keys import CONFIG_KEY
+
+            cfg = request.app.get(CONFIG_KEY) or Config()
+            payload = cfg.model_dump(mode="json", by_alias=True)
+        except Exception:
+            payload = {}
+        return web.json_response(_mask(payload), headers=cors)
     try:
         payload = json.loads(config_path.read_text(encoding="utf-8"))
     except json.JSONDecodeError:
@@ -1196,6 +1209,32 @@ async def handle_config_get(request: web.Request) -> web.Response:
         return web.json_response({"detail": str(exc)}, status=500, headers=cors)
     return web.json_response(_mask(payload), headers=cors)
 
+
+async def handle_runtime_get(request: web.Request) -> web.Response:
+    """GET /api/runtime — return AGUI runtime mode for frontend hints."""
+    cors = _cors_headers(request)
+    from nanobot.web.keys import AGENT_LOOP_KEY, CONFIG_KEY
+
+    agent = request.app.get(AGENT_LOOP_KEY)
+    cfg = request.app.get(CONFIG_KEY)
+    if agent is None and cfg is None:
+        mode = "fake"
+        needs_restart = False
+    elif agent is None and cfg is not None:
+        mode = "unconfigured"
+        needs_restart = True
+    else:
+        mode = "configured"
+        needs_restart = False
+
+    return web.json_response(
+        {
+            "mode": mode,
+            "agentLoop": agent is not None,
+            "needsRestart": needs_restart,
+        },
+        headers=cors,
+    )
 
 async def handle_config_post(request: web.Request) -> web.Response:
     """POST /api/config — overwrite ~/.nanobot/config.json with request body."""
@@ -1270,7 +1309,53 @@ async def handle_config_post(request: web.Request) -> web.Response:
     # Update in-memory config and hot-reload the running AgentLoop (if present).
     request.app[CONFIG_KEY] = cfg
     agent = request.app[AGENT_LOOP_KEY]
-    if agent is not None:
+    if agent is None:
+        # Bootstrap: if AGUI started in "unconfigured" mode (no AgentLoop),
+        # create one now so the user does NOT need to restart `npm run dev`.
+        try:
+            from nanobot.agent.loop import AgentLoop
+            from nanobot.bus.queue import MessageBus
+            from nanobot.config.paths import get_cron_dir
+            from nanobot.cron.service import CronService
+            from nanobot.providers.factory import make_provider
+            from nanobot.utils.helpers import sync_workspace_templates
+
+            sync_workspace_templates(cfg.workspace_path, silent=True)
+            bus = MessageBus()
+            provider = make_provider(cfg)
+            cron_store_path = get_cron_dir() / "jobs.json"
+            cron = CronService(cron_store_path)
+            agent = AgentLoop(
+                bus=bus,
+                provider=provider,
+                workspace=cfg.workspace_path,
+                model=cfg.agents.defaults.model,
+                max_iterations=cfg.agents.defaults.max_tool_iterations,
+                context_window_tokens=cfg.agents.defaults.context_window_tokens,
+                web_search_config=cfg.tools.web.search,
+                web_proxy=cfg.tools.web.proxy or None,
+                exec_config=cfg.tools.exec,
+                cron_service=cron,
+                restrict_to_workspace=cfg.tools.restrict_to_workspace,
+                mcp_servers=cfg.tools.mcp_servers,
+                channels_config=cfg.channels,
+            )
+            request.app[AGENT_LOOP_KEY] = agent
+            logger.info("config.json updated via API (AgentLoop bootstrapped)")
+            return web.json_response(
+                {
+                    "ok": True,
+                    "reloaded": True,
+                    "current_model": cfg.agents.defaults.model,
+                    "current_provider": cfg.agents.defaults.provider,
+                    "bootstrapped": True,
+                },
+                headers=cors,
+            )
+        except Exception as exc:
+            logger.warning("AgentLoop bootstrap failed after config update: {}", exc)
+            return web.json_response({"detail": f"bootstrap failed: {exc}"}, status=500, headers=cors)
+    else:
         try:
             await agent.reload_provider_and_model(
                 provider=provider,
@@ -1808,9 +1893,11 @@ def setup_routes(app: web.Application) -> None:
     app.router.add_options("/api/trash-files", handle_options)
     app.router.add_get("/api/config", handle_config_get)
     app.router.add_post("/api/config", handle_config_post)
+    app.router.add_get("/api/runtime", handle_runtime_get)
     app.router.add_get("/api/providers", handle_providers_list)
     app.router.add_post("/welink/chat/stream", handle_welink_chat_stream)
     app.router.add_options("/api/config", handle_options)
     app.router.add_options("/api/config/test", handle_options)
+    app.router.add_options("/api/runtime", handle_options)
     app.router.add_options("/api/providers", handle_options)
     app.router.add_options("/welink/chat/stream", handle_options)

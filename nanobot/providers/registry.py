@@ -341,7 +341,7 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         is_local=False,
         detect_by_key_prefix="",
         detect_by_base_keyword="",
-        default_api_base="",
+        default_api_base="https://open.bigmodel.cn/api/paas/v4/",
         strip_model_prefix=False,
         model_overrides=(),
     ),

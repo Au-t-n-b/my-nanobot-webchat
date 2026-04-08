@@ -179,6 +179,20 @@ export function ConfigPanel({ onClose, onSaved }: { onClose: () => void; onSaved
     void loadProviders();
   }, [loadProviders]);
 
+  // Ensure apiBase auto-fills once provider metadata arrives (first load).
+  useEffect(() => {
+    if (providers.length === 0) return;
+    if (apiBaseTouchedRef.current) return;
+    setForm((prev) => {
+      if (prev.apiBase.trim()) return prev;
+      const spec = providers.find((x) => x.name === prev.providerName);
+      const defaultBase = (spec?.defaultApiBase || "").trim();
+      if (!defaultBase) return prev;
+      lastAutoBaseRef.current = defaultBase;
+      return { ...prev, apiBase: defaultBase };
+    });
+  }, [providers]);
+
   const isDirty = text !== originalText;
 
   const handleSave = async () => {
@@ -358,6 +372,67 @@ export function ConfigPanel({ onClose, onSaved }: { onClose: () => void; onSaved
       const m = typeof body.model === "string" && body.model ? body.model : model;
       setTestStatus("success");
       setTestMsg(`连接成功${latency ? `（${latency}）` : ""}，模型：${m}`);
+      setTimeout(() => setTestStatus("idle"), 2500);
+    } catch (e) {
+      setTestStatus("error");
+      setTestMsg(e instanceof Error ? e.message : "测试失败");
+    }
+  };
+
+  const handleTestJson = async () => {
+    setErrorMsg("");
+    setTestMsg("");
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      setTestStatus("error");
+      setTestMsg("JSON 格式错误，请检查后重试");
+      return;
+    }
+    const cfg = parsed as {
+      agents?: { defaults?: { provider?: unknown; model?: unknown } };
+      providers?: Record<string, { apiKey?: unknown; api_key?: unknown; apiBase?: unknown; api_base?: unknown }>;
+    };
+    const providerName = String(cfg?.agents?.defaults?.provider ?? "").trim();
+    const model = String(cfg?.agents?.defaults?.model ?? "").trim();
+    if (!providerName) {
+      setTestStatus("error");
+      setTestMsg("请在 JSON 中设置 agents.defaults.provider（例如 zhipu）");
+      return;
+    }
+    const p = cfg?.providers?.[providerName];
+    const apiKey = String((p?.apiKey ?? p?.api_key) ?? "").trim();
+    const apiBase = String((p?.apiBase ?? p?.api_base) ?? "").trim();
+    if (!apiKey) {
+      setTestStatus("error");
+      setTestMsg(`请在 JSON 中设置 providers.${providerName}.apiKey（或 api_key）`);
+      return;
+    }
+    setTestStatus("saving");
+    try {
+      const res = await fetch(aguiRequestPath("/api/config/test"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          providerName,
+          apiKey,
+          apiBase: apiBase ? apiBase : undefined,
+          model: model ? model : undefined,
+        }),
+      });
+      if (res.status === 409) {
+        const body = (await res.json().catch(() => ({}))) as { detail?: string };
+        throw new Error(body.detail ?? "当前 AI 正在运行任务，请稍后再试");
+      }
+      const body = (await res.json().catch(() => ({}))) as { ok?: boolean; detail?: string; latencyMs?: number; model?: string };
+      if (!res.ok || body.ok === false) {
+        throw new Error(body.detail ?? `HTTP ${res.status}`);
+      }
+      const latency = typeof body.latencyMs === "number" ? `${body.latencyMs}ms` : "";
+      const m = typeof body.model === "string" && body.model ? body.model : (model || "");
+      setTestStatus("success");
+      setTestMsg(`连接成功${latency ? `（${latency}）` : ""}${m ? `，模型：${m}` : ""}`);
       setTimeout(() => setTestStatus("idle"), 2500);
     } catch (e) {
       setTestStatus("error");
@@ -614,7 +689,13 @@ export function ConfigPanel({ onClose, onSaved }: { onClose: () => void; onSaved
                     setTestMsg("");
                     modelTouchedRef.current = false;
                     modelsTouchedRef.current = false;
-                    setForm((prev) => ({ ...prev, providerName: next, apiKey: "", apiKeyConfigured: false, apiBase: "" }));
+                    setForm((prev) => {
+                      const spec = providers.find((x) => x.name === next);
+                      const defaultBase = (spec?.defaultApiBase || "").trim();
+                      const nextBase = defaultBase || "";
+                      if (nextBase) lastAutoBaseRef.current = nextBase;
+                      return { ...prev, providerName: next, apiKey: "", apiKeyConfigured: false, apiBase: nextBase };
+                    });
                     // Re-hydrate from loaded config text (masked) for the newly selected provider
                     try {
                       const cfg = JSON.parse(text) as unknown;
@@ -751,10 +832,15 @@ export function ConfigPanel({ onClose, onSaved }: { onClose: () => void; onSaved
                   onClick={() => {
                     setForm((prev) => {
                       const nextEnabled = !prev.proxyEnabled;
+                      const proxyExample = "http://工号:密码@proxyhk.huawei.com:8088";
+                      const nextProxyUrl =
+                        nextEnabled && !prev.proxyUrl.trim()
+                          ? proxyExample
+                          : (nextEnabled ? prev.proxyUrl : "");
                       return {
                         ...prev,
                         proxyEnabled: nextEnabled,
-                        proxyUrl: nextEnabled ? prev.proxyUrl : "",
+                        proxyUrl: nextProxyUrl,
                         syncModelProxy: nextEnabled ? prev.syncModelProxy : false,
                       };
                     });
@@ -780,10 +866,13 @@ export function ConfigPanel({ onClose, onSaved }: { onClose: () => void; onSaved
                       type="text"
                       value={form.proxyUrl}
                       onChange={(e) => setForm((prev) => ({ ...prev, proxyUrl: e.target.value }))}
-                      placeholder="http://user:pass@host:port"
+                      placeholder="http://工号:密码@proxyhk.huawei.com:8088"
                       className="rounded-lg px-2.5 py-1.5 text-xs ui-input ui-input-focusable"
                     />
                   </label>
+                  <div className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>
+                    示例：<code className="font-mono">http://工号:密码@proxyhk.huawei.com:8088</code>
+                  </div>
 
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex flex-col gap-0.5">
@@ -945,6 +1034,31 @@ export function ConfigPanel({ onClose, onSaved }: { onClose: () => void; onSaved
             <button
               type="button"
               onClick={() => void handleTest()}
+              disabled={status === "loading" || status === "saving" || testStatus === "saving"}
+              className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold ui-text-secondary hover:ui-text-primary disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              style={{
+                background: "var(--surface-3)",
+                border: "1px solid var(--border-subtle)",
+              }}
+              title="测试连接（不会保存配置）"
+            >
+              {testStatus === "saving" ? (
+                <>
+                  <div className="w-3 h-3 border-2 border-white/20 border-t-white/70 rounded-full animate-spin" />
+                  测试中…
+                </>
+              ) : (
+                <>
+                  <Wifi size={12} />
+                  测试连接
+                </>
+              )}
+            </button>
+          )}
+          {mode === "json" && (
+            <button
+              type="button"
+              onClick={() => void handleTestJson()}
               disabled={status === "loading" || status === "saving" || testStatus === "saving"}
               className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold ui-text-secondary hover:ui-text-primary disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
               style={{

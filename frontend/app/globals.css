@@ -119,6 +119,33 @@ body {
   font-family: Arial, Helvetica, sans-serif;
 }
 
+/* ─────────────────────────────────────────────
+   SDUI v3 M1: Skeleton primitives
+   ───────────────────────────────────────────── */
+.ui-skeleton {
+  position: relative;
+  overflow: hidden;
+  border-radius: 12px;
+  background: color-mix(in oklab, var(--surface-3) 75%, var(--surface-2));
+}
+.ui-skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-60%);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in oklab, var(--surface-1) 14%, transparent),
+    transparent
+  );
+  animation: ui-shimmer 1.15s ease-in-out infinite;
+}
+@keyframes ui-shimmer {
+  0% { transform: translateX(-60%); }
+  100% { transform: translateX(60%); }
+}
+
 body {
   min-height: 100vh;
 }

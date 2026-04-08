@@ -29,7 +29,9 @@ function safeStringify(value: unknown): string {
 export function stableChildKey(node: SduiNode, index: number, parentKey: string): string {
   const rawId = (node as { id?: unknown }).id;
   if (typeof rawId === "string" && rawId.trim()) {
-    return `${parentKey}/id:${rawId.trim()}`;
+    // v3: When node.id is present, key must be globally stable so leaf patches
+    // don't cause unmount/remount and so moving nodes doesn't reset state.
+    return `id:${rawId.trim()}`;
   }
   const sig = safeStringify(node);
   const h = hashDjb2Hex(sig);

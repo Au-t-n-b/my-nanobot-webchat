@@ -308,6 +308,80 @@
 - 当前协议版本为 **`1`**。  
 - 破坏性变更（新增必填字段、改枚举含义、移除节点）须 **升版本** 并同步更新本规范与宿主实现。
 
+---
+
+## 第七章　SDUI v3.0（Milestone-1）增量更新协议（Patch）
+
+本章定义 **v3 M1** 的“实时补丁”最小闭环：通过 **`/api/chat` SSE** 推送 `SkillUiDataPatch` 事件，实现工勘大盘高频同步时的 **局部更新、无闪烁**。
+
+### 7.1 v3 M1 范围（硬约束）
+
+- **Patch 寻址**：仅支持 **`by: "id"`**（要求被更新节点拥有稳定 `id`）
+- **Patch 能力**：仅允许更新 **叶子展示字段**（例如 `Statistic.value`、`Text.content`、`Badge.label`、图表数据等）
+  - **禁止**在 M1 通过 Patch 变更结构性字段：`children` / `tabs`（结构变更仍走全量文档）
+- **图表交互**：仅支持 `open_preview` / `post_user_message`（零 RTT 下钻联动预览）
+- **骨架屏**：由宿主自动生成 Skeleton（协议可选提供 `skeletonHint`，M1 不强制）
+
+### 7.2 SSE 事件：`SkillUiDataPatch`
+
+事件名固定为：
+
+- `event: SkillUiDataPatch`
+
+`data` **生产**结构（字段缺一不可；见 `docs/sdui-v3-schema.json` 中 `$defs/SkillUiDataPatchSse`）：
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `syntheticPath` | `string` | **是** | 目标 Skill UI 路径，须与右栏当前面板 URL **字符串完全一致**（如 `skill-ui://SduiView?dataFile=workspace/dashboard.json`）。用于多 Skill 并存时 **防止 Patch 串台**；缺省或非法载荷宿主应 **忽略** |
+| `patch` | `SduiPatch` | 是 | v3 Patch 对象（见下节），须含 `docId`、`revision` |
+
+最小示例（更新 `stat-1` 的数值）：
+
+```json
+event: SkillUiDataPatch
+data: {
+  "syntheticPath": "skill-ui://SduiView?dataFile=workspace/dashboard.json",
+  "patch": {
+    "schemaVersion": 3,
+    "type": "SduiPatch",
+    "docId": "dashboard:gc",
+    "revision": 1,
+    "ops": [
+      {
+        "op": "merge",
+        "target": { "by": "id", "nodeId": "stat-1" },
+        "value": { "type": "Statistic", "id": "stat-1", "value": "95%" }
+      }
+    ]
+  }
+}
+```
+
+### 7.3 `SduiPatch` 结构（M1）
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `schemaVersion` | `3` | 是 | Patch 固定为 3 |
+| `type` | `"SduiPatch"` | 是 | |
+| `docId` | `string` | **是** | 逻辑文档/大盘标识；工勘场景统一为 **`dashboard:gc`**，供回放与按文档分桶的 revision |
+| `baseRevision` | `number` | 否 | 可选：乐观并发控制；M1 可不使用 |
+| `revision` | `number` | **是** | 发送侧 **单调递增**（按 `docId` 分桶）；宿主若收到 **不大于** 已应用 revision 的补丁须 **丢弃**，防止乱序导致数据回滚 |
+| `ops` | `SduiPatchOp[]` | 是 | Patch 操作数组 |
+
+`SduiPatchOp`（M1）：
+
+- `op`: `"merge"`（主用）
+- `target`: `{ by: "id", nodeId: string }`
+- `value`: **部分节点字段**（要求 `type` 与目标节点一致）
+
+### 7.4 宿主应用规则（M1）
+
+- **`syntheticPath` 路由**：仅当事件中的 `syntheticPath` 与当前面板路径 **完全一致** 时才处理；否则忽略（防串台）。
+- **`revision`**：按 `docId` 维护已应用的最大 `revision`；若 `revision` 缺失或非有限数，忽略；若 `revision <=` 已应用值，丢弃。
+- 当基线 `SduiDocument` 尚未加载完成时，Patch 必须先进入队列缓冲，待文档就绪后按 `revision` **升序** 回放（仍须逐条通过 revision 校验）。
+- 重新拉取 `dataFile`（全量基线刷新）时，应 **清空** 待处理队列与已应用 revision 状态，避免旧补丁污染新基线。
+- 应用 Patch 时必须保持 React key 稳定（节点有 `id` 时 key 应只依赖 `id`），确保“数字原地跳动”而非卸载重装。
+
 ### 6.2 生成侧自检清单（AI / 人工）
 
 在输出 JSON 前必须确认：

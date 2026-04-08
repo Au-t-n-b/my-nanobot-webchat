@@ -101,7 +101,36 @@ nanobot/
   pyproject.toml
   docs/
     legacy-nanobot-readme.md   # 原 nanobot 英文长 README 备份
+    sdui-protocol-spec.md      # SDUI 协议说明
+    sdui-v2-schema.json        # SDUI JSON Schema（v2）
+    sdui-v3-schema.json        # SDUI JSON Schema（v3，含 Patch / Chart 等）
+    claw-skill-dev-manual-v2.0.md
+    claw-skill-dev-manual-v3.0.md
 ```
+
+---
+
+## SDUI v3 与 Skill UI 实时补丁（概要）
+
+- **SkillUiDataPatch**：后端在对话 SSE 中推送 `SkillUiDataPatch` 事件，前端按 `syntheticPath`（与 `[RENDER_UI](skill-ui://SduiView?dataFile=…)` 一致）将 **SduiPatch** 合并进当前文档，右栏 SDUI 可实时更新而无需整页刷新。
+- **E2E 工具**：`nanobot/agent/tools/test_sdui_v3.py` 中的 `run_asset_scan` 会写入基线 `test-scan.json`，再分段推送补丁模拟扫描进度；结束后将 **最终 100% 状态写回** 同一文件，避免磁盘长期停留在基线。
+- **相关代码**：`nanobot/web/skill_ui_patch.py`（补丁载荷与推送）、`nanobot/web/routes.py` / `nanobot/agent/loop.py`（SSE 发射）；前端见 `frontend/lib/sdui.ts`、`frontend/components/SkillUiWrapper.tsx` 等。
+
+更细的协议与 Skill 开发约定见 `docs/sdui-protocol-spec.md` 与 `docs/claw-skill-dev-manual-v3.0.md`。
+
+---
+
+## 近期变更摘要（前端 / 后端 / 文档）
+
+以下为与本仓库近期提交相关的能力与修复说明（便于 Code Review 与排查问题）：
+
+| 类别 | 说明 |
+|------|------|
+| **流式对话与 SSE** | `useAgentChat` 使用 `messagesRef` 构造请求体，避免将 `messages` 放入 `sendMessage` 依赖导致流式输出时回调频繁变化；`SkillUiDataPatch` 状态更新使用 `startTransition` 降低与主渲染的嵌套冲突。 |
+| **Skill UI 面板** | `SkillUiWrapper` 在 `setBaseDoc` 的 updater 中不再同步调用 `setData`，改为 `queueMicrotask` 延迟同步，减轻「Maximum update depth exceeded」风险；`PreviewPanel` 向 `FilePreviewBody` 正确传入 `skillUiPatchEvent`。 |
+| **路径与预览** | 归一化被误截断的 `i://…`（恢复为 `skill-ui://`）；`dataFile` 为 `workspace/…` 且 404 时尝试去掉一层 `workspace/`；`openFilePreview` 入口统一归一化 synthetic 路径。 |
+| **扫描结束不回退 0%** | 仅 SSE 补丁更新内存、磁盘仍为基线时，若在 Agent 结束处无条件 `loadData()` 会从磁盘拉回基线导致界面「清 0」。现若本会话已应用过任意 patch，则 Agent 结束时不再强制 reload；`run_asset_scan` 结束时另将最终文档写回 `test-scan.json`。 |
+| **文档与 Schema** | 新增/更新 v3 Schema、Claw Skill 开发手册 v3、协议文档等，与 SDUI v3 能力对齐。 |
 
 ---
 

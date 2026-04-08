@@ -8,9 +8,17 @@ import { SduiNodeView } from "@/components/sdui/SduiNodeView";
 export function SduiView({ data, loading, error, dataFilePath }: SkillUiComponentProps) {
   if (loading) {
     return (
-      <div className="flex items-center gap-2 text-sm ui-text-muted py-6">
-        <span className="inline-block w-4 h-4 rounded-full border-2 border-t-transparent animate-spin border-[var(--accent)]" />
-        加载 SDUI 数据中…
+      <div className="flex flex-col gap-3 py-2">
+        <div className="flex items-center gap-2 text-sm ui-text-muted py-2">
+          <span className="inline-block w-4 h-4 rounded-full border-2 border-t-transparent animate-spin border-[var(--accent)]" />
+          加载 SDUI 数据中…
+        </div>
+        {/* Skeleton: host-generated placeholders for dashboard-like layouts */}
+        <div className="grid grid-cols-1 gap-3">
+          <div className="ui-skeleton h-[72px]" />
+          <div className="ui-skeleton h-[140px]" />
+          <div className="ui-skeleton h-[180px]" />
+        </div>
       </div>
     );
   }

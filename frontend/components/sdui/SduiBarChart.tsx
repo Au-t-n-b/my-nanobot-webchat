@@ -4,6 +4,7 @@ import { useMemo } from "react";
 
 import type { SduiBarDatum } from "@/lib/sdui";
 import { isSemanticColor, semanticToCssColorValue } from "@/components/sdui/sduiSemanticColor";
+import { useSkillUiRuntime } from "@/components/sdui/SkillUiRuntimeProvider";
 
 const DEFAULT_BAR_COLORS = [
   "color-mix(in oklab, var(--accent) 70%, var(--surface-2))",
@@ -19,6 +20,7 @@ type Props = {
 };
 
 export function SduiBarChart({ data, valueUnit }: Props) {
+  const { postToAgent, openPreview } = useSkillUiRuntime();
   const { rows, max } = useMemo(() => {
     const safe = data.filter((d) => Number.isFinite(d.value));
     const m = Math.max(1, ...safe.map((d) => d.value));
@@ -60,6 +62,8 @@ export function SduiBarChart({ data, valueUnit }: Props) {
             (isSemanticColor(raw) ? semanticToCssColorValue(raw) : null) ??
             (typeof raw === "string" && raw.trim() ? raw : null) ??
             DEFAULT_BAR_COLORS[i % DEFAULT_BAR_COLORS.length];
+          const act = d.action;
+          const clickable = Boolean(act && (act.kind === "open_preview" || act.kind === "post_user_message"));
 
           return (
             <g key={`${d.label}-${i}`}>
@@ -70,6 +74,16 @@ export function SduiBarChart({ data, valueUnit }: Props) {
                 height={h}
                 rx={6}
                 fill={fill}
+                className={clickable ? "cursor-pointer transition-opacity hover:opacity-85" : undefined}
+                onClick={
+                  clickable
+                    ? () => {
+                        if (!act) return;
+                        if (act.kind === "open_preview") openPreview(act.path);
+                        else if (act.kind === "post_user_message") postToAgent(act.text);
+                      }
+                    : undefined
+                }
               />
               <title>{`${d.label}: ${d.value}${unit}`}</title>
               {/* label */}

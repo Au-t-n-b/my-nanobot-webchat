@@ -1,0 +1,981 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/nanobot/sdui-v2-schema.json",
+  "title": "SDUI v2.0 (Claw) Schema",
+  "description": "宽松校验（方案1）：允许未知字段；已对齐 frontend/lib/sdui.ts @ commit 5e6d891。",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "root"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "number",
+      "const": 1,
+      "description": "当前仍为 1；v2.0 为协议能力升级，不强制升 schemaVersion。"
+    },
+    "type": {
+      "type": "string",
+      "const": "SduiDocument"
+    },
+    "root": {
+      "$ref": "#/$defs/SduiNode"
+    },
+    "meta": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "SduiSemanticColor": {
+      "type": "string",
+      "enum": [
+        "success",
+        "warning",
+        "error",
+        "accent",
+        "subtle"
+      ]
+    },
+    "SpacingToken": {
+      "type": "string",
+      "enum": [
+        "none",
+        "xs",
+        "sm",
+        "md",
+        "lg",
+        "xl"
+      ]
+    },
+    "FlexField": {
+      "type": "number",
+      "description": "v2 布局比例：当节点出现在 Row/Stack 等 Flex 容器中时，渲染器会把该节点包裹为 flex: f f 0%（f 为本字段值），用于实现 2:1、1:3 等复杂分栏与自适应布局。"
+    },
+    "SduiAction": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "kind",
+            "text"
+          ],
+          "properties": {
+            "kind": {
+              "const": "post_user_message"
+            },
+            "text": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": true
+        },
+        {
+          "type": "object",
+          "required": [
+            "kind",
+            "path"
+          ],
+          "properties": {
+            "kind": {
+              "const": "open_preview"
+            },
+            "path": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": true
+        }
+      ]
+    },
+    "Stack": {
+      "type": "object",
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "type": {
+          "const": "Stack"
+        },
+        "id": {
+          "type": "string"
+        },
+        "flex": {
+          "$ref": "#/$defs/FlexField"
+        },
+        "gap": {
+          "$ref": "#/$defs/SpacingToken"
+        },
+        "justify": {
+          "type": "string",
+          "enum": [
+            "start",
+            "center",
+            "end",
+            "between"
+          ]
+        },
+        "children": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SduiNode"
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "Card": {
+      "type": "object",
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "type": {
+          "const": "Card"
+        },
+        "id": {
+          "type": "string"
+        },
+        "flex": {
+          "$ref": "#/$defs/FlexField"
+        },
+        "title": {
+          "type": "string"
+        },
+        "density": {
+          "type": "string",
+          "enum": [
+            "default",
+            "compact"
+          ]
+        },
+        "children": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SduiNode"
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "Row": {
+      "type": "object",
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "type": {
+          "const": "Row"
+        },
+        "id": {
+          "type": "string"
+        },
+        "flex": {
+          "$ref": "#/$defs/FlexField"
+        },
+        "gap": {
+          "$ref": "#/$defs/SpacingToken"
+        },
+        "align": {
+          "type": "string",
+          "enum": [
+            "start",
+            "center",
+            "end",
+            "stretch",
+            "baseline"
+          ]
+        },
+        "justify": {
+          "type": "string",
+          "enum": [
+            "start",
+            "end",
+            "center",
+            "between",
+            "around"
+          ]
+        },
+        "wrap": {
+          "type": "boolean"
+        },
+        "children": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SduiNode"
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "Divider": {
+      "type": "object",
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "type": {
+          "const": "Divider"
+        },
+        "id": {
+          "type": "string"
+        },
+        "flex": {
+          "$ref": "#/$defs/FlexField"
+        },
+        "orientation": {
+          "type": "string",
+          "enum": [
+            "horizontal",
+            "vertical"
+          ]
+        }
+      },
+      "additionalProperties": true
+    },
+    "StepperStep": {
+      "type": "object",
+      "required": [
+        "id",
+        "title",
+        "status"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "waiting",
+            "running",
+            "done",
+            "error"
+          ]
+        }
+      },
+      "additionalProperties": true
+    },
+    "Stepper": {
+      "type": "object",
+      "required": [
+        "type",
+        "steps"
+      ],
+      "properties": {
+        "type": {
+          "const": "Stepper"
+        },
+        "id": {
+          "type": "string"
+        },
+        "flex": {
+          "$ref": "#/$defs/FlexField"
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/StepperStep"
+          }
+        },
+        "orientation": {
+          "type": "string",
+          "enum": [
+            "horizontal",
+            "vertical"
+          ]
+        }
+      },
+      "additionalProperties": true
+    },
+    "Text": {
+      "type": "object",
+      "required": [
+        "type",
+        "content"
+      ],
+      "properties": {
+        "type": {
+          "const": "Text"
+        },
+        "id": {
+          "type": "string"
+        },
+        "flex": {
+          "$ref": "#/$defs/FlexField"
+        },
+        "content": {
+          "type": "string"
+        },
+        "variant": {
+          "type": "string",
+          "enum": [
+            "caption",
+            "body",
+            "heading",
+            "mono"
+          ]
+        },
+        "color": {
+          "$ref": "#/$defs/SduiSemanticColor"
+        },
+        "align": {
+          "type": "string",
+          "enum": [
+            "start",
+            "center",
+            "end"
+          ]
+        }
+      },
+      "additionalProperties": true
+    },
+    "TextArea": {
+      "type": "object",
+      "required": [
+        "type",
+        "inputId"
+      ],
+      "properties": {
+        "type": {
+          "const": "TextArea"
+        },
+        "id": {
+          "type": "string"
+        },
+        "flex": {
+          "$ref": "#/$defs/FlexField"
+        },
+        "inputId": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "placeholder": {
+          "type": "string"
+        },
+        "rows": {
+          "type": "number"
+        },
+        "defaultValue": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    },
+    "Markdown": {
+      "type": "object",
+      "required": [
+        "type",
+        "content"
+      ],
+      "properties": {
+        "type": {
+          "const": "Markdown"
+        },
+        "id": {
+          "type": "string"
+        },
+        "flex": {
+          "$ref": "#/$defs/FlexField"
+        },
+        "content": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    },
+    "Badge": {
+      "type": "object",
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "type": {
+          "const": "Badge"
+        },
+        "id": {
+          "type": "string"
+        },
+        "flex": {
+          "$ref": "#/$defs/FlexField"
+        },
+        "text": {
+          "type": "string",
+          "description": "v1 legacy"
+        },
+        "tone": {
+          "type": "string",
+          "enum": [
+            "default",
+            "success",
+            "warning",
+            "danger"
+          ]
+        },
+        "label": {
+          "type": "string",
+          "description": "v2 preferred"
+        },
+        "color": {
+          "$ref": "#/$defs/SduiSemanticColor"
+        },
+        "size": {
+          "type": "string",
+          "enum": [
+            "sm",
+            "md"
+          ]
+        }
+      },
+      "additionalProperties": true
+    },
+    "Statistic": {
+      "type": "object",
+      "required": [
+        "type",
+        "title",
+        "value"
+      ],
+      "properties": {
+        "type": {
+          "const": "Statistic"
+        },
+        "id": {
+          "type": "string"
+        },
+        "flex": {
+          "$ref": "#/$defs/FlexField"
+        },
+        "title": {
+          "type": "string"
+        },
+        "value": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "number"
+            }
+          ]
+        },
+        "color": {
+          "$ref": "#/$defs/SduiSemanticColor"
+        }
+      },
+      "additionalProperties": true
+    },
+    "KeyValueItem": {
+      "type": "object",
+      "required": [
+        "key",
+        "value"
+      ],
+      "properties": {
+        "key": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string"
+        },
+        "color": {
+          "$ref": "#/$defs/SduiSemanticColor"
+        }
+      },
+      "additionalProperties": true
+    },
+    "KeyValueList": {
+      "type": "object",
+      "required": [
+        "type",
+        "items"
+      ],
+      "properties": {
+        "type": {
+          "const": "KeyValueList"
+        },
+        "id": {
+          "type": "string"
+        },
+        "flex": {
+          "$ref": "#/$defs/FlexField"
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/KeyValueItem"
+          }
+        },
+        "color": {
+          "$ref": "#/$defs/SduiSemanticColor"
+        }
+      },
+      "additionalProperties": true
+    },
+    "Button": {
+      "type": "object",
+      "required": [
+        "type",
+        "label",
+        "action"
+      ],
+      "properties": {
+        "type": {
+          "const": "Button"
+        },
+        "id": {
+          "type": "string"
+        },
+        "flex": {
+          "$ref": "#/$defs/FlexField"
+        },
+        "label": {
+          "type": "string"
+        },
+        "variant": {
+          "type": "string",
+          "enum": [
+            "primary",
+            "secondary",
+            "ghost",
+            "outline"
+          ]
+        },
+        "color": {
+          "$ref": "#/$defs/SduiSemanticColor"
+        },
+        "action": {
+          "$ref": "#/$defs/SduiAction"
+        }
+      },
+      "additionalProperties": true
+    },
+    "Link": {
+      "type": "object",
+      "required": [
+        "type",
+        "label"
+      ],
+      "properties": {
+        "type": {
+          "const": "Link"
+        },
+        "id": {
+          "type": "string"
+        },
+        "flex": {
+          "$ref": "#/$defs/FlexField"
+        },
+        "label": {
+          "type": "string"
+        },
+        "href": {
+          "type": "string"
+        },
+        "action": {
+          "$ref": "#/$defs/SduiAction"
+        }
+      },
+      "additionalProperties": true
+    },
+    "TabPanel": {
+      "type": "object",
+      "required": [
+        "id",
+        "label"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "icon": {
+          "type": "string",
+          "enum": [
+            "terminal",
+            "clipboardCheck",
+            "alertTriangle",
+            "image",
+            "fileText",
+            "layoutDashboard",
+            "circle"
+          ]
+        },
+        "children": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SduiNode"
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "Tabs": {
+      "type": "object",
+      "required": [
+        "type",
+        "tabs"
+      ],
+      "properties": {
+        "type": {
+          "const": "Tabs"
+        },
+        "id": {
+          "type": "string"
+        },
+        "flex": {
+          "$ref": "#/$defs/FlexField"
+        },
+        "tabs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TabPanel"
+          }
+        },
+        "defaultTabId": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    },
+    "ChartPlaceholder": {
+      "type": "object",
+      "required": [
+        "type",
+        "variant"
+      ],
+      "properties": {
+        "type": {
+          "const": "ChartPlaceholder"
+        },
+        "id": {
+          "type": "string"
+        },
+        "flex": {
+          "$ref": "#/$defs/FlexField"
+        },
+        "variant": {
+          "type": "string",
+          "enum": [
+            "pie",
+            "bar"
+          ]
+        },
+        "caption": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    },
+    "FileKindBadge": {
+      "type": "object",
+      "required": [
+        "type",
+        "kind"
+      ],
+      "properties": {
+        "type": {
+          "const": "FileKindBadge"
+        },
+        "id": {
+          "type": "string"
+        },
+        "flex": {
+          "$ref": "#/$defs/FlexField"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "docx",
+            "xlsx",
+            "pdf",
+            "html",
+            "other"
+          ]
+        },
+        "size": {
+          "type": "string",
+          "enum": [
+            "default",
+            "lg"
+          ]
+        }
+      },
+      "additionalProperties": true
+    },
+    "DonutSegment": {
+      "type": "object",
+      "required": [
+        "label",
+        "value"
+      ],
+      "properties": {
+        "label": {
+          "type": "string"
+        },
+        "value": {
+          "type": "number"
+        },
+        "color": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/SduiSemanticColor"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "description": "优先语义色；回退允许 hex/rgb/var(...)（仅图表组件允许自由色）。"
+        }
+      },
+      "additionalProperties": true
+    },
+    "DonutChart": {
+      "type": "object",
+      "required": [
+        "type",
+        "segments"
+      ],
+      "properties": {
+        "type": {
+          "const": "DonutChart"
+        },
+        "id": {
+          "type": "string"
+        },
+        "flex": {
+          "$ref": "#/$defs/FlexField"
+        },
+        "segments": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/DonutSegment"
+          }
+        },
+        "centerLabel": {
+          "type": "string"
+        },
+        "centerValue": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    },
+    "BarDatum": {
+      "type": "object",
+      "required": [
+        "label",
+        "value"
+      ],
+      "properties": {
+        "label": {
+          "type": "string"
+        },
+        "value": {
+          "type": "number"
+        },
+        "color": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/SduiSemanticColor"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "description": "优先语义色；回退允许 hex/rgb/var(...)（仅图表组件允许自由色）。"
+        }
+      },
+      "additionalProperties": true
+    },
+    "BarChart": {
+      "type": "object",
+      "required": [
+        "type",
+        "data"
+      ],
+      "properties": {
+        "type": {
+          "const": "BarChart"
+        },
+        "id": {
+          "type": "string"
+        },
+        "flex": {
+          "$ref": "#/$defs/FlexField"
+        },
+        "data": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/BarDatum"
+          }
+        },
+        "valueUnit": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    },
+    "Table": {
+      "type": "object",
+      "required": [
+        "type",
+        "rows"
+      ],
+      "properties": {
+        "type": {
+          "const": "Table"
+        },
+        "id": {
+          "type": "string"
+        },
+        "flex": {
+          "$ref": "#/$defs/FlexField"
+        },
+        "headers": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "rows": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "DataGrid": {
+      "type": "object",
+      "required": [
+        "type",
+        "columns",
+        "rows"
+      ],
+      "properties": {
+        "type": {
+          "const": "DataGrid"
+        },
+        "id": {
+          "type": "string"
+        },
+        "flex": {
+          "$ref": "#/$defs/FlexField"
+        },
+        "columns": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "key",
+              "label"
+            ],
+            "properties": {
+              "key": {
+                "type": "string"
+              },
+              "label": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": true
+          }
+        },
+        "rows": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "editable": {
+          "type": "boolean"
+        },
+        "submitLabel": {
+          "type": "string"
+        },
+        "submitActionPrefix": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    },
+    "SduiNode": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/Stack"
+        },
+        {
+          "$ref": "#/$defs/Card"
+        },
+        {
+          "$ref": "#/$defs/Row"
+        },
+        {
+          "$ref": "#/$defs/Divider"
+        },
+        {
+          "$ref": "#/$defs/Tabs"
+        },
+        {
+          "$ref": "#/$defs/Stepper"
+        },
+        {
+          "$ref": "#/$defs/Text"
+        },
+        {
+          "$ref": "#/$defs/TextArea"
+        },
+        {
+          "$ref": "#/$defs/Markdown"
+        },
+        {
+          "$ref": "#/$defs/Badge"
+        },
+        {
+          "$ref": "#/$defs/Statistic"
+        },
+        {
+          "$ref": "#/$defs/KeyValueList"
+        },
+        {
+          "$ref": "#/$defs/Table"
+        },
+        {
+          "$ref": "#/$defs/DataGrid"
+        },
+        {
+          "$ref": "#/$defs/Button"
+        },
+        {
+          "$ref": "#/$defs/Link"
+        },
+        {
+          "$ref": "#/$defs/ChartPlaceholder"
+        },
+        {
+          "$ref": "#/$defs/DonutChart"
+        },
+        {
+          "$ref": "#/$defs/BarChart"
+        },
+        {
+          "$ref": "#/$defs/FileKindBadge"
+        }
+      ]
+    }
+  }
+}

@@ -10,6 +10,22 @@ import { SduiView } from "@/components/skills/SduiView";
 /** 右栏 synthetic path 的 scheme，与 previewKind「skill-ui」对应 */
 export const SKILL_UI_SCHEME = "skill-ui://" as const;
 
+/**
+ * 部分 Markdown/链接器会把 `skill-ui://` 误截成 `i://`（丢失前缀），导致右栏按文件路径请求整段 URI。
+ * 若检测到典型的 SDUI 形态则恢复为 `skill-ui://`。
+ */
+export function normalizeSyntheticSkillUiPath(path: string): string {
+  const t = path.trim();
+  if (/^skill-ui:\/\//i.test(t)) return t;
+  if (
+    /^i:\/\//i.test(t) &&
+    (/[?&]dataFile=/i.test(t) || /^i:\/\/SduiView/i.test(t))
+  ) {
+    return `${SKILL_UI_SCHEME}${t.slice(4)}`;
+  }
+  return t;
+}
+
 export type ParsedSkillUiUri = {
   /** 注册表中的顶层外壳名，SDUI 固定为 SduiView */
   component: string;
@@ -23,7 +39,7 @@ export type ParsedSkillUiUri = {
  * 组件名允许 URL 编码；dataFile 支持 encodeURIComponent。
  */
 export function parseSkillUiPath(path: string): ParsedSkillUiUri | null {
-  const trimmed = path.trim();
+  const trimmed = normalizeSyntheticSkillUiPath(path);
   if (!trimmed.toLowerCase().startsWith("skill-ui://")) return null;
 
   let url: URL;
@@ -58,8 +74,9 @@ export function parseSkillUiPath(path: string): ParsedSkillUiUri | null {
  * - 其余 `skill-ui`（如各 Step 的 `ui.json`）与文件 / 浏览器预览 → Overlay Layer。
  */
 export function isBaseLayerDashboardSkillUi(path: string): boolean {
-  if (!path.trim().toLowerCase().startsWith("skill-ui://")) return false;
-  const p = parseSkillUiPath(path);
+  const n = normalizeSyntheticSkillUiPath(path);
+  if (!n.trim().toLowerCase().startsWith("skill-ui://")) return false;
+  const p = parseSkillUiPath(n);
   const df = (p?.dataFile ?? "").toLowerCase().replace(/\\/g, "/");
   if (!df) return false;
   return (
@@ -78,8 +95,9 @@ export function isPipelineDashboardSkillUi(path: string): boolean {
  * 必须全幅盖在业务视窗之上，不可收入 Tab。
  */
 export function isBlockingActionSkillUi(path: string): boolean {
-  if (!path.trim().toLowerCase().startsWith("skill-ui://")) return false;
-  return !isBaseLayerDashboardSkillUi(path);
+  const n = normalizeSyntheticSkillUiPath(path);
+  if (!n.trim().toLowerCase().startsWith("skill-ui://")) return false;
+  return !isBaseLayerDashboardSkillUi(n);
 }
 
 /** 构造供 openFilePreview 使用的 synthetic path */

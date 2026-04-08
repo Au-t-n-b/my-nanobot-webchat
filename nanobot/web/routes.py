@@ -847,6 +847,9 @@ async def handle_chat(request: web.Request) -> web.StreamResponse | web.Response
                 {"threadId": thread_id, "runId": run_id, "model": model_name},
             )
 
+            async def emit_skill_ui_patch(payload: dict[str, Any]) -> None:
+                await safe_write("SkillUiDataPatch", payload)
+
             streamed_chunks: list[str] = []
             run_choices: list[dict[str, str]] = []
 
@@ -917,6 +920,7 @@ async def handle_chat(request: web.Request) -> web.StreamResponse | web.Response
                 return await fut
 
             token = agent.set_tool_approval_callback(on_tool_approval)
+            token_skill_ui_patch = agent.set_skill_ui_patch_emitter(emit_skill_ui_patch)
 
             async def _sse_heartbeat() -> None:
                 """Independent keepalive: fires every 10 s regardless of agent output.
@@ -1022,6 +1026,7 @@ async def handle_chat(request: web.Request) -> web.StreamResponse | web.Response
                 with contextlib.suppress(asyncio.CancelledError):
                     await heartbeat_task
                 agent.reset_tool_approval_callback(token)
+                agent.reset_skill_ui_patch_emitter(token_skill_ui_patch)
     except asyncio.CancelledError:
         client_disconnected = True
         if process_task is not None and not process_task.done():

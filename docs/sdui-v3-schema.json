@@ -1,0 +1,209 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/nanobot/sdui-v3-schema.json",
+  "title": "SDUI v3.0 (Claw) Schema — Milestone 1",
+  "description": "宽松校验：在 v2 文档基础上新增 Patch/Envelope。Milestone-1：仅 by=id Patch、图表点击仅 open_preview、Skeleton 由宿主自动生成（可选 hint）。SSE 事件 SkillUiDataPatch 的生产载荷见 $defs/SkillUiDataPatchSse（syntheticPath 必填；SduiPatch 含 docId、revision）。",
+  "oneOf": [
+    { "$ref": "#/$defs/SduiDocumentV2" },
+    { "$ref": "#/$defs/SduiPatch" },
+    { "$ref": "#/$defs/SduiEnvelope" }
+  ],
+  "$defs": {
+    "SduiSemanticColor": {
+      "type": "string",
+      "enum": ["success", "warning", "error", "accent", "subtle"]
+    },
+    "SpacingToken": {
+      "type": "string",
+      "enum": ["none", "xs", "sm", "md", "lg", "xl"]
+    },
+    "SduiAction": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["kind", "text"],
+          "properties": {
+            "kind": { "const": "post_user_message" },
+            "text": { "type": "string" }
+          },
+          "additionalProperties": true
+        },
+        {
+          "type": "object",
+          "required": ["kind", "path"],
+          "properties": {
+            "kind": { "const": "open_preview" },
+            "path": { "type": "string" }
+          },
+          "additionalProperties": true
+        }
+      ]
+    },
+
+    "SduiNode": {
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type": { "type": "string" },
+        "id": { "type": "string" },
+        "flex": { "type": "number" },
+        "children": { "type": "array", "items": { "$ref": "#/$defs/SduiNode" } },
+        "tabs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "label"],
+            "properties": {
+              "id": { "type": "string" },
+              "label": { "type": "string" },
+              "icon": { "type": "string" },
+              "children": { "type": "array", "items": { "$ref": "#/$defs/SduiNode" } }
+            },
+            "additionalProperties": true
+          }
+        },
+        "segments": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["label", "value"],
+            "properties": {
+              "label": { "type": "string" },
+              "value": { "type": "number" },
+              "color": { "type": ["string", "null"] },
+              "action": { "$ref": "#/$defs/SduiAction" }
+            },
+            "additionalProperties": true
+          }
+        },
+        "data": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["label", "value"],
+            "properties": {
+              "label": { "type": "string" },
+              "value": { "type": "number" },
+              "color": { "type": ["string", "null"] },
+              "action": { "$ref": "#/$defs/SduiAction" }
+            },
+            "additionalProperties": true
+          }
+        },
+        "skeletonHint": {
+          "type": "object",
+          "properties": {
+            "variant": { "type": "string" },
+            "minHeight": { "type": "number" }
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": true
+    },
+
+    "SduiDocumentV2": {
+      "type": "object",
+      "required": ["schemaVersion", "root"],
+      "properties": {
+        "schemaVersion": {
+          "type": "number",
+          "const": 1,
+          "description": "v2 文档仍为 schemaVersion=1（保持兼容）。"
+        },
+        "type": { "type": "string", "const": "SduiDocument" },
+        "root": { "$ref": "#/$defs/SduiNode" },
+        "meta": { "type": "object", "additionalProperties": true }
+      },
+      "additionalProperties": true
+    },
+
+    "SduiEnvelope": {
+      "type": "object",
+      "required": ["schemaVersion", "type", "payload"],
+      "properties": {
+        "schemaVersion": { "type": "number", "const": 3 },
+        "type": { "type": "string", "const": "SduiEnvelope" },
+        "docId": { "type": "string" },
+        "revision": { "type": "number" },
+        "payload": {
+          "type": "object",
+          "required": ["kind"],
+          "properties": {
+            "kind": { "type": "string", "enum": ["document", "patch", "batch"] },
+            "document": { "$ref": "#/$defs/SduiDocumentV2" },
+            "patch": { "$ref": "#/$defs/SduiPatch" },
+            "batch": {
+              "type": "array",
+              "items": { "oneOf": [{ "$ref": "#/$defs/SduiDocumentV2" }, { "$ref": "#/$defs/SduiPatch" }] }
+            }
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": true
+    },
+
+    "SduiPatchTarget": {
+      "type": "object",
+      "required": ["by", "nodeId"],
+      "properties": {
+        "by": { "type": "string", "const": "id" },
+        "nodeId": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+
+    "SduiPatchOp": {
+      "type": "object",
+      "required": ["op", "target"],
+      "properties": {
+        "op": { "type": "string", "enum": ["merge", "replace", "remove"] },
+        "target": { "$ref": "#/$defs/SduiPatchTarget" },
+        "value": { "$ref": "#/$defs/SduiNode" },
+        "anim": { "type": "object", "additionalProperties": true }
+      },
+      "additionalProperties": true
+    },
+
+    "SduiPatch": {
+      "type": "object",
+      "required": ["schemaVersion", "type", "docId", "revision", "ops"],
+      "properties": {
+        "schemaVersion": { "type": "number", "const": 3 },
+        "type": { "type": "string", "const": "SduiPatch" },
+        "docId": {
+          "type": "string",
+          "minLength": 1,
+          "description": "文档/大盘逻辑标识。工勘大盘统一为 dashboard:gc，供回放与 revision 分桶。"
+        },
+        "baseRevision": { "type": "number" },
+        "revision": {
+          "type": "number",
+          "description": "发送侧单调递增；宿主若收到 revision 不大于已应用值则丢弃，防乱序回滚。"
+        },
+        "ops": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/SduiPatchOp" }
+        }
+      },
+      "additionalProperties": true
+    },
+
+    "SkillUiDataPatchSse": {
+      "type": "object",
+      "description": "/api/chat SSE 事件 SkillUiDataPatch 的 JSON 载荷（生产）。",
+      "required": ["syntheticPath", "patch"],
+      "properties": {
+        "syntheticPath": {
+          "type": "string",
+          "minLength": 1,
+          "description": "必须与右栏当前 Skill UI URL 字符串完全一致；形如 skill-ui://SduiView?dataFile=workspace/dashboard.json。用于多 Skill 并存时防止 Patch 串台。"
+        },
+        "patch": { "$ref": "#/$defs/SduiPatch" }
+      },
+      "additionalProperties": true
+    }
+  }
+}
+

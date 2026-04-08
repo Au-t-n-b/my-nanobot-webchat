@@ -24,6 +24,8 @@ from nanobot.agent.tools.filesystem import EditFileTool, ListDirTool, ReadFileTo
 from nanobot.agent.tools.message import MessageTool
 from nanobot.agent.tools.registry import ToolRegistry
 from nanobot.agent.tools.shell import ExecTool
+from nanobot.agent.tools.site_survey import AnalyzeSiteArtifactsTool
+from nanobot.agent.tools.test_sdui_v3 import RunAssetScanTool
 from nanobot.agent.tools.spawn import SpawnTool
 from nanobot.agent.tools.web import WebFetchTool, WebSearchTool
 from nanobot.bus.events import InboundMessage, OutboundMessage
@@ -41,6 +43,65 @@ _APPROVAL_CALLBACK: ContextVar[ToolApprovalCallback | None] = ContextVar(
     "nanobot_tool_approval_cb",
     default=None,
 )
+
+# SSE SkillUiDataPatch: bound per /api/chat request (see routes.handle_chat).
+SkillUiPatchEmitter = Callable[[dict[str, Any]], Awaitable[None]]
+_SKILL_UI_PATCH_EMITTER: ContextVar[SkillUiPatchEmitter | None] = ContextVar(
+    "nanobot_skill_ui_patch_emitter",
+    default=None,
+)
+
+
+async def emit_skill_ui_data_patch_event(payload: dict[str, Any]) -> None:
+    """Push a pre-built SkillUiDataPatch payload to the current chat SSE stream.
+
+    No-op when no emitter is bound (e.g. CLI, tests, or non-web channels).
+
+    Typical call flow::
+
+        from nanobot.web.skill_ui_patch import build_skill_ui_data_patch_payload
+        payload = await build_skill_ui_data_patch_payload(
+            synthetic_path='skill-ui://SduiView?dataFile=workspace/dashboard.json',
+            ops=[...],
+        )
+        await emit_skill_ui_data_patch_event(payload)
+
+    **Logging**: If the SSE emitter is not bound, logs ``reason=no_sse_emitter`` (not in web chat
+    context). Path validation failures happen in ``build_skill_ui_data_patch_payload`` and log
+    ``reason=invalid_synthetic_path`` there — this function is not reached in that case.
+    """
+    cb = _SKILL_UI_PATCH_EMITTER.get()
+    if cb is None:
+        sp = payload.get("syntheticPath") if isinstance(payload, dict) else None
+        patch = payload.get("patch") if isinstance(payload, dict) else None
+        rev = None
+        doc = None
+        if isinstance(patch, dict):
+            rev = patch.get("revision")
+            doc = patch.get("docId")
+        logger.info(
+            "skill_ui_patch_emit_skipped | reason=no_sse_emitter | "
+            "detail=not_in_api_chat_context | syntheticPath={!r} | docId={!r} | revision={!r}",
+            (sp or "")[:300],
+            doc,
+            rev,
+        )
+        return
+    try:
+        await cb(payload)
+        patch = payload.get("patch") if isinstance(payload, dict) else None
+        if isinstance(patch, dict):
+            logger.debug(
+                "skill_ui_patch_emit_ok | syntheticPath={!r} | docId={!r} | revision={!r}",
+                (payload.get("syntheticPath") or "")[:300] if isinstance(payload, dict) else None,
+                patch.get("docId"),
+                patch.get("revision"),
+            )
+    except Exception:
+        logger.exception(
+            "skill_ui_patch_emit_failed | reason=sse_write_error | syntheticPath={!r}",
+            (payload.get("syntheticPath") or "")[:300] if isinstance(payload, dict) else None,
+        )
 
 
 async def _run_with_heartbeat(
@@ -219,6 +280,13 @@ class AgentLoop:
     def reset_tool_approval_callback(self, token: Token) -> None:
         _APPROVAL_CALLBACK.reset(token)
 
+    def set_skill_ui_patch_emitter(self, callback: SkillUiPatchEmitter | None) -> Token:
+        """Bind per-request SkillUiDataPatch SSE callback (same scope as tool approval)."""
+        return _SKILL_UI_PATCH_EMITTER.set(callback)
+
+    def reset_skill_ui_patch_emitter(self, token: Token) -> None:
+        _SKILL_UI_PATCH_EMITTER.reset(token)
+
     def _register_default_tools(self) -> None:
         """Register the default set of tools."""
         allowed_dir = self.workspace if self.restrict_to_workspace else None
@@ -235,6 +303,14 @@ class AgentLoop:
             ))
         self.tools.register(WebSearchTool(config=self.web_search_config, proxy=self.web_proxy))
         self.tools.register(WebFetchTool(proxy=self.web_proxy))
+        self.tools.register(
+            AnalyzeSiteArtifactsTool(
+                workspace=self.workspace,
+                allowed_dir=allowed_dir,
+                extra_allowed_dirs=extra_read,
+            )
+        )
+        self.tools.register(RunAssetScanTool(workspace=self.workspace))
         self.tools.register(PresentChoicesTool())
         self.tools.register(MessageTool(send_callback=self.bus.publish_outbound))
         self.tools.register(SpawnTool(manager=self.subagents))

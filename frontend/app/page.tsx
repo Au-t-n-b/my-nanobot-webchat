@@ -17,7 +17,11 @@ import { ConfigPanel } from "@/components/ConfigPanel";
 import { TaskProgressBar } from "@/components/TaskProgressBar";
 import { useAgentChat } from "@/hooks/useAgentChat";
 import { previewKindFromPath } from "@/lib/previewKind";
-import { isBaseLayerDashboardSkillUi, isBlockingActionSkillUi } from "@/lib/skillUiRegistry";
+import {
+  isBaseLayerDashboardSkillUi,
+  isBlockingActionSkillUi,
+  normalizeSyntheticSkillUiPath,
+} from "@/lib/skillUiRegistry";
 
 const SIDEBAR_MIN = 200;
 const SIDEBAR_MAX = 560;       // left panel max
@@ -48,6 +52,7 @@ export default function Home() {
     runStatus,
     statusMessage,
     effectiveModel,
+    skillUiPatchEvent,
     sendMessage,
     approveTool,
     clearPendingChoices,
@@ -200,28 +205,29 @@ export default function Home() {
   }, [blockingActionPath, baseDashboardUrl]);
 
   const openFilePreview = useCallback((path: string) => {
-    if (isBaseLayerDashboardSkillUi(path)) {
-      setBaseDashboardUrl(path);
+    const p = normalizeSyntheticSkillUiPath(path);
+    if (isBaseLayerDashboardSkillUi(p)) {
+      setBaseDashboardUrl(p);
       setIsPreviewOpen(true);
       setActiveRightTabId("__dashboard__");
       return;
     }
-    if (isBlockingActionSkillUi(path)) {
-      setBlockingActionPath(path);
+    if (isBlockingActionSkillUi(p)) {
+      setBlockingActionPath(p);
       setIsPreviewOpen(true);
       setActiveRightTabId("__blocking__");
       return;
     }
-    const id = path;
+    const id = p;
     setPreviewTabs((prev) => {
       const exists = prev.some((t) => t.id === id);
       if (exists) {
         setActiveRightTabId(id);
         return prev;
       }
-      const label = previewTabLabel(path);
+      const label = previewTabLabel(p);
       setActiveRightTabId(id);
-      return [...prev, { id, path, label }];
+      return [...prev, { id, path: p, label }];
     });
     setIsPreviewOpen(true);
   }, []);
@@ -439,6 +445,7 @@ export default function Home() {
       onFillInput={handleFillInput}
       postToAgent={(text) => void sendMessage(text, selectedModel)}
       isAgentRunning={isAgentRunning}
+      skillUiPatchEvent={skillUiPatchEvent}
     />
   );
 

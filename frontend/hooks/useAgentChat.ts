@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { startTransition, useCallback, useEffect, useRef, useState } from "react";
+import type { SduiPatch } from "@/lib/sdui";
 
 const CURRENT_THREAD_STORAGE_KEY = "nanobot_agui_current_thread_id";
 const THREAD_MESSAGES_STORAGE_KEY = "nanobot_agui_messages_by_thread";
@@ -42,6 +43,21 @@ export type ToolPendingPayload = {
 
 export type ChoiceItem = { label: string; value: string };
 export type RunStatus = "idle" | "running" | "awaitingApproval" | "completed" | "error";
+
+export type SkillUiDataPatchEvent = {
+  id: string;
+  /** 与目标面板 skill-ui URL 完全一致；缺省或非法载荷不会进入此事件 */
+  syntheticPath: string;
+  patch: SduiPatch;
+  receivedAt: number;
+};
+
+function debugSkillUiPatchIngest(reason: string, detail: unknown) {
+  if (typeof window === "undefined") return;
+  const w = window as unknown as { __NANOBOT_DEBUG_SKILL_UI_PATCH__?: boolean };
+  if (process.env.NODE_ENV !== "development" && !w.__NANOBOT_DEBUG_SKILL_UI_PATCH__) return;
+  console.debug(`[SkillUiDataPatch] SSE ignored: ${reason}`, detail);
+}
 
 function sanitizeMessages(msgs: AgentMessage[]): AgentMessage[] {
   let toSave = msgs
@@ -227,13 +243,20 @@ export function useAgentChat() {
   const [runStatus, setRunStatus] = useState<RunStatus>("idle");
   const [statusMessage, setStatusMessage] = useState("准备就绪");
   const [effectiveModel, setEffectiveModel] = useState<string | null>(null);
+  const [skillUiPatchEvent, setSkillUiPatchEvent] = useState<SkillUiDataPatchEvent | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const hydratedRef = useRef(false);
   const runStatusRef = useRef<RunStatus>("idle");
+  /** Latest messages for sendMessage body — avoids putting `messages` in sendMessage deps (streaming updates would recreate the callback every token and can amplify nested re-renders). */
+  const messagesRef = useRef<AgentMessage[]>([]);
 
   useEffect(() => {
     runStatusRef.current = runStatus;
   }, [runStatus]);
+
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -447,7 +470,7 @@ export function useAgentChat() {
       const asstId = newId();
 
       const bodyMessages = [
-        ...messages.map((m) => ({ role: m.role, content: m.content })),
+        ...messagesRef.current.map((m) => ({ role: m.role, content: m.content })),
         { role: "user" as const, content: trimmed },
       ];
 
@@ -599,6 +622,45 @@ export function useAgentChat() {
             // agent is alive; do NOT add a step log entry (would be noisy).
             const msg = typeof data.message === "string" ? data.message : "Agent 正在处理中…";
             setStatusMessage(msg);
+          } else if (event === "SkillUiDataPatch") {
+            // v3 生产契约：syntheticPath 必填；patch 含 docId、revision（整数）。
+            const syntheticPathRaw = typeof data.syntheticPath === "string" ? data.syntheticPath.trim() : "";
+            if (!syntheticPathRaw) {
+              debugSkillUiPatchIngest("missing syntheticPath", data);
+              return;
+            }
+            const rawPatch = (data.patch ?? data) as unknown;
+            const patchObj = rawPatch as Partial<SduiPatch> | null;
+            if (!patchObj || typeof patchObj !== "object") {
+              debugSkillUiPatchIngest("patch not an object", data);
+              return;
+            }
+            if (patchObj.schemaVersion !== 3 || patchObj.type !== "SduiPatch" || !Array.isArray(patchObj.ops)) {
+              debugSkillUiPatchIngest("not a v3 SduiPatch", {
+                schemaVersion: patchObj.schemaVersion,
+                type: patchObj.type,
+                hasOps: Array.isArray(patchObj.ops),
+              });
+              return;
+            }
+            const docId = typeof patchObj.docId === "string" ? patchObj.docId.trim() : "";
+            if (!docId) {
+              debugSkillUiPatchIngest("missing docId", data);
+              return;
+            }
+            const rev = patchObj.revision;
+            if (typeof rev !== "number" || !Number.isFinite(rev)) {
+              debugSkillUiPatchIngest("missing or invalid revision", { docId, revision: patchObj.revision });
+              return;
+            }
+            startTransition(() => {
+              setSkillUiPatchEvent({
+                id: newId(),
+                syntheticPath: syntheticPathRaw,
+                patch: patchObj as SduiPatch,
+                receivedAt: Date.now(),
+              });
+            });
           }
         };
 
@@ -661,7 +723,7 @@ export function useAgentChat() {
         setIsLoading(false);
       }
     },
-    [threadId, isLoading, messages],
+    [threadId, isLoading],
   );
 
   return {
@@ -676,6 +738,7 @@ export function useAgentChat() {
     runStatus,
     statusMessage,
     effectiveModel,
+    skillUiPatchEvent,
     sendMessage,
     approveTool,
     clearPendingChoices,

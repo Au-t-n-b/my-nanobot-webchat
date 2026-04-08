@@ -4,6 +4,7 @@ import { useMemo } from "react";
 
 import type { SduiDonutSegment } from "@/lib/sdui";
 import { isSemanticColor, semanticToCssColorValue } from "@/components/sdui/sduiSemanticColor";
+import { useSkillUiRuntime } from "@/components/sdui/SkillUiRuntimeProvider";
 
 const DEFAULT_COLORS = [
   "var(--success)",
@@ -47,18 +48,19 @@ function donutSlicePath(
 }
 
 export function SduiDonutChart({ segments, centerLabel, centerValue }: Props) {
+  const { postToAgent, openPreview } = useSkillUiRuntime();
   const { paths, total, legend } = useMemo(() => {
     const safe = segments.filter((s) => Number.isFinite(s.value) && s.value > 0);
     const sum = safe.reduce((a, s) => a + s.value, 0);
     if (sum <= 0) {
-      return { paths: [] as { d: string; color: string; key: string }[], total: 0, legend: safe };
+      return { paths: [] as { d: string; color: string; key: string; action?: SduiDonutSegment["action"] }[], total: 0, legend: safe };
     }
     const cx = 100;
     const cy = 100;
     const rOuter = 52;
     const rInner = 34;
     let angle = -Math.PI / 2;
-    const out: { d: string; color: string; key: string }[] = [];
+    const out: { d: string; color: string; key: string; action?: SduiDonutSegment["action"] }[] = [];
     safe.forEach((seg, i) => {
       const sweep = (seg.value / sum) * Math.PI * 2;
       const a0 = angle;
@@ -72,6 +74,7 @@ export function SduiDonutChart({ segments, centerLabel, centerValue }: Props) {
         d: donutSlicePath(cx, cy, rInner, rOuter, a0, a1),
         color,
         key: `${seg.label}-${i}`,
+        action: seg.action,
       });
       angle = a1;
     });
@@ -95,9 +98,30 @@ export function SduiDonutChart({ segments, centerLabel, centerValue }: Props) {
           aria-hidden
         >
           <title>圆环图</title>
-          {paths.map((p) => (
-            <path key={p.key} d={p.d} fill={p.color} stroke="var(--surface-1)" strokeWidth={1} strokeLinejoin="round" />
-          ))}
+          {paths.map((p) => {
+            const act = p.action;
+            const clickable = Boolean(act && (act.kind === "open_preview" || act.kind === "post_user_message"));
+            return (
+              <path
+                key={p.key}
+                d={p.d}
+                fill={p.color}
+                stroke="var(--surface-1)"
+                strokeWidth={1}
+                strokeLinejoin="round"
+                className={clickable ? "cursor-pointer transition-opacity hover:opacity-85" : undefined}
+                onClick={
+                  clickable
+                    ? () => {
+                        if (!act) return;
+                        if (act.kind === "open_preview") openPreview(act.path);
+                        else if (act.kind === "post_user_message") postToAgent(act.text);
+                      }
+                    : undefined
+                }
+              />
+            );
+          })}
         </svg>
         <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-center">
           {centerLabel ? (

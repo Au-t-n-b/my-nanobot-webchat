@@ -13,6 +13,7 @@ import { buildProxiedFileUrl, openLocation } from "@/lib/apiFile";
 import { previewKindFromPath, type PreviewKind } from "@/lib/previewKind";
 import { parseSkillUiPath } from "@/lib/skillUiRegistry";
 import { SkillUiWrapper } from "@/components/SkillUiWrapper";
+import type { SkillUiDataPatchEvent } from "@/hooks/useAgentChat";
 
 export type PreviewTabItem = { id: string; path: string; label: string };
 
@@ -35,6 +36,8 @@ type Props = {
   postToAgent?: (text: string) => void;
   /** SDUI：Agent 运行态，用于预览面板文件热更新 */
   isAgentRunning?: boolean;
+  /** v3：SDUI patch 实时事件（来自 SSE） */
+  skillUiPatchEvent?: SkillUiDataPatchEvent | null;
 };
 
 type PreviewState =
@@ -78,23 +81,6 @@ function displayPreviewPath(fullPath: string): string {
   const idx = normalized.toLowerCase().indexOf(marker);
   if (idx >= 0) return `./workspace/${normalized.slice(idx + marker.length)}`;
   return normalized;
-}
-
-/** 浮层顶部标题：HTML 类文件使用「xxx 预览」与产品文案一致 */
-function overlayHeaderTitle(path: string): string {
-  if (path.startsWith("skill-ui://")) {
-    const p = parseSkillUiPath(path);
-    if (p?.dataFile) {
-      const fn = p.dataFile.split(/[/\\]/).pop() ?? p.dataFile;
-      return fn;
-    }
-    return "Skill UI";
-  }
-  if (path.startsWith("browser://")) return "浏览器预览";
-  const base = path.split(/[/\\]/).pop() ?? path;
-  const lower = base.toLowerCase();
-  if (lower.endsWith(".html") || lower.endsWith(".htm")) return `${base} 预览`;
-  return base;
 }
 
 // ─── Gantt hover tooltip ────────────────────────────────────────────────────
@@ -426,6 +412,7 @@ function FilePreviewBody({
   onClosePanel,
   postToAgent,
   isAgentRunning,
+  skillUiPatchEvent,
 }: {
   path: string;
   onOpenPath: (path: string) => void;
@@ -434,6 +421,7 @@ function FilePreviewBody({
   onClosePanel?: () => void;
   postToAgent?: (text: string) => void;
   isAgentRunning?: boolean;
+  skillUiPatchEvent?: SkillUiDataPatchEvent | null;
 }) {
   const [state, setState] = useState<PreviewState>({ status: "loading" });
   const url = useMemo(() => buildProxiedFileUrl(path), [path]);
@@ -529,6 +517,7 @@ function FilePreviewBody({
         postToAgent={postToAgent}
         isAgentRunning={isAgentRunning}
         onOpenPreview={onOpenPath}
+        incomingPatchEvent={skillUiPatchEvent ?? null}
       />
     );
   }
@@ -650,6 +639,7 @@ export function PreviewPanel({
   onFillInput,
   postToAgent,
   isAgentRunning,
+  skillUiPatchEvent,
 }: Props) {
   const [copiedPath, setCopiedPath] = useState(false);
 
@@ -805,6 +795,7 @@ export function PreviewPanel({
               postToAgent={postToAgent}
               isAgentRunning={isAgentRunning}
               onOpenPreview={onOpenPath}
+              incomingPatchEvent={skillUiPatchEvent ?? null}
             />
           ) : activeTab?.kind === "dashboard" && activeTab.path ? (
             <SkillUiWrapper
@@ -813,6 +804,7 @@ export function PreviewPanel({
               postToAgent={postToAgent}
               isAgentRunning={isAgentRunning}
               onOpenPreview={onOpenPath}
+              incomingPatchEvent={skillUiPatchEvent ?? null}
             />
           ) : activeTab?.kind === "preview" && activeTab.path ? (
             <FilePreviewBody
@@ -823,6 +815,7 @@ export function PreviewPanel({
               onFillInput={onFillInput}
               postToAgent={postToAgent}
               isAgentRunning={isAgentRunning}
+              skillUiPatchEvent={skillUiPatchEvent ?? null}
             />
           ) : (
             <div className="flex h-full items-center justify-center text-sm ui-text-muted">

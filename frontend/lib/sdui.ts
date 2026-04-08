@@ -78,6 +78,26 @@ export type SduiAction =
   | { kind: "post_user_message"; text: string }
   | { kind: "open_preview"; path: string };
 
+/**
+ * v3 (Milestone-1): Patch envelope for incremental updates.
+ * - Only supports `target.by="id"` addressing.
+ * - Intended for leaf-field updates (do not change structural children/tabs in M1).
+ */
+export type SduiPatch = {
+  schemaVersion: 3;
+  type: "SduiPatch";
+  /** 逻辑文档 id（如工勘大盘 `dashboard:gc`），与 revision 一起用于防串台与回放 */
+  docId: string;
+  baseRevision?: number;
+  /** 单调递增；宿主丢弃不大于已应用值的补丁 */
+  revision: number;
+  ops: Array<
+    | { op: "merge"; target: { by: "id"; nodeId: string }; value: Partial<SduiNode> & { type: SduiNodeType; id?: string } }
+    | { op: "replace"; target: { by: "id"; nodeId: string }; value: SduiNode }
+    | { op: "remove"; target: { by: "id"; nodeId: string } }
+  >;
+};
+
 export type SduiDocument = {
   schemaVersion: number;
   /** 固定为 SduiDocument，便于与内部节点区分 */
@@ -85,6 +105,102 @@ export type SduiDocument = {
   root: SduiNode;
   meta?: Record<string, unknown>;
 };
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return v !== null && typeof v === "object" && !Array.isArray(v);
+}
+
+function nodeIdOf(node: unknown): string | null {
+  if (!isRecord(node)) return null;
+  const id = node.id;
+  return typeof id === "string" && id.trim() ? id.trim() : null;
+}
+
+function indexNodesById(root: SduiNode): Map<string, SduiNode> {
+  const map = new Map<string, SduiNode>();
+  const walk = (n: SduiNode) => {
+    const id = nodeIdOf(n);
+    if (id) map.set(id, n);
+    // children
+    const ch = (n as { children?: SduiNode[] }).children;
+    if (Array.isArray(ch)) ch.forEach(walk);
+    // tabs
+    if (n.type === "Tabs") {
+      const tabs = (n as { tabs?: Array<{ children?: SduiNode[] }> }).tabs;
+      if (Array.isArray(tabs)) {
+        for (const t of tabs) {
+          if (t && Array.isArray(t.children)) t.children.forEach(walk);
+        }
+      }
+    }
+  };
+  walk(root);
+  return map;
+}
+
+function deepMergeInPlace(target: Record<string, unknown>, patch: Record<string, unknown>): void {
+  for (const [k, v] of Object.entries(patch)) {
+    // Milestone-1 guardrails: do not patch structural fields.
+    if (k === "children" || k === "tabs") continue;
+    if (v === undefined) continue;
+    const tv = target[k];
+    if (isRecord(tv) && isRecord(v)) {
+      deepMergeInPlace(tv, v);
+    } else {
+      target[k] = v;
+    }
+  }
+}
+
+/**
+ * Apply an SDUI v3 patch to an existing parsed v2 document.
+ *
+ * Returns a new document object so React state updates propagate, while keeping
+ * inner node object identities stable where possible (deep-merge in place).
+ */
+export function applySduiPatch(doc: SduiDocument, patch: SduiPatch): SduiDocument {
+  // Shallow clone doc shell; mutate nodes in-place for stability.
+  const next: SduiDocument = { ...doc, meta: doc.meta ? { ...doc.meta } : undefined };
+  const byId = indexNodesById(next.root);
+
+  for (const op of patch.ops || []) {
+    const nodeId = op?.target?.nodeId;
+    if (typeof nodeId !== "string" || !nodeId.trim()) continue;
+    const id = nodeId.trim();
+
+    const existing = byId.get(id);
+    if (!existing) continue;
+
+    if (op.op === "remove") {
+      // M1: structural deletion not supported; ignore safely.
+      continue;
+    }
+
+    if (op.op === "replace") {
+      // M1: replacing a node is structural and may unmount; allow only if type matches.
+      if (op.value && (op.value as SduiNode).type === existing.type) {
+        const t = existing as unknown as Record<string, unknown>;
+        const v = op.value as unknown as Record<string, unknown>;
+        // Keep id stable even if value omits it.
+        const keepId = nodeIdOf(existing);
+        for (const key of Object.keys(t)) delete t[key];
+        for (const [k, val] of Object.entries(v)) t[k] = val;
+        if (keepId && !nodeIdOf(t)) t.id = keepId;
+      }
+      continue;
+    }
+
+    if (op.op === "merge") {
+      const patchValue = op.value as unknown;
+      if (!isRecord(patchValue)) continue;
+      // Enforce type match to avoid corrupting the tree.
+      if (typeof patchValue.type !== "string" || patchValue.type !== existing.type) continue;
+      deepMergeInPlace(existing as unknown as Record<string, unknown>, patchValue);
+    }
+  }
+
+  return next;
+}
 
 export type SduiNode =
   | SduiStackNode
@@ -276,6 +392,8 @@ export type SduiDonutSegment = {
   value: number;
   /** v2：优先语义色；也允许 hex/rgb/var(...) 回退 */
   color?: SduiSemanticColor | string;
+  /** v3 M1：点击扇区联动右栏预览（仅 open_preview / post_user_message） */
+  action?: SduiAction;
 };
 
 export type SduiDonutChartNode = SduiOptionalId & {
@@ -292,6 +410,8 @@ export type SduiBarDatum = {
   label: string;
   value: number;
   color?: SduiSemanticColor | string;
+  /** v3 M1：点击柱子联动右栏预览（仅 open_preview / post_user_message） */
+  action?: SduiAction;
 };
 
 export type SduiBarChartNode = SduiOptionalId & {
@@ -319,10 +439,6 @@ export function expandInputPlaceholders(text: string, getInputValue: (id: string
     if (!id) return "";
     return getInputValue(id) ?? "";
   });
-}
-
-function isRecord(v: unknown): v is Record<string, unknown> {
-  return v !== null && typeof v === "object" && !Array.isArray(v);
 }
 
 function readNode(raw: unknown): SduiNode | null {

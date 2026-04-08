@@ -1,3 +1,5 @@
+import { normalizeSyntheticSkillUiPath } from "@/lib/skillUiRegistry";
+
 export type PreviewKind =
   | "browser"
   | "skill-ui"
@@ -13,7 +15,7 @@ export type PreviewKind =
 
 export function previewKindFromPath(path: string): PreviewKind {
   if (path.startsWith("browser://")) return "browser";
-  if (path.startsWith("skill-ui://")) return "skill-ui";
+  if (normalizeSyntheticSkillUiPath(path).startsWith("skill-ui://")) return "skill-ui";
 
   const i = path.lastIndexOf(".");
   const ext = i >= 0 ? path.slice(i + 1).toLowerCase() : "";

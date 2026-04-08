@@ -1,4 +1,4 @@
-﻿# 交付claw — 一键安装依赖（Windows）
+# 交付claw — 一键安装依赖（Windows）
 # 用法：在仓库根目录执行
 #   powershell -ExecutionPolicy Bypass -File scripts/setup.ps1
 # 或：npm run setup
@@ -46,8 +46,7 @@ try {
     Pop-Location
 }
 
-Write-Host "[交付claw] 安装根目录 npm 依赖（concurrently 等）..."
-npm install
+Write-Host "[交付claw] 跳过根目录 npm install（dev 不再依赖 concurrently；避免公司网络/权限导致安装失败）"
 
 $envLocal = Join-Path $Root "frontend\.env.local"
 $envExample = Join-Path $Root "frontend\.env.local.example"

@@ -4,9 +4,7 @@
   "description": "交付claw — 基于 nanobot AGUI 的本地开发与演示工作台",
   "scripts": {
     "setup": "node scripts/setup.cjs",
-    "dev": "concurrently -k -n agui,web -c cyan,magenta \"python -m nanobot agui --port 8765\" \"npm run dev --prefix frontend\""
+    "dev": "node scripts/dev.cjs"
   },
-  "devDependencies": {
-    "concurrently": "^9.1.2"
-  }
+  "devDependencies": {}
 }

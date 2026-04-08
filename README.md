@@ -52,7 +52,7 @@ npm run setup
 - **Windows**：`powershell -ExecutionPolicy Bypass -File scripts/setup.ps1`
 - **macOS / Linux**：`bash scripts/setup.sh`
 
-脚本会依次：用 pip **可编辑安装**本仓库的 `nanobot`、在 `frontend/` 执行 `npm ci`、安装根目录 `npm` 依赖（含 `concurrently`），并在不存在时从 `frontend/.env.local.example` 复制出 `frontend/.env.local`。
+脚本会依次：用 pip **可编辑安装**本仓库的 `nanobot`、在 `frontend/` 执行 `npm ci`，并在不存在时从 `frontend/.env.local.example` 复制出 `frontend/.env.local`。根目录的 `npm install` 已被刻意跳过（`npm run dev` 不再依赖 `concurrently`），以避免公司网络/权限策略导致安装失败。
 
 ### 3. 启动前后端（一条命令）
 

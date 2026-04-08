@@ -37,8 +37,7 @@ echo "[交付claw] Node: $(node -v)"
 echo "[交付claw] 安装前端依赖（frontend）..."
 ( cd frontend && npm ci )
 
-echo "[交付claw] 安装根目录 npm 依赖（concurrently 等）..."
-npm install
+echo "[交付claw] 跳过根目录 npm install（dev 不再依赖 concurrently；避免公司网络/权限导致安装失败）"
 
 if [[ ! -f frontend/.env.local ]] && [[ -f frontend/.env.local.example ]]; then
   cp frontend/.env.local.example frontend/.env.local

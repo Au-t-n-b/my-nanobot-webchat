@@ -803,9 +803,27 @@ async def handle_chat(request: web.Request) -> web.StreamResponse | web.Response
     run_finished_sent = False
     process_task: asyncio.Task | None = None
 
-    async def safe_write(event: str, payload: dict) -> None:
+    def _client_is_closing() -> bool:
+        """Best-effort detect client disconnect earlier than write() errors."""
+        try:
+            transport = request.transport
+            return bool(transport is None or transport.is_closing())
+        except Exception:
+            return False
+
+    def _mark_disconnected_and_cancel() -> None:
         nonlocal client_disconnected
         if client_disconnected:
+            return
+        client_disconnected = True
+        if process_task is not None and not process_task.done():
+            process_task.cancel()
+
+    async def safe_write(event: str, payload: dict) -> None:
+        nonlocal client_disconnected
+        # If the client already closed the connection, stop producing immediately.
+        if client_disconnected or _client_is_closing():
+            _mark_disconnected_and_cancel()
             return
         async with write_lock:
             try:
@@ -813,9 +831,7 @@ async def handle_chat(request: web.Request) -> web.StreamResponse | web.Response
             except (ClientConnectionResetError, ConnectionResetError, RuntimeError):
                 # Browser tab closed / stream cancelled while server is still producing
                 # events. Treat as normal disconnect, not a run failure.
-                client_disconnected = True
-                if process_task is not None and not process_task.done():
-                    process_task.cancel()
+                _mark_disconnected_and_cancel()
 
     try:
         await response.prepare(request)
@@ -854,12 +870,18 @@ async def handle_chat(request: web.Request) -> web.StreamResponse | web.Response
             run_choices: list[dict[str, str]] = []
 
             async def on_progress(content: str, *, tool_hint: bool = False) -> None:
+                if client_disconnected or _client_is_closing():
+                    _mark_disconnected_and_cancel()
+                    return
                 if not (content or "").strip():
                     return
                 step = "tool" if tool_hint else "thinking"
                 await safe_write("StepStarted", {"stepName": step, "text": content})
 
             async def on_stream(delta: str) -> None:
+                if client_disconnected or _client_is_closing():
+                    _mark_disconnected_and_cancel()
+                    return
                 if delta:
                     streamed_chunks.append(delta)
                     await safe_write("TextMessageContent", {"delta": delta})

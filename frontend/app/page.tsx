@@ -54,6 +54,7 @@ export default function Home() {
     effectiveModel,
     skillUiPatchEvent,
     sendMessage,
+    stopGenerating,
     approveTool,
     clearPendingChoices,
     clearChat,
@@ -689,6 +690,7 @@ export default function Home() {
               pendingTool={pendingTool}
               pendingChoices={pendingChoices}
               onSend={handleSend}
+              onStop={stopGenerating}
               onApproveTool={(approved) => { void approveTool(approved); }}
               onFileLinkClick={openFilePreview}
               onDeleteMessage={deleteMessage}
@@ -738,6 +740,7 @@ export default function Home() {
           pendingTool={pendingTool}
           pendingChoices={pendingChoices}
           onSend={handleSend}
+          onStop={stopGenerating}
           onApproveTool={(approved) => { void approveTool(approved); }}
           onFileLinkClick={openFilePreview}
           onDeleteMessage={deleteMessage}

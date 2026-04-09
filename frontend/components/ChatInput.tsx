@@ -8,11 +8,12 @@ type Props = {
   disabled?: boolean;
   loading?: boolean;
   onSubmit: (value: string) => void;
+  onStop?: () => void;
   focusSignal?: number;
   prefillText?: string;
 };
 
-export function ChatInput({ disabled, loading, onSubmit, focusSignal, prefillText }: Props) {
+export function ChatInput({ disabled, loading, onSubmit, onStop, focusSignal, prefillText }: Props) {
   const [value, setValue] = useState("");
   const trimmed = value.trim();
   const sendActive = trimmed.length > 0 && !loading && !disabled;
@@ -51,6 +52,17 @@ export function ChatInput({ disabled, loading, onSubmit, focusSignal, prefillTex
         disabled={disabled || loading}
         aria-label="消息输入"
       />
+      {loading && (
+        <button
+          type="button"
+          onClick={() => onStop?.()}
+          className="shrink-0 rounded-xl px-3 py-2 text-sm ui-text-secondary border border-[var(--border-subtle)] hover:bg-[var(--surface-3)] hover:ui-text-primary transition-colors"
+          aria-label="停止生成"
+          title="停止生成"
+        >
+          停止 ■
+        </button>
+      )}
       <button
         type="submit"
         disabled={!sendActive}

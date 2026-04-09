@@ -28,7 +28,7 @@ class CustomProvider(LLMProvider):
         self.default_model = default_model
         http_client_kwargs: dict = {"timeout": 60.0}
         if proxy:
-            http_client_kwargs["proxies"] = proxy
+            http_client_kwargs["proxy"] = proxy
         if not ssl_verify:
             http_client_kwargs["verify"] = False
         http_client = httpx.AsyncClient(**http_client_kwargs)

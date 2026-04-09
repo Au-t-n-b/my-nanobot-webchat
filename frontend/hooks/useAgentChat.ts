@@ -460,6 +460,11 @@ export function useAgentChat() {
     [pendingTool],
   );
 
+  const stopGenerating = useCallback(() => {
+    // Best-effort cancel the active fetch/SSE stream.
+    abortRef.current?.abort();
+  }, []);
+
   const sendMessage = useCallback(
     async (text: string, modelName?: string) => {
       const trimmed = text.trim();
@@ -707,8 +712,9 @@ export function useAgentChat() {
         }
       } catch (e) {
         if ((e as Error).name === "AbortError") {
+          // User-initiated cancel — keep partial assistant content, do not treat as error.
           setRunStatus("idle");
-          setStatusMessage("请求已取消");
+          setStatusMessage("已停止生成");
           return;
         }
         streamError = true;
@@ -750,6 +756,7 @@ export function useAgentChat() {
     effectiveModel,
     skillUiPatchEvent,
     sendMessage,
+    stopGenerating,
     approveTool,
     clearPendingChoices,
     clearChat,

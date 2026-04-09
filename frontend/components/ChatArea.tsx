@@ -14,6 +14,7 @@ type Props = {
   pendingTool: ToolPendingPayload | null;
   pendingChoices: ChoiceItem[] | null;
   onSend: (value: string) => void;
+  onStop?: () => void;
   onApproveTool: (approved: boolean) => void;
   onFileLinkClick?: (path: string) => void;
   onDeleteMessage?: (id: string) => void;
@@ -33,6 +34,7 @@ export function ChatArea({
   pendingTool,
   pendingChoices,
   onSend,
+  onStop,
   onApproveTool,
   onFileLinkClick,
   onDeleteMessage,
@@ -90,6 +92,7 @@ export function ChatArea({
       />
       <ChatInput
         onSubmit={onSend}
+        onStop={onStop}
         disabled={disabled}
         loading={isLoading}
         focusSignal={focusSignal}

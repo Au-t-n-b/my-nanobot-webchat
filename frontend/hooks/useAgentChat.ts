@@ -1,6 +1,7 @@
 "use client";
 
 import { startTransition, useCallback, useEffect, useRef, useState } from "react";
+import { getLocalStorage } from "@/lib/browserStorage";
 import type { SduiPatch } from "@/lib/sdui";
 
 const CURRENT_THREAD_STORAGE_KEY = "nanobot_agui_current_thread_id";
@@ -73,8 +74,10 @@ function sanitizeMessages(msgs: AgentMessage[]): AgentMessage[] {
 
 function loadMessageMap(): Record<string, AgentMessage[]> {
   if (typeof window === "undefined") return {};
+  const ls = getLocalStorage();
+  if (!ls) return {};
   try {
-    const raw = localStorage.getItem(THREAD_MESSAGES_STORAGE_KEY);
+    const raw = ls.getItem(THREAD_MESSAGES_STORAGE_KEY);
     if (!raw) return {};
     const parsed: unknown = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object") return {};
@@ -91,8 +94,10 @@ function loadMessageMap(): Record<string, AgentMessage[]> {
 
 function loadLegacyMessages(): AgentMessage[] {
   if (typeof window === "undefined") return [];
+  const ls = getLocalStorage();
+  if (!ls) return [];
   try {
-    const raw = localStorage.getItem(LEGACY_MESSAGES_STORAGE_KEY);
+    const raw = ls.getItem(LEGACY_MESSAGES_STORAGE_KEY);
     if (!raw) return [];
     const parsed: unknown = JSON.parse(raw);
     return Array.isArray(parsed) ? sanitizeMessages(parsed as AgentMessage[]) : [];
@@ -102,11 +107,12 @@ function loadLegacyMessages(): AgentMessage[] {
 }
 
 function saveMessageMap(map: Record<string, AgentMessage[]>) {
-  if (typeof window === "undefined") return;
+  const ls = getLocalStorage();
+  if (!ls) return;
   const sanitized = Object.fromEntries(
     Object.entries(map).map(([threadId, msgs]) => [threadId, sanitizeMessages(msgs)]),
   );
-  localStorage.setItem(THREAD_MESSAGES_STORAGE_KEY, JSON.stringify(sanitized));
+  ls.setItem(THREAD_MESSAGES_STORAGE_KEY, JSON.stringify(sanitized));
 }
 
 function clipText(text: string, max: number): string {
@@ -129,8 +135,10 @@ function deriveSessionSummary(threadId: string, messages: AgentMessage[], update
 
 function loadSessionSummaries(): SessionSummary[] {
   if (typeof window === "undefined") return [];
+  const ls = getLocalStorage();
+  if (!ls) return [];
   try {
-    const raw = localStorage.getItem(SESSION_SUMMARIES_STORAGE_KEY);
+    const raw = ls.getItem(SESSION_SUMMARIES_STORAGE_KEY);
     if (!raw) return [];
     const parsed: unknown = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
@@ -143,8 +151,9 @@ function loadSessionSummaries(): SessionSummary[] {
 }
 
 function saveSessionSummaries(summaries: SessionSummary[]) {
-  if (typeof window === "undefined") return;
-  localStorage.setItem(
+  const ls = getLocalStorage();
+  if (!ls) return;
+  ls.setItem(
     SESSION_SUMMARIES_STORAGE_KEY,
     JSON.stringify([...summaries].sort((a, b) => b.updatedAt - a.updatedAt)),
   );
@@ -260,8 +269,9 @@ export function useAgentChat() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
+    const ls = getLocalStorage();
     const messageMap = loadMessageMap();
-    let tid = localStorage.getItem(CURRENT_THREAD_STORAGE_KEY);
+    let tid = ls?.getItem(CURRENT_THREAD_STORAGE_KEY) ?? null;
     const initialSessions = loadSessionSummaries();
     if (!tid) tid = crypto.randomUUID();
     if (!messageMap[tid]) {
@@ -269,11 +279,11 @@ export function useAgentChat() {
       if (legacy.length > 0) {
         messageMap[tid] = legacy;
         saveMessageMap(messageMap);
-        localStorage.removeItem(LEGACY_MESSAGES_STORAGE_KEY);
+        ls?.removeItem(LEGACY_MESSAGES_STORAGE_KEY);
       }
     }
     const ensured = upsertSessionSummary(initialSessions, deriveSessionSummary(tid, messageMap[tid] ?? []));
-    localStorage.setItem(CURRENT_THREAD_STORAGE_KEY, tid);
+    ls?.setItem(CURRENT_THREAD_STORAGE_KEY, tid);
     saveSessionSummaries(ensured);
     setSessions(ensured);
     setThreadId(tid);
@@ -339,7 +349,7 @@ export function useAgentChat() {
     abortRef.current?.abort();
     const nextThreadId = crypto.randomUUID();
     if (typeof window !== "undefined") {
-      localStorage.setItem(CURRENT_THREAD_STORAGE_KEY, nextThreadId);
+      getLocalStorage()?.setItem(CURRENT_THREAD_STORAGE_KEY, nextThreadId);
       const nextSessions = upsertSessionSummary(loadSessionSummaries(), deriveSessionSummary(nextThreadId, []));
       saveSessionSummaries(nextSessions);
       setSessions(nextSessions);
@@ -372,7 +382,7 @@ export function useAgentChat() {
       // If deleting the active session, switch to a remaining one (or create a new empty session)
       if (deleteThreadId === threadId) {
         const nextThreadId = nextSessions[0]?.id ?? crypto.randomUUID();
-        localStorage.setItem(CURRENT_THREAD_STORAGE_KEY, nextThreadId);
+        getLocalStorage()?.setItem(CURRENT_THREAD_STORAGE_KEY, nextThreadId);
 
         if (!messageMap[nextThreadId]) {
           messageMap[nextThreadId] = [];
@@ -402,7 +412,7 @@ export function useAgentChat() {
   const switchSession = useCallback((nextThreadId: string) => {
     abortRef.current?.abort();
     if (typeof window !== "undefined") {
-      localStorage.setItem(CURRENT_THREAD_STORAGE_KEY, nextThreadId);
+      getLocalStorage()?.setItem(CURRENT_THREAD_STORAGE_KEY, nextThreadId);
       const messageMap = loadMessageMap();
       setMessages(messageMap[nextThreadId] ?? []);
     }

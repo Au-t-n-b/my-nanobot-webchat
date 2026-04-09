@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { getLocalStorage } from "@/lib/browserStorage";
 
 export type Theme = "dark" | "light" | "soft";
 const STORAGE_KEY = "nanobot_agui_theme";
@@ -16,7 +17,8 @@ export function useTheme() {
   const [theme, setThemeState] = useState<Theme>(DEFAULT);
 
   useEffect(() => {
-    const stored = (localStorage.getItem(STORAGE_KEY) ?? DEFAULT) as Theme;
+    const ls = getLocalStorage();
+    const stored = (ls?.getItem(STORAGE_KEY) ?? DEFAULT) as Theme;
     setThemeState(stored);
     applyTheme(stored);
   }, []);
@@ -24,7 +26,7 @@ export function useTheme() {
   const setTheme = useCallback((t: Theme) => {
     setThemeState(t);
     applyTheme(t);
-    localStorage.setItem(STORAGE_KEY, t);
+    getLocalStorage()?.setItem(STORAGE_KEY, t);
   }, []);
 
   return { theme, setTheme };

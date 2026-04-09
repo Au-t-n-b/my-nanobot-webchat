@@ -504,7 +504,7 @@ export default function Home() {
       {systemModal === "settings" && (
         <SystemShellModal onClose={closeSystemModal} title="设置">
           <div className="max-h-[92vh] min-h-0 overflow-y-auto">
-            <SettingsPanel onClose={closeSystemModal} onOpenRemoteUpload={openRemoteAssetUpload} />
+            <SettingsPanel onClose={closeSystemModal} onOpenRemoteUpload={openRemoteAssetUpload} showCloseButton={false} />
           </div>
         </SystemShellModal>
       )}
@@ -513,6 +513,7 @@ export default function Home() {
           <div className="h-[85vh] min-h-[480px] max-h-[92vh] overflow-hidden flex flex-col">
             <ConfigPanel
               onClose={closeSystemModal}
+              showCloseButton={false}
               onSaved={() => {
                 void loadModelFromConfig();
                 void refreshRuntimeMode();
@@ -561,7 +562,7 @@ export default function Home() {
         />
       )}
       {sidebarOpen && (
-        <div className="md:hidden fixed inset-y-0 left-0 z-40 w-[21rem] p-2 bg-[var(--canvas-rail)] rounded-r-2xl shadow-xl border-r border-[var(--border-subtle)] dark:border-white/10">
+        <div className="md:hidden fixed inset-y-0 left-0 z-40 w-[21rem] p-2 bg-zinc-950 rounded-r-2xl shadow-xl border-r border-white/5">
           <button
             type="button"
             onClick={() => setSidebarOpen(false)}
@@ -584,7 +585,7 @@ export default function Home() {
       <div className="hidden md:flex h-full min-h-0 gap-0">
         {/* Left sidebar — always present; collapses to 64 px icon strip */}
         <div
-          className="min-h-0 shrink-0 transition-[width] duration-200 bg-[var(--canvas-rail)] rounded-l-2xl overflow-hidden"
+          className="min-h-0 shrink-0 transition-[width] duration-200 bg-zinc-950 rounded-l-2xl overflow-hidden border-r border-white/5"
           style={{ width: sidebarCollapsed ? 64 : leftWidth }}
         >
           <Sidebar

@@ -18,7 +18,7 @@ export default function RootLayout({
         {/* Prevent theme flash: read localStorage before first paint */}
         <script
           dangerouslySetInnerHTML={{
-            __html: `(function(){try{var t=localStorage.getItem('nanobot_agui_theme')||'dark';document.documentElement.setAttribute('data-theme',t);}catch(e){}})();`,
+            __html: `(function(){try{var ls=window.localStorage;if(ls&&typeof ls.getItem==='function'){var t=ls.getItem('nanobot_agui_theme')||'dark';document.documentElement.setAttribute('data-theme',t);}}catch(e){}})();`,
           }}
         />
       </head>

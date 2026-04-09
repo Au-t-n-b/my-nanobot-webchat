@@ -297,22 +297,22 @@ export function Sidebar({
 
   // ── Mini sidebar (collapsed mode) ──────────────────────────────────────
   if (isCollapsed) {
-    const iconBtn = "rounded-lg p-2 ui-text-muted hover:bg-[var(--surface-3)] hover:ui-text-primary transition-colors w-10 h-10 flex items-center justify-center";
+    const iconBtn = "rounded-lg p-2 text-zinc-500 hover:bg-zinc-900/40 hover:text-zinc-200 transition-colors w-10 h-10 flex items-center justify-center";
     return (
-      <aside className="h-full min-h-0 rounded-none flex flex-col items-center py-3 gap-1 overflow-hidden bg-transparent border-0 shadow-none">
+      <aside className="h-full min-h-0 rounded-none flex flex-col items-center py-3 gap-1 overflow-hidden bg-zinc-950 border-0 shadow-none">
         {/* Logo */}
         <span className="text-lg leading-none mb-0.5" aria-hidden="true">🦞</span>
         <span className="w-1.5 h-1.5 rounded-full mb-2" style={{ background: "var(--success)" }} title="已连接" />
 
         {/* New session */}
         <button type="button" onClick={onCreateSession} title="新建会话" className={iconBtn}>
-          <Plus size={15} />
+          <Plus size={18} />
         </button>
 
         {/* Artifacts — click to expand sidebar */}
         <div className="relative" title={`产物 (${artifacts.length})，点击展开`}>
           <button type="button" onClick={onToggleCollapse} className={iconBtn}>
-            <FileText size={15} />
+            <FileText size={18} />
           </button>
           {artifacts.length > 0 && (
             <span className="absolute top-1 right-1 w-3.5 h-3.5 rounded-full text-[8px] font-bold flex items-center justify-center text-white pointer-events-none" style={{ background: "var(--accent)" }}>
@@ -323,18 +323,18 @@ export function Sidebar({
 
         {/* Skills — click to expand sidebar */}
         <button type="button" title="技能，点击展开" onClick={onToggleCollapse} className={iconBtn}>
-          <Zap size={15} />
+          <Zap size={18} />
         </button>
 
         {/* Org Assets — click to expand sidebar */}
         <button type="button" title="组织资产，点击展开" onClick={onToggleCollapse} className={iconBtn}>
-          <Building2 size={15} />
+          <Building2 size={18} />
         </button>
 
         {/* Bottom */}
         <div className="mt-auto flex flex-col items-center gap-1">
           <button type="button" onClick={onOpenSettings} title="设置" className={iconBtn}>
-            <Settings size={13} />
+            <Settings size={18} />
           </button>
           <ThemeToggle vertical />
           <button
@@ -344,7 +344,7 @@ export function Sidebar({
             className={iconBtn}
             aria-label="展开侧栏"
           >
-            <ChevronRight size={14} />
+            <ChevronRight size={18} />
           </button>
         </div>
       </aside>
@@ -352,7 +352,7 @@ export function Sidebar({
   }
 
   return (
-    <aside className="h-full min-h-0 overflow-y-auto rounded-none p-4 flex flex-col gap-0 bg-transparent border-0 shadow-none">
+    <aside className="h-full min-h-0 overflow-y-auto rounded-none p-4 flex flex-col gap-0 bg-zinc-950 border-0 shadow-none">
       <div className="flex items-center gap-2">
         <span className="text-base leading-none shrink-0" aria-hidden="true">🦞</span>
         <span className="font-semibold text-sm ui-text-primary leading-tight">
@@ -360,7 +360,7 @@ export function Sidebar({
         </span>
         <span className="ml-auto w-2 h-2 rounded-full shrink-0" style={{ background: "var(--success)" }} title="已连接" />
       </div>
-      <p className="text-[10px] font-mono ui-text-muted truncate -mt-2 select-all" title={threadId || "尚未建立会话"}>
+      <p className="font-mono text-[9px] opacity-40 truncate -mt-2 select-all text-zinc-200" title={threadId || "尚未建立会话"}>
         {threadId ? threadId.slice(0, 8) + "…" + threadId.slice(-4) : "—"}
       </p>
 
@@ -374,8 +374,8 @@ export function Sidebar({
 
       <section className="mt-6 flex flex-col gap-2 min-h-0">
         <div className="flex items-center justify-between gap-2">
-          <span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-muted)] whitespace-nowrap">
-            产物 <span className="font-normal normal-case tracking-normal opacity-90">Artifacts</span>
+          <span className="text-[10px] font-black text-zinc-600 uppercase tracking-[0.2em] whitespace-nowrap">
+            Artifacts
           </span>
           <button
             type="button"
@@ -384,27 +384,39 @@ export function Sidebar({
               setTrashError(null);
               setTrashModal({ open: true, mode: "all", targets: artifacts.map((f) => f.path) });
             }}
-            className="ui-btn-ghost inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs disabled:opacity-40"
+            className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-[11px] font-bold uppercase tracking-wide text-zinc-500 hover:text-zinc-200 hover:bg-zinc-900/40 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             aria-label="清空最近产物并移入回收站"
           >
-            <Trash2 size={12} />
-            清空
+            <Trash2 size={18} />
+            Clear
           </button>
         </div>
 
         <div className="max-h-[200px] overflow-y-auto overflow-x-hidden space-y-0.5">
           {artifacts.length === 0 ? (
-            <p className="text-[11px] ui-text-muted">本轮生成的文件会出现在这里，点击后统一在右侧预览。</p>
+            <p className="text-[11px] text-zinc-500/70">本轮生成的文件会出现在这里，点击后统一在右侧预览。</p>
           ) : (
             artifacts.map((artifact, index) => (
-              <div key={artifact.path} className="flex items-center gap-1 rounded-md px-2 py-1.5 hover:bg-[var(--surface-3)] transition-colors group">
+              <div
+                key={artifact.path}
+                className={
+                  "group relative flex items-center gap-1 rounded-md pl-3 pr-2 py-1.5 transition-colors " +
+                  (currentPreviewPath === artifact.path ? "bg-zinc-900" : "hover:bg-zinc-900/40")
+                }
+              >
+                {currentPreviewPath === artifact.path ? (
+                  <span
+                    aria-hidden="true"
+                    className="absolute left-0 top-1 bottom-1 w-[2px] bg-blue-500 shadow-[0_0_10px_rgba(59,130,246,0.4)] rounded-r"
+                  />
+                ) : null}
                 <button
                   type="button"
                   onClick={() => togglePreview(artifact.path)}
                   className="flex-1 text-left flex items-center gap-1.5 min-w-0"
                   title={artifact.path}
                 >
-                  <FileText size={12} className="ui-text-muted shrink-0" />
+                  <FileText size={18} strokeWidth={currentPreviewPath === artifact.path ? 2.25 : 1.75} className="text-zinc-500 shrink-0" />
                   <span className="truncate text-xs ui-text-primary">{artifact.fileName}</span>
                   {index === 0 && (
                     <span className="shrink-0 rounded-full px-1.5 py-0.5 text-[9px]" style={{ background: "var(--accent-soft)", color: "var(--accent)" }}>新</span>
@@ -420,8 +432,8 @@ export function Sidebar({
                     title="复制路径"
                   >
                     {copiedPath === artifact.path
-                      ? <Check size={11} style={{ color: "var(--success)" }} />
-                      : <Copy size={11} />}
+                      ? <Check size={18} strokeWidth={2.25} style={{ color: "var(--success)" }} />
+                      : <Copy size={18} />}
                   </button>
                   <button
                     type="button"
@@ -430,7 +442,7 @@ export function Sidebar({
                     aria-label={`打开位置 ${artifact.fileName}`}
                     title="打开所在位置"
                   >
-                    <FolderOpen size={11} />
+                    <FolderOpen size={18} />
                   </button>
                   <button
                     type="button"
@@ -442,7 +454,7 @@ export function Sidebar({
                     aria-label={`删除 ${artifact.fileName}`}
                     title="移入回收站"
                   >
-                    <Trash2 size={11} />
+                    <Trash2 size={18} />
                   </button>
                 </div>
               </div>
@@ -453,8 +465,8 @@ export function Sidebar({
 
       <section className="mt-6 flex flex-col gap-2 min-h-0">
         <div className="flex items-center justify-between gap-2">
-          <span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-muted)] whitespace-nowrap">
-            技能 <span className="font-normal normal-case tracking-normal opacity-90">Skills</span>
+          <span className="text-[10px] font-black text-zinc-600 uppercase tracking-[0.2em] whitespace-nowrap">
+            Skills
           </span>
           <div className="flex items-center gap-1">
             <button
@@ -469,21 +481,21 @@ export function Sidebar({
                 if (!input?.trim()) return;
                 onPreviewPath("browser://" + input.trim());
               }}
-              className="ui-btn-ghost inline-flex items-center rounded-lg p-1.5"
+              className="inline-flex items-center rounded-lg p-1.5 text-zinc-500 hover:text-zinc-200 hover:bg-zinc-900/40 transition-colors"
               aria-label={currentPreviewPath?.startsWith("browser://") ? "关闭云端浏览器" : "打开云端浏览器"}
               title={currentPreviewPath?.startsWith("browser://") ? "关闭云端浏览器" : "打开云端浏览器"}
             >
-              <Globe size={12} className={currentPreviewPath?.startsWith("browser://") ? "text-[var(--accent)]" : ""} />
+              <Globe size={18} strokeWidth={currentPreviewPath?.startsWith("browser://") ? 2.25 : 1.75} className={currentPreviewPath?.startsWith("browser://") ? "text-blue-400" : ""} />
             </button>
             <button
               type="button"
               onClick={() => void loadSkills()}
-              className="ui-btn-ghost inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs"
+              className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-[11px] font-bold uppercase tracking-wide text-zinc-500 hover:text-zinc-200 hover:bg-zinc-900/40 transition-colors"
               aria-label="刷新技能列表"
               title="刷新技能列表"
             >
-              <RefreshCw size={12} className={skillsLoading ? "animate-spin" : ""} />
-              刷新
+              <RefreshCw size={18} className={skillsLoading ? "animate-spin" : ""} />
+              Refresh
             </button>
           </div>
         </div>
@@ -506,7 +518,7 @@ export function Sidebar({
 
         <div className="max-h-44 overflow-y-auto overflow-x-hidden space-y-0.5" role="list">
           {!skillsLoading && skills.length === 0 && (
-            <p className="text-[11px] ui-text-muted">暂无技能（已自动创建 skills 目录）。</p>
+            <p className="text-[11px] text-zinc-500/70">暂无技能（已自动创建 skills 目录）。</p>
           )}
           {skills.map((s) => {
             const isActive = selectedSkillName === s.name;
@@ -525,12 +537,18 @@ export function Sidebar({
                   setTooltipPos(null);
                 }}
                 className={
-                  "relative rounded-md border border-transparent transition-colors group " +
+                  "relative rounded-md border border-transparent transition-colors group overflow-hidden " +
                   (isActive
-                    ? "bg-[var(--accent-soft)] ring-1 ring-[var(--accent)]/40"
-                    : "hover:bg-[var(--surface-3)]")
+                    ? "bg-zinc-900"
+                    : "hover:bg-zinc-900/40")
                 }
               >
+                {isActive ? (
+                  <span
+                    aria-hidden="true"
+                    className="absolute left-0 top-1 bottom-1 w-[2px] bg-blue-500 shadow-[0_0_10px_rgba(59,130,246,0.4)] rounded-r"
+                  />
+                ) : null}
                 <button
                   type="button"
                   onClick={() => {
@@ -545,7 +563,7 @@ export function Sidebar({
                       onSkillSelect?.(s.name);
                     }
                   }}
-                  className="w-full text-left px-2.5 py-2 text-sm ui-text-secondary pr-6 group-hover:pr-28 flex items-center gap-1.5 min-w-0 transition-[padding]"
+                  className="w-full text-left pl-3 pr-6 py-2 text-sm ui-text-secondary group-hover:pr-28 flex items-center gap-1.5 min-w-0 transition-[padding]"
                 >
                   <span className="truncate">{s.name}</span>
                   {s.source === "remote-imported" ? (
@@ -571,7 +589,7 @@ export function Sidebar({
                         target: s.source === "remote-imported" ? "backflow" : "personal",
                       });
                     }}
-                    className="ui-btn-ghost rounded px-1.5 py-1 text-[10px]"
+                    className="rounded px-1.5 py-1 text-[11px] font-bold uppercase tracking-wide text-zinc-500 hover:text-zinc-200 hover:bg-zinc-900/40 transition-colors"
                     aria-label={`${s.source === "remote-imported" ? "回收" : "上传"} ${s.name}`}
                     title={s.source === "remote-imported" ? "回收到远端" : "上传到远端"}
                   >
@@ -585,8 +603,8 @@ export function Sidebar({
                     title="复制文件路径"
                   >
                     {copiedPath === s.skillFile
-                      ? <Check size={11} style={{ color: "var(--success)" }} />
-                      : <Copy size={11} />}
+                      ? <Check size={18} strokeWidth={2.25} style={{ color: "var(--success)" }} />
+                      : <Copy size={18} />}
                   </button>
                   <button
                     type="button"
@@ -595,7 +613,7 @@ export function Sidebar({
                     aria-label={`打开位置 ${s.name}`}
                     title="打开所在位置"
                   >
-                    <FolderOpen size={11} />
+                    <FolderOpen size={18} />
                   </button>
                 </div>
               </div>
@@ -606,20 +624,20 @@ export function Sidebar({
       </section>
 
       {/* ── 组织资产 Organization Assets ── */}
-      <section className="mt-6 flex flex-col gap-2 min-h-0">
+      <section className="mt-6 flex flex-col gap-2 min-h-0 rounded-xl bg-zinc-900/30 border border-white/5 p-3">
         <div className="flex items-center justify-between gap-2">
-          <span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-muted)] whitespace-nowrap">
-            组织资产 <span className="font-normal normal-case tracking-normal opacity-90">Org Assets</span>
+          <span className="text-[10px] font-black text-zinc-600 uppercase tracking-[0.2em] whitespace-nowrap">
+            Org Assets
           </span>
           <button
             type="button"
             onClick={() => void loadOrgAssets()}
-            className="ui-btn-ghost inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs"
+            className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-[11px] font-bold uppercase tracking-wide text-zinc-500 hover:text-zinc-200 hover:bg-zinc-900/40 transition-colors"
             aria-label="刷新组织资产"
             title="刷新组织资产"
           >
-            <RefreshCw size={12} className={orgAssetsLoading ? "animate-spin" : ""} />
-            刷新
+            <RefreshCw size={18} className={orgAssetsLoading ? "animate-spin" : ""} />
+            Refresh
           </button>
         </div>
         {!orgAssetsConnected ? (
@@ -653,18 +671,18 @@ export function Sidebar({
               orgAssets.map((asset) => (
                 <div
                   key={asset.id}
-                  className="rounded-lg p-2.5 flex flex-col gap-2 transition-colors hover:bg-[var(--surface-3)] border border-transparent"
+                  className="relative rounded-lg p-2.5 flex flex-col gap-2 transition-colors hover:bg-zinc-900/40 border border-transparent"
                 >
                   <div className="min-w-0">
                     <p className="text-xs font-medium ui-text-primary truncate">{asset.title || asset.name}</p>
                     <p className="text-[11px] ui-text-muted mt-1 line-clamp-2">{asset.description || asset.organizationName || "组织资产"}</p>
                   </div>
                   <div className="flex items-center justify-between gap-2">
-                    <span className="text-[10px] ui-text-muted">v{asset.version || "未标注"}</span>
+                    <span className="font-mono text-[9px] opacity-40 text-zinc-200">v{asset.version || "未标注"}</span>
                     <button
                       type="button"
                       onClick={() => onOpenOrgAssetDetail?.(asset.id)}
-                      className="ui-btn-ghost rounded-lg px-2 py-1 text-[11px]"
+                      className="rounded-lg px-2 py-1 text-[11px] font-bold uppercase tracking-wide text-zinc-500 hover:text-zinc-200 hover:bg-zinc-900/40 transition-colors"
                     >
                       查看详情
                     </button>

@@ -1,6 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
+import { X as XIcon } from "lucide-react";
 
 /**
  * 全局系统级面板：设置 / 配置中心 / 资源中心等。
@@ -22,12 +23,28 @@ export function SystemShellModal({
       role="dialog"
       aria-modal="true"
       aria-label={title ?? "系统设置"}
-      onClick={onClose}
     >
       <div
         className="relative flex max-h-[92vh] w-full max-w-5xl min-h-0 flex-col overflow-hidden rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-1)] shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
       >
+        <div className="shrink-0 flex items-center justify-between gap-3 px-4 py-3 border-b border-[var(--border-subtle)] bg-[var(--surface-2)]/60">
+          <div className="min-w-0">
+            {title ? (
+              <div className="text-sm font-semibold ui-text-primary truncate">{title}</div>
+            ) : (
+              <div className="text-sm font-semibold ui-text-primary truncate">系统面板</div>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-md p-2 ui-text-muted hover:ui-text-primary hover:bg-[var(--surface-3)] transition-colors"
+            aria-label="关闭"
+            title="关闭"
+          >
+            <XIcon size={16} />
+          </button>
+        </div>
         {children}
       </div>
     </div>

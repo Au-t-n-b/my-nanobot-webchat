@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --turbopack",
+    "dev": "node ./scripts/next-dev.cjs",
     "build": "next build",
     "export:desktop": "node scripts/export-desktop.mjs",
     "start": "next start",

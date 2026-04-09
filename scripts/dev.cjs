@@ -8,6 +8,7 @@
  */
 const { spawn } = require("child_process");
 const path = require("path");
+const { envForNextChild } = require("./node-env-for-next.cjs");
 
 const root = path.join(__dirname, "..");
 
@@ -34,7 +35,9 @@ function spawnProc(name, command, args, options = {}) {
 }
 
 const agui = spawnProc("agui", "python", ["-m", "nanobot", "agui", "--port", "8765"]);
-const web = spawnProc("web", "npm", ["run", "dev", "--prefix", "frontend"]);
+const web = spawnProc("web", "npm", ["run", "dev", "--prefix", "frontend"], {
+  env: envForNextChild(),
+});
 
 let closing = false;
 function shutdown(reason) {

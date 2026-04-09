@@ -36,7 +36,16 @@ type AgentProfile = {
   models: string[];
 };
 
-export function ConfigPanel({ onClose, onSaved }: { onClose: () => void; onSaved?: () => void }) {
+export function ConfigPanel({
+  onClose,
+  onSaved,
+  showCloseButton = true,
+}: {
+  onClose: () => void;
+  onSaved?: () => void;
+  /** 默认 true；若外层 Modal 已提供统一关闭按钮，可设为 false 避免重复 X */
+  showCloseButton?: boolean;
+}) {
   const [mode, setMode] = useState<Mode>("form");
   const [text, setText] = useState("");
   const [originalText, setOriginalText] = useState("");
@@ -465,15 +474,17 @@ export function ConfigPanel({ onClose, onSaved }: { onClose: () => void; onSaved
             ~/.nanobot/config.json
           </span>
         </div>
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="关闭"
-          className="rounded-lg p-1.5 ui-text-secondary hover:ui-text-primary transition-colors"
-          style={{ background: "transparent" }}
-        >
-          <X size={15} />
-        </button>
+        {showCloseButton && (
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="关闭"
+            className="rounded-lg p-1.5 ui-text-secondary hover:ui-text-primary transition-colors"
+            style={{ background: "transparent" }}
+          >
+            <X size={15} />
+          </button>
+        )}
       </div>
 
       {/* Mode tabs */}

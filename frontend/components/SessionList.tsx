@@ -20,18 +20,18 @@ export function SessionList({ currentThreadId, sessions, onCreate, onSelect, onD
   return (
     <section className="flex flex-col gap-2 min-h-0">
       <div className="flex items-center justify-between gap-2">
-        <span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--text-muted)]">
-          会话 <span className="font-normal normal-case tracking-normal opacity-90">Sessions</span>
+        <span className="text-[10px] font-black text-zinc-600 uppercase tracking-[0.2em]">
+          Sessions
         </span>
         <button
           type="button"
           onClick={onCreate}
-          className="inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-[11px] font-medium transition-colors hover:bg-[var(--surface-3)] text-[var(--text-secondary)] hover:text-[var(--accent)]"
+          className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-[11px] font-bold uppercase tracking-wide transition-colors text-zinc-500 hover:text-zinc-200 hover:bg-zinc-900/40"
           aria-label="创建新会话"
           title="创建新会话"
         >
-          <MessageSquarePlus size={11} />
-          新建
+          <MessageSquarePlus size={18} />
+          New
         </button>
       </div>
 
@@ -51,16 +51,22 @@ export function SessionList({ currentThreadId, sessions, onCreate, onSelect, onD
               role="button"
               tabIndex={0}
               className={
-                "group relative w-full rounded-md px-2.5 py-2 text-left transition-colors cursor-pointer outline-none border border-transparent " +
+                "group relative w-full rounded-md pl-3 pr-2.5 py-2 text-left transition-colors cursor-pointer outline-none border border-transparent " +
                 (active
-                  ? "bg-[var(--accent-soft)] ring-1 ring-[var(--accent)]/35"
-                  : "hover:bg-[var(--surface-3)]")
+                  ? "bg-zinc-900"
+                  : "hover:bg-zinc-900/40")
               }
             >
+              {active ? (
+                <span
+                  aria-hidden="true"
+                  className="absolute left-0 top-1 bottom-1 w-[2px] bg-blue-500 shadow-[0_0_10px_rgba(59,130,246,0.4)] rounded-r"
+                />
+              ) : null}
               <div className="flex items-center justify-between gap-2">
                 <span className="truncate text-sm font-medium ui-text-primary">{session.title}</span>
-                <span className="inline-flex items-center gap-1 text-[10px] ui-text-muted shrink-0">
-                  <Clock3 size={10} />
+                <span className="inline-flex items-center gap-1 font-mono text-[9px] opacity-40 shrink-0 text-zinc-200">
+                  <Clock3 size={18} strokeWidth={active ? 2.25 : 1.75} />
                   {formatUpdatedAt(session.updatedAt)}
                 </span>
               </div>
@@ -73,11 +79,11 @@ export function SessionList({ currentThreadId, sessions, onCreate, onSelect, onD
                     e.stopPropagation();
                     if (window.confirm("确定删除该会话？")) onDelete(session.id);
                   }}
-                  className="absolute right-2 top-2 opacity-0 group-hover:opacity-100 transition-opacity rounded p-1 ui-text-muted hover:text-red-500 hover:bg-[var(--surface-2)]"
+                  className="absolute right-2 top-2 opacity-0 group-hover:opacity-100 transition-opacity rounded p-1 text-zinc-500 hover:text-red-400 hover:bg-zinc-900/40"
                   aria-label="删除会话"
                   title="删除会话"
                 >
-                  <Trash2 size={12} />
+                  <Trash2 size={18} strokeWidth={active ? 2.25 : 1.75} />
                 </button>
               )}
             </div>

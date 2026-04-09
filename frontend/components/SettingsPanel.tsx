@@ -42,9 +42,12 @@ type RemoteSession = {
 export function SettingsPanel({
   onClose,
   onOpenRemoteUpload,
+  showCloseButton = true,
 }: {
   onClose: () => void;
   onOpenRemoteUpload?: () => void;
+  /** 默认 true；若外层 Modal 已提供统一关闭按钮，可设为 false 避免重复 X */
+  showCloseButton?: boolean;
 }) {
   const [proxy, setProxy] = useState<ProxyConfig>({
     enabled: false,
@@ -221,14 +224,16 @@ export function SettingsPanel({
         <span className="text-[11px] font-semibold uppercase tracking-wider ui-text-secondary">
           设置 <span className="font-normal normal-case tracking-normal ui-text-muted">Settings</span>
         </span>
-        <button
-          type="button"
-          onClick={onClose}
-          className="rounded-md p-1 ui-text-muted hover:text-[var(--text-primary)] hover:bg-[var(--surface-3)] transition-colors"
-          aria-label="关闭设置"
-        >
-          <X size={14} />
-        </button>
+        {showCloseButton && (
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-md p-1 ui-text-muted hover:text-[var(--text-primary)] hover:bg-[var(--surface-3)] transition-colors"
+            aria-label="关闭设置"
+          >
+            <X size={14} />
+          </button>
+        )}
       </div>
 
       {/* Toast */}

@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import type { SduiNode } from "@/lib/sdui";
+import type { SduiNode, SduiGuidanceCardNode, SduiChoiceCardNode } from "@/lib/sdui";
 import { stableChildKey } from "@/lib/sduiKeys";
 import { SduiStack } from "@/components/sdui/Stack";
 import { SduiCard } from "@/components/sdui/Card";
@@ -25,6 +25,8 @@ import { SduiDonutChart } from "@/components/sdui/SduiDonutChart";
 import { SduiBarChart } from "@/components/sdui/SduiBarChart";
 import { SduiFileKindBadge } from "@/components/sdui/SduiFileKindBadge";
 import { SduiArtifactGrid } from "@/components/sdui/SduiArtifactGrid";
+import { SduiGuidanceCard } from "@/components/sdui/GuidanceCard";
+import { SduiChoiceCard } from "@/components/sdui/ChoiceCard";
 
 function UnknownNode({ type }: { type: string }) {
   return (
@@ -196,6 +198,24 @@ export function SduiNodeView({ node, pathPrefix = "root" }: Props) {
 
     case "ArtifactGrid":
       return <SduiArtifactGrid artifacts={node.artifacts} />;
+
+    case "GuidanceCard":
+      return (
+        <SduiGuidanceCard
+          context={node.context}
+          actions={node.actions}
+          cardId={(node as SduiGuidanceCardNode & { cardId?: string }).cardId}
+        />
+      );
+
+    case "ChoiceCard":
+      return (
+        <SduiChoiceCard
+          title={node.title}
+          options={node.options}
+          cardId={(node as SduiChoiceCardNode & { cardId?: string }).cardId}
+        />
+      );
 
     default:
       return <UnknownNode type={(node as { type?: string }).type ?? "?"} />;

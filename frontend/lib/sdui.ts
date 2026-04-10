@@ -357,6 +357,26 @@ export type SduiArtifactGridNode = {
   flex?: number;
 };
 
+export type SduiGuidanceAction = { label: string; verb: string };
+
+export type SduiGuidanceCardNode = {
+  type: "GuidanceCard";
+  id?: string;
+  context: string;
+  actions: SduiGuidanceAction[];
+  flex?: number;
+};
+
+export type SduiChoiceOption = { id: string; label: string };
+
+export type SduiChoiceCardNode = {
+  type: "ChoiceCard";
+  id?: string;
+  title: string;
+  options: SduiChoiceOption[];
+  flex?: number;
+};
+
 export type SduiNode =
   | SduiStackNode
   | SduiCardNode
@@ -380,7 +400,9 @@ export type SduiNode =
   | SduiDonutChartNode
   | SduiBarChartNode
   | SduiFileKindBadgeNode
-  | SduiArtifactGridNode;
+  | SduiArtifactGridNode
+  | SduiGuidanceCardNode
+  | SduiChoiceCardNode;
 
 /** 各节点可选的稳定 id，用于列表 React key 与排查 */
 type SduiOptionalId = {

@@ -5,6 +5,8 @@ import { Bot, Check, Copy, FileText, Trash2, User } from "lucide-react";
 import type { AgentMessage } from "@/hooks/useAgentChat";
 import { AgentMarkdown } from "@/components/AgentMarkdown";
 import { extractFilesFromContent } from "@/lib/fileIndex";
+import { SkillUiRuntimeProvider } from "@/components/sdui/SkillUiRuntimeProvider";
+import { SduiNodeView } from "@/components/sdui/SduiNodeView";
 
 type Props = {
   messages: AgentMessage[];
@@ -160,6 +162,79 @@ function Avatar({ role }: { role: "user" | "assistant" }) {
   );
 }
 
+class ChatCardErrorBoundary extends (require("react").Component as typeof import("react").Component)<
+  { children: React.ReactNode },
+  { hasError: boolean }
+> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false };
+  }
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+  componentDidCatch(err: unknown) {
+    console.error("[ChatCard] render error", err);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div
+          className="rounded-xl px-3 py-3 text-sm"
+          style={{
+            border: "1px solid rgba(239,107,115,0.24)",
+            background: "rgba(239,107,115,0.08)",
+            color: "var(--danger)",
+          }}
+        >
+          ChatCard 渲染失败（已隔离，不影响聊天流）。
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+function ChatCardBubble({
+  msg,
+  onFileLinkClick,
+}: {
+  msg: AgentMessage;
+  onFileLinkClick?: (path: string) => void;
+}) {
+  const card = msg.chatCard;
+  if (!card) return null;
+  // Force unmount on replace (new event id) to ensure any debounced timers in SDUI inputs are cleaned up.
+  const mountKey = `${card.cardId}:${card.id}`;
+  return (
+    <div
+      className="chatcard-slide-up rounded-2xl rounded-tl-sm px-4 py-3 text-sm ui-card"
+      style={{
+        background: "var(--surface-2)",
+        border: "1px solid var(--border-subtle)",
+        borderLeft: "3px solid var(--accent)",
+      }}
+    >
+      {card.title ? (
+        <div className="mb-2 text-xs font-semibold ui-text-primary">{card.title}</div>
+      ) : null}
+      <ChatCardErrorBoundary>
+        <div key={mountKey} className="min-w-0">
+          <SkillUiRuntimeProvider
+            postToAgentRaw={() => {
+              /* ChatCard 默认不直接发消息；需时在后续支持 */
+            }}
+            onOpenPreview={(p) => onFileLinkClick?.(p)}
+            docId={card.docId}
+          >
+            <SduiNodeView node={{ ...card.node, cardId: card.cardId } as typeof card.node} />
+          </SkillUiRuntimeProvider>
+        </div>
+      </ChatCardErrorBoundary>
+    </div>
+  );
+}
+
 export const MessageList = memo(function MessageList({
   messages,
   isLoading,
@@ -188,37 +263,46 @@ export const MessageList = memo(function MessageList({
             const isLast = i === messages.length - 1;
             const isUser = m.role === "user";
             const assistantWaiting = !isUser && isLoading && isLast && !m.content?.trim();
+            const isChatCard = m.kind === "chat_card" && m.chatCard;
 
             return (
               <li key={m.id} className={isUser ? "flex flex-col items-end gap-0" : "flex flex-row items-start gap-3"}>
                 {!isUser && <Avatar role="assistant" />}
                 {/* Bubble + action bar stacked vertically, wrapped in a group for hover */}
                 <div className={"group flex flex-col " + (isUser ? "items-end max-w-[92%]" : "items-start max-w-[92%]")}>
-                  <div
-                    className={
-                      isUser
-                        ? "rounded-2xl rounded-tr-sm px-5 py-4 text-base leading-relaxed"
-                        : "rounded-2xl rounded-tl-sm px-5 py-4 text-base leading-relaxed ui-card"
-                    }
-                    style={isUser ? { background: "var(--accent-soft)", border: "1px solid var(--border-subtle)", color: "var(--text-primary)" } : undefined}
-                  >
-                    {isUser ? (
-                      <span className="whitespace-pre-wrap ui-text-primary leading-relaxed">{m.content}</span>
-                    ) : assistantWaiting ? (
-                      <span className="ui-text-muted text-base leading-relaxed">等待回复…</span>
-                    ) : (
-                      <>
-                        <AgentMarkdown
-                          content={m.content}
-                          onFileLinkClick={onFileLinkClick}
-                          searchQuery={searchQuery}
-                        />
-                        <FileIndexChips paths={chipPathsPerMessage[i] ?? []} onFileLinkClick={onFileLinkClick} />
-                      </>
-                    )}
-                  </div>
+                  {isChatCard ? (
+                    <ChatCardBubble msg={m} onFileLinkClick={onFileLinkClick} />
+                  ) : (
+                    <div
+                      className={
+                        isUser
+                          ? "rounded-2xl rounded-tr-sm px-5 py-4 text-base leading-relaxed"
+                          : "rounded-2xl rounded-tl-sm px-5 py-4 text-base leading-relaxed ui-card"
+                      }
+                      style={
+                        isUser
+                          ? {
+                              background: "var(--accent-soft)",
+                              border: "1px solid var(--border-subtle)",
+                              color: "var(--text-primary)",
+                            }
+                          : undefined
+                      }
+                    >
+                      {isUser ? (
+                        <span className="whitespace-pre-wrap ui-text-primary leading-relaxed">{m.content}</span>
+                      ) : assistantWaiting ? (
+                        <span className="ui-text-muted text-base leading-relaxed">等待回复…</span>
+                      ) : (
+                        <>
+                          <AgentMarkdown content={m.content} onFileLinkClick={onFileLinkClick} searchQuery={searchQuery} />
+                          <FileIndexChips paths={chipPathsPerMessage[i] ?? []} onFileLinkClick={onFileLinkClick} />
+                        </>
+                      )}
+                    </div>
+                  )}
                   {/* Hover action bar (copy + delete) */}
-                  {m.content && (
+                  {m.content && !isChatCard && (
                     <MessageActions
                       content={m.content}
                       onDelete={onDeleteMessage ? () => onDeleteMessage(m.id) : undefined}

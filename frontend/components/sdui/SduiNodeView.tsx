@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import type { SduiNode } from "@/lib/sdui";
 import { stableChildKey } from "@/lib/sduiKeys";
 import { SduiStack } from "@/components/sdui/Stack";
@@ -9,6 +10,7 @@ import { SduiDivider } from "@/components/sdui/Divider";
 import { SduiText } from "@/components/sdui/Text";
 import { SduiTextArea } from "@/components/sdui/TextArea";
 import { SduiMarkdown } from "@/components/sdui/Markdown";
+import { SduiFilePicker } from "@/components/sdui/FilePicker";
 import { SduiBadge } from "@/components/sdui/Badge";
 import { SduiStatistic } from "@/components/sdui/Statistic";
 import { SduiKeyValueList } from "@/components/sdui/KeyValueList";
@@ -65,18 +67,24 @@ export function SduiNodeView({ node, pathPrefix = "root" }: Props) {
     case "Row": {
       const rowChildren = node.children ?? [];
       const rowAllStatistic = rowChildren.length > 0 && rowChildren.every((c) => c.type === "Statistic");
+      if (rowAllStatistic) {
+        return (
+          <div className="metrics-grid w-full">
+            {rowChildren.map((child, i) => {
+              const seg = stableChildKey(child, i, pathPrefix);
+              return (
+                <div key={seg} className="min-w-0">
+                  <SduiNodeView node={child} pathPrefix={seg} />
+                </div>
+              );
+            })}
+          </div>
+        );
+      }
       return (
         <SduiRow gap={node.gap} align={node.align} justify={node.justify} wrap={node.wrap}>
           {rowChildren.map((child, i) => {
             const seg = stableChildKey(child, i, pathPrefix);
-            const inner = <SduiNodeView node={child} pathPrefix={seg} />;
-            if (rowAllStatistic) {
-              return (
-                <div key={seg} className="min-w-0 flex-1 basis-0">
-                  {inner}
-                </div>
-              );
-            }
             return <SduiNodeView key={seg} node={child} pathPrefix={seg} />;
           })}
         </SduiRow>
@@ -91,6 +99,40 @@ export function SduiNodeView({ node, pathPrefix = "root" }: Props) {
 
     case "Stepper":
       return <SduiStepper steps={node.steps} orientation={node.orientation} />;
+
+    case "Skeleton": {
+      const variant = node.variant ?? "rect";
+      const lines = Math.min(8, Math.max(1, typeof node.lines === "number" ? node.lines : 3));
+      let block: ReactNode;
+      if (variant === "text") {
+        block = (
+          <div className="flex w-full flex-col gap-2">
+            {Array.from({ length: lines }, (_, i) => (
+              <div key={i} className="ui-skeleton h-3 w-full rounded-md" />
+            ))}
+          </div>
+        );
+      } else if (variant === "row") {
+        block = <div className="ui-skeleton h-10 w-full rounded-lg" />;
+      } else if (variant === "card") {
+        block = <div className="ui-skeleton min-h-[120px] w-full rounded-xl" />;
+      } else {
+        block = <div className="ui-skeleton h-20 w-full rounded-xl" />;
+      }
+      const ch = node.children;
+      if (Array.isArray(ch) && ch.length) {
+        return (
+          <div className="flex w-full flex-col gap-3">
+            {block}
+            {ch.map((child, i) => {
+              const seg = stableChildKey(child, i, pathPrefix);
+              return <SduiNodeView key={seg} node={child} pathPrefix={seg} />;
+            })}
+          </div>
+        );
+      }
+      return block;
+    }
 
     case "Text":
       return <SduiText content={node.content} variant={node.variant} color={node.color} align={node.align} />;
@@ -108,6 +150,9 @@ export function SduiNodeView({ node, pathPrefix = "root" }: Props) {
 
     case "Markdown":
       return <SduiMarkdown content={node.content} />;
+
+    case "FilePicker":
+      return <SduiFilePicker {...node} />;
 
     case "Badge":
       return <SduiBadge text={node.text} label={node.label} tone={node.tone} color={node.color} size={node.size} />;
@@ -153,15 +198,22 @@ export function SduiNodeView({ node, pathPrefix = "root" }: Props) {
     }
   })();
 
+  const isPartial = (node as unknown as { _partial?: boolean })._partial === true;
+  const wrapped = isPartial ? (
+    <div className="sdui-partial sdui-slide-in">{inner}</div>
+  ) : (
+    inner
+  );
+
   if (typeof node.flex === "number" && Number.isFinite(node.flex) && node.flex > 0) {
     // v2：布局比例（允许 inline style，仅用于 flex 分配）
     const f = node.flex;
     return (
       <div className="min-w-0" style={{ flex: `${f} ${f} 0%` }}>
-        {inner}
+        {wrapped}
       </div>
     );
   }
 
-  return inner;
+  return wrapped;
 }

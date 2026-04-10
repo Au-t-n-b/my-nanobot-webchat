@@ -413,3 +413,40 @@ body,
   container-type: inline-size;
   container-name: dashboard;
 }
+
+/* Metrics grid: auto-reflow 3→2→1 col based on dashboard container width */
+.metrics-grid {
+  display: grid;
+  gap: 0.5rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+@container dashboard (max-width: 399px) {
+  .metrics-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@container dashboard (max-width: 259px) {
+  .metrics-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Module cards grid in ProjectOverview */
+.module-cards-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+}
+
+@container dashboard (min-width: 460px) {
+  .module-cards-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@container dashboard (min-width: 700px) {
+  .module-cards-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}

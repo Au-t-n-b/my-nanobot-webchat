@@ -227,7 +227,7 @@ function ChatCardBubble({
             onOpenPreview={(p) => onFileLinkClick?.(p)}
             docId={card.docId}
           >
-            <SduiNodeView node={{ ...card.node, cardId: card.cardId } as typeof card.node} />
+            <SduiNodeView node={{ ...card.node, cardId: card.cardId } as unknown as typeof card.node} />
           </SkillUiRuntimeProvider>
         </div>
       </ChatCardErrorBoundary>

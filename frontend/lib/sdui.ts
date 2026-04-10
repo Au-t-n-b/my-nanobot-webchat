@@ -14,6 +14,9 @@ export type SpacingToken = (typeof SPACING_TOKENS)[number];
 /** v2 语义化颜色（禁止自由色板污染主题） */
 export type SduiSemanticColor = "success" | "warning" | "error" | "accent" | "subtle";
 
+/** Milestone D: 隐式 UI State 同步载荷类型（避免 any 扩散） */
+export type UiStateValue = unknown;
+
 /** 支持的原子节点类型（MVP+） */
 export type SduiNodeType =
   | "Stack"
@@ -22,9 +25,11 @@ export type SduiNodeType =
   | "Divider"
   | "Tabs"
   | "Stepper"
+  | "Skeleton"
   | "Text"
   | "TextArea"
   | "Markdown"
+  | "FilePicker"
   | "Badge"
   | "Statistic"
   | "KeyValueList"
@@ -35,7 +40,10 @@ export type SduiNodeType =
   | "ChartPlaceholder"
   | "DonutChart"
   | "BarChart"
-  | "FileKindBadge";
+  | "FileKindBadge"
+  | "ArtifactGrid"
+  | "GuidanceCard"
+  | "ChoiceCard";
 
 /** 运行时校验 / normalizer 用：全部合法 `type` 字面量 */
 export const SDUI_NODE_TYPE_VALUES: readonly SduiNodeType[] = [
@@ -45,9 +53,11 @@ export const SDUI_NODE_TYPE_VALUES: readonly SduiNodeType[] = [
   "Divider",
   "Tabs",
   "Stepper",
+  "Skeleton",
   "Text",
   "TextArea",
   "Markdown",
+  "FilePicker",
   "Badge",
   "Statistic",
   "KeyValueList",
@@ -59,6 +69,9 @@ export const SDUI_NODE_TYPE_VALUES: readonly SduiNodeType[] = [
   "DonutChart",
   "BarChart",
   "FileKindBadge",
+  "ArtifactGrid",
+  "GuidanceCard",
+  "ChoiceCard",
 ] as const;
 
 /** Tabs 子项图标的封闭枚举（宿主映射到 Lucide，禁止自由 SVG/URL） */
@@ -74,9 +87,19 @@ export type SduiTabIconName =
 /** Stepper 每步状态 */
 export type SduiStepperStatus = "waiting" | "running" | "done" | "error";
 
+/** Stepper 子步骤（Tooltip 展示用；兼容旧 string 与新结构化项） */
+export type SduiStepperDetailItem =
+  | string
+  | {
+      title: string;
+      status: SduiStepperStatus;
+    };
+
 export type SduiAction =
   | { kind: "post_user_message"; text: string }
-  | { kind: "open_preview"; path: string };
+  | { kind: "open_preview"; path: string }
+  | { kind: "sync_state"; key: string; value: UiStateValue; behavior?: "debounce" | "immediate" }
+  | { kind: "chat_card_intent"; verb: string; cardId: string; payload?: unknown };
 
 /**
  * v3 (Milestone-1): Patch envelope for incremental updates.
@@ -91,10 +114,21 @@ export type SduiPatch = {
   baseRevision?: number;
   /** 单调递增；宿主丢弃不大于已应用值的补丁 */
   revision: number;
+  /**
+   * v3 Visual Stream (M2):
+   * - true: 流式片段（可呈现轻微 skeleton/pulse）
+   * - false: 稳定状态（结束流式、清理视觉态）
+   */
+  isPartial?: boolean;
   ops: Array<
     | { op: "merge"; target: { by: "id"; nodeId: string }; value: Partial<SduiNode> & { type: SduiNodeType; id?: string } }
     | { op: "replace"; target: { by: "id"; nodeId: string }; value: SduiNode }
     | { op: "remove"; target: { by: "id"; nodeId: string } }
+    | {
+        op: "append";
+        target: { by: "id"; nodeId: string; field: "children" | "rows" };
+        value: unknown;
+      }
   >;
 };
 
@@ -104,6 +138,50 @@ export type SduiDocument = {
   type: "SduiDocument";
   root: SduiNode;
   meta?: Record<string, unknown>;
+};
+
+/** SSE 事件名（与后端 `format_sse` 的 event 字段一致） */
+export const SKILL_UI_BOOTSTRAP = "SkillUiBootstrap" as const;
+/** SSE 事件名：会话内交互卡片（左侧聊天流内渲染 SDUI 节点） */
+export const SKILL_UI_CHAT_CARD = "SkillUiChatCard" as const;
+
+/** 后端推送的 Bootstrap 载荷（`document` 为完整 SduiDocument JSON） */
+export type SkillUiBootstrapPayload = {
+  syntheticPath: string;
+  document: unknown;
+};
+
+/** 前端归一化后的 Bootstrap 事件（供 SkillUiWrapper 竞争挂载） */
+export type SkillUiBootstrapEvent = {
+  id: string;
+  syntheticPath: string;
+  document: SduiDocument;
+  receivedAt: number;
+};
+
+/** ChatCard SSE 载荷：在聊天流中插入/替换一张交互卡片 */
+export type SkillUiChatCardPayload = {
+  threadId?: string;
+  /** 用于 replace 精准锁定 */
+  cardId: string;
+  mode?: "append" | "replace";
+  /** 卡片 docId（默认：chat:<threadId>） */
+  docId?: string;
+  title?: string;
+  /** 允许直接承载一个 SDUI 节点或一个完整 SduiDocument（宿主会兜底包一层 Stack） */
+  node?: unknown;
+  document?: unknown;
+};
+
+export type SkillUiChatCardEvent = {
+  id: string;
+  cardId: string;
+  mode: "append" | "replace";
+  docId: string;
+  title?: string;
+  /** 规范化后的节点树（root node） */
+  node: SduiNode;
+  receivedAt: number;
 };
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -136,6 +214,24 @@ function indexNodesById(root: SduiNode): Map<string, SduiNode> {
   };
   walk(root);
   return map;
+}
+
+function indexSubtreeByIdIntoMap(root: SduiNode, map: Map<string, SduiNode>): void {
+  const walk = (n: SduiNode) => {
+    const id = nodeIdOf(n);
+    if (id) map.set(id, n);
+    const ch = (n as { children?: SduiNode[] }).children;
+    if (Array.isArray(ch)) ch.forEach(walk);
+    if (n.type === "Tabs") {
+      const tabs = (n as { tabs?: Array<{ children?: SduiNode[] }> }).tabs;
+      if (Array.isArray(tabs)) {
+        for (const t of tabs) {
+          if (t && Array.isArray(t.children)) t.children.forEach(walk);
+        }
+      }
+    }
+  };
+  walk(root);
 }
 
 function deepMergeInPlace(target: Record<string, unknown>, patch: Record<string, unknown>): void {
@@ -171,6 +267,47 @@ export function applySduiPatch(doc: SduiDocument, patch: SduiPatch): SduiDocumen
     const existing = byId.get(id);
     if (!existing) continue;
 
+    if (op.op === "append") {
+      const field = op?.target?.field;
+      const isPartial = patch.isPartial === true;
+
+      if (field === "children") {
+        const container = existing as unknown as { children?: SduiNode[] };
+        const prev = Array.isArray(container.children) ? container.children : [];
+        const nextItems: SduiNode[] = [];
+
+        if (Array.isArray(op.value)) {
+          for (const item of op.value) {
+            if (item && typeof item === "object" && (item as { type?: unknown }).type) {
+              nextItems.push(item as SduiNode);
+            }
+          }
+        } else if (op.value && typeof op.value === "object" && (op.value as { type?: unknown }).type) {
+          nextItems.push(op.value as SduiNode);
+        }
+
+        if (nextItems.length) {
+          if (isPartial) {
+            for (const n of nextItems) {
+              (n as unknown as { _partial?: boolean })._partial = true;
+            }
+          }
+          container.children = prev.concat(nextItems);
+          // Newly appended nodes should be addressable by later ops within the same patch.
+          for (const n of nextItems) indexSubtreeByIdIntoMap(n, byId);
+        }
+      } else if (field === "rows") {
+        // DataGrid.rows: opaque row records; no id indexing.
+        const grid = existing as unknown as { type?: string; rows?: unknown[] };
+        if (grid.type !== "DataGrid") continue;
+        const prev = Array.isArray(grid.rows) ? grid.rows : [];
+        const nextItems = Array.isArray(op.value) ? op.value : [op.value];
+        const safeNext = nextItems.filter((x) => x !== undefined);
+        if (safeNext.length) grid.rows = prev.concat(safeNext);
+      }
+      continue;
+    }
+
     if (op.op === "remove") {
       // M1: structural deletion not supported; ignore safely.
       continue;
@@ -202,6 +339,24 @@ export function applySduiPatch(doc: SduiDocument, patch: SduiPatch): SduiDocumen
   return next;
 }
 
+export type SduiArtifactStatus = "ready" | "generating" | "error";
+export type SduiArtifactKind = "docx" | "xlsx" | "pdf" | "html" | "json" | "md" | "png" | "other";
+
+export type SduiArtifactItem = {
+  id: string;
+  label: string;
+  path: string;
+  kind: SduiArtifactKind;
+  status?: SduiArtifactStatus;
+};
+
+export type SduiArtifactGridNode = {
+  type: "ArtifactGrid";
+  id?: string;
+  artifacts: SduiArtifactItem[];
+  flex?: number;
+};
+
 export type SduiNode =
   | SduiStackNode
   | SduiCardNode
@@ -209,9 +364,11 @@ export type SduiNode =
   | SduiDividerNode
   | SduiTabsNode
   | SduiStepperNode
+  | SduiSkeletonNode
   | SduiTextNode
   | SduiTextAreaNode
   | SduiMarkdownNode
+  | SduiFilePickerNode
   | SduiBadgeNode
   | SduiStatisticNode
   | SduiKeyValueListNode
@@ -222,7 +379,8 @@ export type SduiNode =
   | SduiChartPlaceholderNode
   | SduiDonutChartNode
   | SduiBarChartNode
-  | SduiFileKindBadgeNode;
+  | SduiFileKindBadgeNode
+  | SduiArtifactGridNode;
 
 /** 各节点可选的稳定 id，用于列表 React key 与排查 */
 type SduiOptionalId = {
@@ -285,6 +443,8 @@ export type SduiStepperStep = {
   id: string;
   title: string;
   status: SduiStepperStatus;
+  /** 细分步骤：Hover Tooltip 展示 */
+  detail?: SduiStepperDetailItem[];
 };
 
 /** 横向/纵向流程步骤条 */
@@ -293,6 +453,17 @@ export type SduiStepperNode = SduiOptionalId & {
   steps: SduiStepperStep[];
   /** 默认横向；纵向时适用于窄栏 */
   orientation?: "horizontal" | "vertical";
+};
+
+/** 流式 Bootstrap / 推测性渲染占位（封闭世界；无自由像素，仅用语义 variant） */
+export type SduiSkeletonVariant = "text" | "rect" | "card" | "row";
+
+export type SduiSkeletonNode = SduiOptionalId & {
+  type: "Skeleton";
+  variant?: SduiSkeletonVariant;
+  /** variant=text 时的行数（1–8） */
+  lines?: number;
+  children?: SduiNode[];
 };
 
 export type SduiTextNode = SduiOptionalId & {
@@ -316,6 +487,16 @@ export type SduiTextAreaNode = SduiOptionalId & {
 export type SduiMarkdownNode = SduiOptionalId & {
   type: "Markdown";
   content: string;
+};
+
+export type SduiFilePickerNode = SduiOptionalId & {
+  type: "FilePicker";
+  /** 用于写入 meta.uiState.uploads.<purpose> */
+  purpose: string;
+  label?: string;
+  helpText?: string;
+  accept?: string;
+  multiple?: boolean;
 };
 
 export type SduiBadgeNode = SduiOptionalId & {

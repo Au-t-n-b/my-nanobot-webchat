@@ -24,6 +24,7 @@ import { SduiChartPlaceholder } from "@/components/sdui/SduiChartPlaceholder";
 import { SduiDonutChart } from "@/components/sdui/SduiDonutChart";
 import { SduiBarChart } from "@/components/sdui/SduiBarChart";
 import { SduiFileKindBadge } from "@/components/sdui/SduiFileKindBadge";
+import { SduiArtifactGrid } from "@/components/sdui/SduiArtifactGrid";
 
 function UnknownNode({ type }: { type: string }) {
   return (
@@ -192,6 +193,9 @@ export function SduiNodeView({ node, pathPrefix = "root" }: Props) {
 
     case "FileKindBadge":
       return <SduiFileKindBadge kind={node.kind} size={node.size} />;
+
+    case "ArtifactGrid":
+      return <SduiArtifactGrid artifacts={node.artifacts} />;
 
     default:
       return <UnknownNode type={(node as { type?: string }).type ?? "?"} />;

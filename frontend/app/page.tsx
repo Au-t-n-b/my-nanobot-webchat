@@ -17,6 +17,7 @@ import { ConfigPanel } from "@/components/ConfigPanel";
 import { TaskProgressBar } from "@/components/TaskProgressBar";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { useAgentChat } from "@/hooks/useAgentChat";
+import { DashboardNavigator } from "@/components/DashboardNavigator";
 import { previewKindFromPath } from "@/lib/previewKind";
 import {
   isBaseLayerDashboardSkillUi,
@@ -681,15 +682,19 @@ export default function Home() {
           <div className="w-0.5 h-12 rounded-full transition-colors group-hover:bg-[var(--accent)]" style={{ background: "var(--border-subtle)" }} />
         </div>
 
-        {/* Col 3: Dashboard placeholder (DashboardNavigator added in Task 3) */}
+        {/* Col 3: DashboardNavigator */}
         <div
           className="flex-1 min-w-[280px] min-h-0 bg-[var(--surface-0)] rounded-2xl overflow-hidden dashboard-container"
           style={{ containerType: "inline-size", containerName: "dashboard" } as React.CSSProperties}
         >
-          <div className="h-full flex flex-col items-center justify-center gap-3 opacity-30">
-            <div className="text-4xl">📊</div>
-            <p className="text-sm ui-text-muted">大盘加载中…</p>
-          </div>
+          <DashboardNavigator
+            skillUiPatchEvent={skillUiPatchEvent}
+            skillUiBootstrapEvent={skillUiBootstrapEvent}
+            onOpenPreview={wakePreview}
+            postToAgent={(text) => void sendMessage(text, selectedModel)}
+            isAgentRunning={isAgentRunning}
+            activeSkillName={activeSkillName}
+          />
         </div>
 
         {/* Drag handle: dashboard ↔ preview */}

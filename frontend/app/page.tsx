@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Menu, Settings, X } from "lucide-react";
+import { FileText, Menu, PanelRightClose, PanelRightOpen, Plus, Settings, X, Zap } from "lucide-react";
 import { ChatArea } from "@/components/ChatArea";
 import { ChoicesModal } from "@/components/ChoicesModal";
 import { ErrorToast } from "@/components/ErrorToast";
@@ -15,6 +15,7 @@ import { Sidebar } from "@/components/Sidebar";
 import { ModelSelector } from "@/components/ModelSelector";
 import { ConfigPanel } from "@/components/ConfigPanel";
 import { TaskProgressBar } from "@/components/TaskProgressBar";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { useAgentChat } from "@/hooks/useAgentChat";
 import { previewKindFromPath } from "@/lib/previewKind";
 import {
@@ -23,10 +24,6 @@ import {
   normalizeSyntheticSkillUiPath,
 } from "@/lib/skillUiRegistry";
 
-const SIDEBAR_MIN = 200;
-const SIDEBAR_MAX = 560;       // left panel max
-const SIDEBAR_DEFAULT = 280;   // left panel default
-const RIGHT_PANEL_DEFAULT = 460;
 const RIGHT_PANEL_MAX = typeof window !== "undefined"
   ? Math.floor(window.innerWidth * 0.62)
   : 900;
@@ -53,6 +50,7 @@ export default function Home() {
     statusMessage,
     effectiveModel,
     skillUiPatchEvent,
+    skillUiBootstrapEvent,
     sendMessage,
     stopGenerating,
     approveTool,
@@ -64,7 +62,6 @@ export default function Home() {
     switchSession,
   } = useAgentChat();
   const [inputPrefill, setInputPrefill] = useState("");
-  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   /** 右栏业务视窗：底层大盘 + 预览类 Tab + 强阻断 Action SDUI */
   const [baseDashboardUrl, setBaseDashboardUrl] = useState<string | null>(null);
   const [blockingActionPath, setBlockingActionPath] = useState<string | null>(null);
@@ -80,15 +77,18 @@ export default function Home() {
   const [searchQuery, setSearchQuery] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [leftWidth, setLeftWidth] = useState(SIDEBAR_DEFAULT);
-  const [rightWidth, setRightWidth] = useState(RIGHT_PANEL_DEFAULT);
+  const [chatWidth, setChatWidth] = useState(240);
+  const [previewWidth, setPreviewWidth] = useState(32);
+  const [previewAnimating, setPreviewAnimating] = useState(false);
+  const CHAT_MIN = 180;
+  const CHAT_MAX = 420;
+  const PREVIEW_OPEN_DEFAULT = 460;
   const [selectedModel, setSelectedModel] = useState<string>("glm-4");
   const [modelOptions, setModelOptions] = useState<string[]>([]);
   const [selectedProvider, setSelectedProvider] = useState<string>("");
   const [agentProfiles, setAgentProfiles] = useState<Array<{ name: string; provider: string; model: string; models: string[] }>>([]);
   const lastInputRef = useRef("");
-  const draggingRef = useRef<null | "left" | "right">(null);
+  const draggingRef = useRef<null | "chat" | "preview">(null);
   const dragStartX = useRef(0);
   const dragStartWidth = useRef(0);
   const headerRef = useRef<HTMLDivElement>(null);
@@ -228,13 +228,11 @@ export default function Home() {
     const p = normalizeSyntheticSkillUiPath(path);
     if (isBaseLayerDashboardSkillUi(p)) {
       setBaseDashboardUrl(p);
-      setIsPreviewOpen(true);
       setActiveRightTabId("__dashboard__");
       return;
     }
     if (isBlockingActionSkillUi(p)) {
       setBlockingActionPath(p);
-      setIsPreviewOpen(true);
       setActiveRightTabId("__blocking__");
       return;
     }
@@ -249,8 +247,16 @@ export default function Home() {
       setActiveRightTabId(id);
       return [...prev, { id, path: p, label }];
     });
-    setIsPreviewOpen(true);
   }, []);
+
+  const wakePreview = useCallback((path: string) => {
+    openFilePreview(path);
+    if (previewWidth <= 32) {
+      setPreviewAnimating(true);
+      setPreviewWidth(PREVIEW_OPEN_DEFAULT);
+      setTimeout(() => setPreviewAnimating(false), 260);
+    }
+  }, [previewWidth, openFilePreview]);
 
   // ── AUTO_OPEN detector ────────────────────────────────────────────────────
   // Scans assistant messages for [AUTO_OPEN](browser://URL) markers emitted by
@@ -267,11 +273,11 @@ export default function Home() {
         const dedupeKey = `${msg.id}::${match[1]}`;
         if (!autoOpenedRef.current.has(dedupeKey)) {
           autoOpenedRef.current.add(dedupeKey);
-          openFilePreview(`browser://${match[1]}`);
+          wakePreview(`browser://${match[1]}`);
         }
       }
     }
-  }, [messages, openFilePreview]);
+  }, [messages, wakePreview]);
 
   // ── RENDER_UI detector (skill-ui://...) ─────────────────────────────────
   const renderUiOpenedRef = useRef(new Set<string>());
@@ -286,11 +292,11 @@ export default function Home() {
         const dedupeKey = `${msg.id}::${uri}`;
         if (!renderUiOpenedRef.current.has(dedupeKey)) {
           renderUiOpenedRef.current.add(dedupeKey);
-          openFilePreview(uri);
+          wakePreview(uri);
         }
       }
     }
-  }, [messages, openFilePreview]);
+  }, [messages, wakePreview]);
   // ─────────────────────────────────────────────────────────────────────────
 
   const closeSystemModal = useCallback(() => {
@@ -338,10 +344,10 @@ export default function Home() {
 
   const showError = error && !toastDismissed;
 
-  const startDrag = (side: "left" | "right", e: React.MouseEvent) => {
+  const startDrag = (side: "chat" | "preview", e: React.MouseEvent) => {
     draggingRef.current = side;
     dragStartX.current = e.clientX;
-    dragStartWidth.current = side === "left" ? leftWidth : rightWidth;
+    dragStartWidth.current = side === "chat" ? chatWidth : previewWidth;
     e.preventDefault();
   };
 
@@ -349,10 +355,11 @@ export default function Home() {
     const onMove = (e: MouseEvent) => {
       if (!draggingRef.current) return;
       const dx = e.clientX - dragStartX.current;
-      if (draggingRef.current === "left") {
-        setLeftWidth(Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, dragStartWidth.current + dx)));
-      } else {
-        setRightWidth(Math.max(SIDEBAR_MIN, Math.min(RIGHT_PANEL_MAX, dragStartWidth.current - dx)));
+      if (draggingRef.current === "chat") {
+        setChatWidth(Math.max(CHAT_MIN, Math.min(CHAT_MAX, dragStartWidth.current + dx)));
+      } else if (draggingRef.current === "preview") {
+        const next = Math.max(PREVIEW_OPEN_DEFAULT, Math.min(RIGHT_PANEL_MAX, dragStartWidth.current - dx));
+        setPreviewWidth(next);
       }
     };
     const onUp = () => { draggingRef.current = null; };
@@ -411,11 +418,15 @@ export default function Home() {
   }, [blockingActionPath, systemModal, closeBlockingAction, closeSystemModal]);
 
   const closePreview = useCallback(() => {
-    setIsPreviewOpen(false);
-    setBaseDashboardUrl(null);
-    setBlockingActionPath(null);
-    setPreviewTabs([]);
-    setActiveRightTabId(null);
+    setPreviewAnimating(true);
+    setPreviewWidth(32);
+    setTimeout(() => {
+      setPreviewAnimating(false);
+      setBaseDashboardUrl(null);
+      setBlockingActionPath(null);
+      setPreviewTabs([]);
+      setActiveRightTabId(null);
+    }, 260);
   }, []);
 
   const activePreviewTabPath = useMemo(() => {
@@ -430,7 +441,7 @@ export default function Home() {
     apiBase,
     onClear: clearChat,
     onPreviewPath: openFilePreview,
-    currentPreviewPath: isPreviewOpen
+    currentPreviewPath: previewWidth > 32
       ? blockingActionPath ?? activePreviewTabPath ?? baseDashboardUrl
       : null,
     onClosePreview: closePreview,
@@ -450,24 +461,13 @@ export default function Home() {
     setSystemModal("config");
   }, []);
 
-  const rightPanel = (
-    <PreviewPanel
-      onClose={closePreview}
-      baseDashboardUrl={baseDashboardUrl}
-      blockingActionPath={blockingActionPath}
-      onCloseBlockingAction={closeBlockingAction}
-      previewTabs={previewTabs}
-      activeTabId={activeRightTabId}
-      onSelectTab={setActiveRightTabId}
-      onClosePreviewTab={closePreviewTab}
-      onOpenPath={openFilePreview}
-      activeSkillName={activeSkillName}
-      onFillInput={handleFillInput}
-      postToAgent={(text) => void sendMessage(text, selectedModel)}
-      isAgentRunning={isAgentRunning}
-      skillUiPatchEvent={skillUiPatchEvent}
-    />
-  );
+  const artifacts = useMemo(() => {
+    const paths: string[] = [];
+    for (const msg of messages) {
+      if (msg.artifacts) paths.push(...msg.artifacts);
+    }
+    return [...new Set(paths)];
+  }, [messages]);
 
   return (
     <main className="h-dvh overflow-hidden p-4" style={{ background: "var(--surface-0)", color: "var(--text-primary)" }}>
@@ -582,42 +582,45 @@ export default function Home() {
         </div>
       )}
 
-      {/* Desktop layout: flex with resizable panels — Canvas | Paper | Canvas */}
+      {/* Desktop layout: 4-column Mission Control */}
       <div className="hidden md:flex h-full min-h-0 gap-0">
-        {/* Left sidebar — always present; collapses to 64 px icon strip */}
-        <div
-          className="min-h-0 shrink-0 transition-[width] duration-200 bg-zinc-950 rounded-l-2xl overflow-hidden border-r border-white/5"
-          style={{ width: sidebarCollapsed ? 64 : leftWidth }}
-        >
-          <Sidebar
-            {...sidebarProps}
-            isCollapsed={sidebarCollapsed}
-            onToggleCollapse={() => setSidebarCollapsed((v) => !v)}
-          />
-        </div>
-        {/* Left drag handle — hidden when collapsed */}
-        {!sidebarCollapsed && (
-          <div
-            className="w-3 shrink-0 cursor-col-resize flex items-center justify-center group"
-            onMouseDown={(e) => startDrag("left", e)}
-            title="拖拽调整左侧栏宽度"
-          >
-            <div className="w-0.5 h-12 rounded-full transition-colors group-hover:bg-[var(--accent)]" style={{ background: "var(--border-subtle)" }} />
+
+        {/* Col 1: Nav icon strip 44px */}
+        <div className="w-11 shrink-0 min-h-0 bg-zinc-950 rounded-l-2xl border-r border-white/5 flex flex-col items-center py-3 gap-2">
+          <span className="text-lg leading-none mb-1" aria-hidden="true">🦞</span>
+          <span className="w-1.5 h-1.5 rounded-full mb-2" style={{ background: "var(--success)" }} />
+          <button type="button" onClick={createSession} title="新建会话" className="nav-icon-btn">
+            <Plus size={18} />
+          </button>
+          <button type="button" title="产物" className="nav-icon-btn relative">
+            <FileText size={18} />
+            {artifacts.length > 0 && (
+              <span className="absolute top-0 right-0 w-3.5 h-3.5 rounded-full text-[8px] font-bold flex items-center justify-center text-white pointer-events-none" style={{ background: "var(--accent)" }}>
+                {artifacts.length > 9 ? "9+" : artifacts.length}
+              </span>
+            )}
+          </button>
+          <button type="button" title="Skills" className="nav-icon-btn">
+            <Zap size={18} />
+          </button>
+          <div className="mt-auto flex flex-col items-center gap-1">
+            <button type="button" onClick={openConfig} title="配置" className="nav-icon-btn">
+              <Settings size={18} />
+            </button>
+            <ThemeToggle vertical />
           </div>
-        )}
+        </div>
 
-        {/* Chat area — Paper */}
-        <div className="flex-1 min-w-0 min-h-0 flex flex-col bg-[var(--paper-chat)] rounded-2xl shadow-[var(--shadow-card)] ring-1 ring-black/[0.05] dark:ring-white/10 overflow-hidden">
-          {/* Top control bar — progress rail on left, actions on right */}
-          <div ref={headerRef} className="flex items-start gap-1.5 mb-2 shrink-0 min-w-0">
-            {/* Inline progress rail — flex-1 so it fills available space */}
+        {/* Col 2: Chat */}
+        <div
+          className="shrink-0 min-h-0 flex flex-col bg-[var(--paper-chat)] rounded-2xl shadow-[var(--shadow-card)] ring-1 ring-black/[0.05] dark:ring-white/10 overflow-hidden"
+          style={{ width: chatWidth }}
+        >
+          <div ref={headerRef} className="flex items-start gap-1.5 mb-2 shrink-0 min-w-0 px-2 pt-2">
             <TaskProgressBar runStatus={runStatus} compact={headerWidth < 760} />
-
-            {/* Right-side action buttons */}
             <div className="flex items-center gap-1.5 shrink-0">
               {providerOptions.length > 0 && (
                 <label className="inline-flex items-center gap-2 text-xs ui-text-secondary">
-                  {headerWidth >= 760 && <span className="whitespace-nowrap">提供商</span>}
                   <select
                     value={selectedProvider}
                     onChange={(e) => void applyProviderProfile(e.target.value)}
@@ -626,9 +629,7 @@ export default function Home() {
                     aria-label="选择提供商"
                   >
                     {providerOptions.map((p) => (
-                      <option key={p} value={p}>
-                        {p}
-                      </option>
+                      <option key={p} value={p}>{p}</option>
                     ))}
                   </select>
                 </label>
@@ -637,8 +638,6 @@ export default function Home() {
                 value={selectedModel}
                 onChange={(m) => {
                   setSelectedModel(m);
-                  // Optional: when the user switches model in the header, persist it
-                  // so the backend uses the same model on the next turn.
                   void fetch(configUrl, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
@@ -648,37 +647,12 @@ export default function Home() {
                 models={modelOptions}
                 compact={headerWidth < 760}
               />
-              <button
-                type="button"
-                onClick={openConfig}
-                aria-label="配置中心"
-                title="配置中心"
-                className="rounded-lg p-2 ui-text-secondary hover:bg-[var(--surface-3)] hover:ui-text-primary transition-colors border border-transparent hover:border-[var(--border-subtle)]"
-              >
+              <button type="button" onClick={openConfig} aria-label="配置中心" title="配置中心"
+                className="rounded-lg p-2 ui-text-secondary hover:bg-[var(--surface-3)] hover:ui-text-primary transition-colors border border-transparent hover:border-[var(--border-subtle)]">
                 <Settings size={17} />
-              </button>
-              {/* Left sidebar toggle — appears before right panel toggle (left→right order) */}
-              <button
-                type="button"
-                onClick={() => setSidebarCollapsed((v) => !v)}
-                aria-label={sidebarCollapsed ? "展开左侧栏" : "收起左侧栏"}
-                className="rounded-lg p-2 ui-text-secondary hover:bg-[var(--surface-3)] hover:ui-text-primary transition-colors border border-transparent hover:border-[var(--border-subtle)]"
-                title={sidebarCollapsed ? "展开左侧栏" : "收起左侧栏"}
-              >
-                {sidebarCollapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}
-              </button>
-              <button
-                type="button"
-                onClick={() => setIsPreviewOpen((v) => !v)}
-                aria-label={isPreviewOpen ? "收起右侧预览" : "展开右侧预览"}
-                className="rounded-lg p-2 ui-text-secondary hover:bg-[var(--surface-3)] hover:ui-text-primary transition-colors border border-transparent hover:border-[var(--border-subtle)]"
-                title={isPreviewOpen ? "收起右侧预览" : "展开右侧预览"}
-              >
-                {isPreviewOpen ? <PanelRightClose size={17} /> : <PanelRightOpen size={17} />}
               </button>
             </div>
           </div>
-
           <div className="flex-1 min-h-0">
             <ChatArea
               messages={messages}
@@ -692,7 +666,7 @@ export default function Home() {
               onSend={handleSend}
               onStop={stopGenerating}
               onApproveTool={(approved) => { void approveTool(approved); }}
-              onFileLinkClick={openFilePreview}
+              onFileLinkClick={wakePreview}
               onDeleteMessage={deleteMessage}
               searchQuery={searchQuery}
               disabled={isLoading || !threadId}
@@ -702,30 +676,70 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Right panel: preview or settings */}
-        {isPreviewOpen && (
-          <>
-            {/* Right drag handle */}
-            <div
-              className="w-3 shrink-0 cursor-col-resize flex items-center justify-center group"
-              onMouseDown={(e) => startDrag("right", e)}
-              title="拖拽调整右侧栏宽度"
-            >
-              <div className="w-0.5 h-12 rounded-full transition-colors group-hover:bg-[var(--accent)]" style={{ background: "var(--border-subtle)" }} />
-            </div>
-            {/* Browser panels get extra width for comfortable viewing */}
-            <div
-              className="min-h-0 shrink-0 flex flex-col bg-[var(--canvas-rail)] rounded-r-2xl overflow-hidden p-2 min-w-0"
-              style={{
-                width: previewKindFromPath(blockingActionPath ?? activePreviewTabPath ?? baseDashboardUrl ?? "") === "browser"
-                  ? Math.max(rightWidth, Math.min(RIGHT_PANEL_MAX, Math.floor((typeof window !== "undefined" ? window.innerWidth : 1200) * 0.55)))
-                  : rightWidth,
-              }}
-            >
-              {rightPanel}
-            </div>
-          </>
+        {/* Drag handle: chat ↔ dashboard */}
+        <div className="w-3 shrink-0 cursor-col-resize flex items-center justify-center group" onMouseDown={(e) => startDrag("chat", e)}>
+          <div className="w-0.5 h-12 rounded-full transition-colors group-hover:bg-[var(--accent)]" style={{ background: "var(--border-subtle)" }} />
+        </div>
+
+        {/* Col 3: Dashboard placeholder (DashboardNavigator added in Task 3) */}
+        <div
+          className="flex-1 min-w-[280px] min-h-0 bg-[var(--surface-0)] rounded-2xl overflow-hidden dashboard-container"
+          style={{ containerType: "inline-size", containerName: "dashboard" } as React.CSSProperties}
+        >
+          <div className="h-full flex flex-col items-center justify-center gap-3 opacity-30">
+            <div className="text-4xl">📊</div>
+            <p className="text-sm ui-text-muted">大盘加载中…</p>
+          </div>
+        </div>
+
+        {/* Drag handle: dashboard ↔ preview */}
+        {previewWidth > 32 && (
+          <div className="w-3 shrink-0 cursor-col-resize flex items-center justify-center group" onMouseDown={(e) => startDrag("preview", e)}>
+            <div className="w-0.5 h-12 rounded-full transition-colors group-hover:bg-[var(--accent)]" style={{ background: "var(--border-subtle)" }} />
+          </div>
         )}
+
+        {/* Col 4: Preview smart wake */}
+        <div
+          className="shrink-0 min-h-0 overflow-hidden"
+          style={{ width: previewWidth, transition: previewAnimating ? "width 250ms ease-out" : "none" }}
+        >
+          {previewWidth <= 32 ? (
+            <div
+              className="h-full flex flex-col items-center justify-center gap-2 cursor-pointer bg-[var(--surface-0)] rounded-r-2xl border-l border-white/5"
+              onClick={() => activePreviewTabPath && wakePreview(activePreviewTabPath)}
+            >
+              <PanelRightOpen size={14} className="text-zinc-600" />
+              <span className="writing-vertical text-[9px] text-zinc-600 select-none">点击产物预览</span>
+            </div>
+          ) : (
+            <div className="h-full flex flex-col bg-[var(--canvas-rail)] rounded-r-2xl overflow-hidden p-2">
+              <div className="flex items-center justify-between px-1 py-1 shrink-0">
+                <span className="text-xs ui-text-muted font-semibold tracking-wide">预览</span>
+                <button type="button" onClick={closePreview} className="rounded p-1 ui-text-muted hover:ui-text-primary" title="收起预览">
+                  <PanelRightClose size={14} />
+                </button>
+              </div>
+              <PreviewPanel
+                onClose={closePreview}
+                baseDashboardUrl={null}
+                blockingActionPath={blockingActionPath}
+                onCloseBlockingAction={closeBlockingAction}
+                previewTabs={previewTabs}
+                activeTabId={activeRightTabId}
+                onSelectTab={setActiveRightTabId}
+                onClosePreviewTab={closePreviewTab}
+                onOpenPath={openFilePreview}
+                activeSkillName={activeSkillName}
+                onFillInput={handleFillInput}
+                postToAgent={(text) => void sendMessage(text, selectedModel)}
+                isAgentRunning={isAgentRunning}
+                skillUiPatchEvent={skillUiPatchEvent}
+                skillUiBootstrapEvent={skillUiBootstrapEvent}
+              />
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Mobile layout — single Paper column */}

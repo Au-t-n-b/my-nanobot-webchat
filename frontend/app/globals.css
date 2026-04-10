@@ -257,6 +257,55 @@ body {
   color: var(--danger);
 }
 
+/* ─────────────────────────────────────────────
+   SDUI v3 Visual Stream (M2): partial pulse + slide-in
+   ───────────────────────────────────────────── */
+@keyframes sdui-partial-pulse {
+  0%,
+  100% {
+    opacity: 0.88;
+    filter: saturate(1) brightness(1);
+  }
+  50% {
+    opacity: 1;
+    filter: saturate(1.08) brightness(1.05);
+  }
+}
+
+@keyframes sdui-slide-in {
+  0% {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.sdui-partial {
+  animation: sdui-partial-pulse 1.1s ease-in-out infinite;
+}
+
+.sdui-slide-in {
+  animation: sdui-slide-in 180ms ease-out both;
+}
+
+/* ── ChatCard enter: slide-up 10px + fade-in (250ms) ── */
+@keyframes chatcard-slide-up {
+  0% {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.chatcard-slide-up {
+  animation: chatcard-slide-up 250ms ease-out both;
+}
+
 /* Compatibility layer while older components are migrated off zinc classes. */
 [data-theme] .bg-zinc-950 {
   background-color: var(--surface-0) !important;
@@ -348,4 +397,19 @@ body,
   transition-property: background-color, color, border-color, box-shadow;
   transition-duration: 0.25s;
   transition-timing-function: ease;
+}
+
+/* ── Mission Control Layout ─────────────────────────────────────── */
+.nav-icon-btn {
+  @apply rounded-lg p-2 text-zinc-500 hover:bg-zinc-900/40 hover:text-zinc-200 transition-colors w-10 h-10 flex items-center justify-center relative;
+}
+
+.writing-vertical {
+  writing-mode: vertical-rl;
+  letter-spacing: 0.08em;
+}
+
+.dashboard-container {
+  container-type: inline-size;
+  container-name: dashboard;
 }

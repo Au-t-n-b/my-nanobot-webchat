@@ -592,7 +592,7 @@ export default function Home() {
           <button type="button" onClick={createSession} title="新建会话" className="nav-icon-btn">
             <Plus size={18} />
           </button>
-          <button type="button" title="产物" className="nav-icon-btn relative">
+          <button type="button" title="产物" className="nav-icon-btn">
             <FileText size={18} />
             {artifacts.length > 0 && (
               <span className="absolute top-0 right-0 w-3.5 h-3.5 rounded-full text-[8px] font-bold flex items-center justify-center text-white pointer-events-none" style={{ background: "var(--accent)" }}>

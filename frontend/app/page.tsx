@@ -78,6 +78,7 @@ export default function Home() {
   const [searchQuery, setSearchQuery] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [navExpanded, setNavExpanded] = useState(false);
   const [chatWidth, setChatWidth] = useState(240);
   const [previewWidth, setPreviewWidth] = useState(32);
   const [previewAnimating, setPreviewAnimating] = useState(false);
@@ -586,31 +587,49 @@ export default function Home() {
       {/* Desktop layout: 4-column Mission Control */}
       <div className="hidden md:flex h-full min-h-0 gap-0">
 
-        {/* Col 1: Nav icon strip 44px */}
-        <div className="w-11 shrink-0 min-h-0 bg-zinc-950 rounded-l-2xl border-r border-white/5 flex flex-col items-center py-3 gap-2">
-          <span className="text-lg leading-none mb-1" aria-hidden="true">🦞</span>
-          <span className="w-1.5 h-1.5 rounded-full mb-2" style={{ background: "var(--success)" }} />
-          <button type="button" onClick={createSession} title="新建会话" className="nav-icon-btn">
-            <Plus size={18} />
-          </button>
-          <button type="button" title="产物" className="nav-icon-btn">
-            <FileText size={18} />
-            {artifacts.length > 0 && (
-              <span className="absolute top-0 right-0 w-3.5 h-3.5 rounded-full text-[8px] font-bold flex items-center justify-center text-white pointer-events-none" style={{ background: "var(--accent)" }}>
-                {artifacts.length > 9 ? "9+" : artifacts.length}
-              </span>
-            )}
-          </button>
-          <button type="button" title="Skills" className="nav-icon-btn">
-            <Zap size={18} />
-          </button>
-          <div className="mt-auto flex flex-col items-center gap-1">
-            <button type="button" onClick={openConfig} title="配置" className="nav-icon-btn">
-              <Settings size={18} />
-            </button>
-            <ThemeToggle vertical />
+        {/* Col 1: Nav strip (collapsed 44px) or full Sidebar */}
+        {navExpanded ? (
+          <div className="shrink-0 min-h-0 overflow-hidden" style={{ width: 260 }}>
+            <Sidebar
+              {...sidebarProps}
+              isCollapsed={false}
+              onToggleCollapse={() => setNavExpanded(false)}
+            />
           </div>
-        </div>
+        ) : (
+          <div className="w-11 shrink-0 min-h-0 bg-zinc-950 rounded-l-2xl border-r border-white/5 flex flex-col items-center py-3 gap-2">
+            <button
+              type="button"
+              title="展开导航"
+              className="text-lg leading-none mb-1 hover:scale-110 transition-transform cursor-pointer bg-transparent border-0 p-0"
+              onClick={() => setNavExpanded(true)}
+              aria-label="展开侧边栏"
+            >
+              🦞
+            </button>
+            <span className="w-1.5 h-1.5 rounded-full mb-2" style={{ background: "var(--success)" }} />
+            <button type="button" onClick={createSession} title="新建会话" className="nav-icon-btn">
+              <Plus size={18} />
+            </button>
+            <button type="button" title="产物" className="nav-icon-btn">
+              <FileText size={18} />
+              {artifacts.length > 0 && (
+                <span className="absolute top-0 right-0 w-3.5 h-3.5 rounded-full text-[8px] font-bold flex items-center justify-center text-white pointer-events-none" style={{ background: "var(--accent)" }}>
+                  {artifacts.length > 9 ? "9+" : artifacts.length}
+                </span>
+              )}
+            </button>
+            <button type="button" title="Skills" className="nav-icon-btn">
+              <Zap size={18} />
+            </button>
+            <div className="mt-auto flex flex-col items-center gap-1">
+              <button type="button" onClick={openConfig} title="配置" className="nav-icon-btn">
+                <Settings size={18} />
+              </button>
+              <ThemeToggle vertical />
+            </div>
+          </div>
+        )}
 
         {/* Col 2: Chat */}
         <div

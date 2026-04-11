@@ -214,6 +214,8 @@ export function SduiNodeView({ node, pathPrefix = "root" }: Props) {
           title={node.title}
           options={node.options}
           cardId={(node as SduiChoiceCardNode & { cardId?: string }).cardId}
+          moduleId={node.moduleId}
+          nextAction={node.nextAction}
         />
       );
 

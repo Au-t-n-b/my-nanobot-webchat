@@ -9,9 +9,11 @@ type Props = {
   title: string;
   options: SduiChoiceOption[];
   cardId?: string;
+  moduleId?: string;
+  nextAction?: string;
 };
 
-export function SduiChoiceCard({ title, options, cardId }: Props) {
+export function SduiChoiceCard({ title, options, cardId, moduleId, nextAction }: Props) {
   const runtime = useSkillUiRuntime();
   const [selected, setSelected] = useState<string | null>(null);
   const [confirmed, setConfirmed] = useState(false);
@@ -19,8 +21,30 @@ export function SduiChoiceCard({ title, options, cardId }: Props) {
   const confirm = () => {
     if (!selected || !cardId) return;
     setConfirmed(true);
+    const mid = (moduleId ?? "").trim();
+    const na = (nextAction ?? "").trim();
+    if (mid && na) {
+      runtime.postToAgent?.(
+        JSON.stringify({
+          type: "chat_card_intent",
+          verb: "module_action",
+          cardId,
+          payload: {
+            moduleId: mid,
+            action: na,
+            state: { standard: selected },
+          },
+        })
+      );
+      return;
+    }
     runtime.postToAgent?.(
-      JSON.stringify({ type: "chat_card_intent", verb: "choice_selected", cardId, payload: { optionId: selected } })
+      JSON.stringify({
+        type: "chat_card_intent",
+        verb: "choice_selected",
+        cardId,
+        payload: { optionId: selected },
+      })
     );
   };
 

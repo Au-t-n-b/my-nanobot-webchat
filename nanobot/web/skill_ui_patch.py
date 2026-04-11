@@ -86,6 +86,21 @@ async def build_skill_ui_data_patch_payload(
     }
 
 
+def build_append_op(*, node_id: str, field: str, value: Any) -> dict[str, Any]:
+    """Build a v3 ``append`` op (e.g. ArtifactGrid.artifacts)."""
+    nid = (node_id or "").strip()
+    if not nid:
+        raise ValueError("append op requires non-empty node_id")
+    f = (field or "").strip()
+    if not f:
+        raise ValueError("append op requires non-empty field")
+    return {
+        "op": "append",
+        "target": {"by": "id", "nodeId": nid, "field": f},
+        "value": value,
+    }
+
+
 def _merge_op_for_node(node_id: str, node_type: str, fields: dict[str, Any]) -> dict[str, Any]:
     """Single ``merge`` op: ``value`` includes ``type`` + ``id`` + *fields* (M1 leaf updates)."""
     merged = dict(fields)

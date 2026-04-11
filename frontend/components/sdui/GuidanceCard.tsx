@@ -37,12 +37,17 @@ export function SduiGuidanceCard({ context, actions, cardId }: Props) {
           <div className="flex gap-2 flex-wrap">
             {actions.map((a, i) => (
               <button
-                key={a.verb}
+                key={`${a.verb}-${i}`}
                 type="button"
                 onClick={() => {
                   if (!cardId) return;
                   runtime.postToAgent?.(
-                    JSON.stringify({ type: "chat_card_intent", verb: a.verb, cardId, payload: null })
+                    JSON.stringify({
+                      type: "chat_card_intent",
+                      verb: a.verb,
+                      cardId,
+                      payload: a.payload !== undefined ? a.payload : null,
+                    })
                   );
                 }}
                 className={[

@@ -90,6 +90,8 @@ class MissionControlManager:
         multiple: bool = False,
         mode: str = "append",
         card_id: str | None = None,
+        module_id: str | None = None,
+        next_action: str | None = None,
     ) -> ChatCardHandle:
         """Emit a chat card that asks user to upload a file.
 
@@ -99,20 +101,27 @@ class MissionControlManager:
         t = (title or "").strip() or "请上传文件"
         did = await self._ensure_chat_doc()
         cid = (card_id or "").strip() or f"upload:{p}:{uuid.uuid4().hex}"
+        fp_node: dict[str, Any] = {
+            "type": "FilePicker",
+            "purpose": p,
+            "accept": (accept or "").strip() or None,
+            "multiple": bool(multiple),
+            "label": "上传文件",
+            "helpText": "上传成功后会自动同步到当前会话状态（不进入对话历史）。",
+        }
+        mid = (module_id or "").strip()
+        na = (next_action or "").strip()
+        if mid:
+            fp_node["moduleId"] = mid
+        if na:
+            fp_node["nextAction"] = na
         payload: dict[str, Any] = {
             "threadId": self.thread_id,
             "cardId": cid,
             "mode": "replace" if str(mode) == "replace" else "append",
             "docId": did,
             "title": t,
-            "node": {
-                "type": "FilePicker",
-                "purpose": p,
-                "accept": (accept or "").strip() or None,
-                "multiple": bool(multiple),
-                "label": "上传文件",
-                "helpText": "上传成功后会自动同步到当前会话状态（不进入对话历史）。",
-            },
+            "node": fp_node,
         }
         await self._emit_chat_card(payload)
         return ChatCardHandle(card_id=cid, doc_id=did)
@@ -145,50 +154,45 @@ class MissionControlManager:
         self,
         doc_id: str,
         *,
+        synthetic_path: str,
         artifact_id: str,
         label: str,
         path: str,
         kind: str = "other",
         status: str = "ready",
+        artifacts_node_id: str = "artifacts",
     ) -> None:
-        """Append an artifact pill to the dashboard ArtifactGrid node via a patch.
+        """Append an artifact pill via v3 SkillUiDataPatch (syntheticPath + SduiPatch)."""
+        from nanobot.agent.loop import emit_skill_ui_data_patch_event  # lazy import
+        from nanobot.web.skill_ui_patch import build_append_op, build_skill_ui_data_patch_payload
 
-        Prerequisite: dashboard.json must have a node with type=ArtifactGrid and id="artifacts".
-        """
-        if self.docman is None:
-            logger.warning("add_artifact: docman not available, skipping")
-            return
-
-        patch: dict[str, Any] = {
-            "schemaVersion": 3,
-            "type": "SduiDataPatch",
-            "docId": doc_id,
-            "ops": [
-                {
-                    "op": "append",
-                    "target": {"by": "id", "nodeId": "artifacts", "field": "artifacts"},
-                    "value": {
+        try:
+            ops = [
+                build_append_op(
+                    node_id=artifacts_node_id,
+                    field="artifacts",
+                    value={
                         "id": artifact_id,
                         "label": label,
                         "path": path,
                         "kind": kind,
                         "status": status,
                     },
-                }
-            ],
-            "isPartial": False,
-        }
-
-        try:
-            from nanobot.agent.loop import emit_skill_ui_data_patch_event  # lazy import
-            await emit_skill_ui_data_patch_event(patch)
+                )
+            ]
+            payload = await build_skill_ui_data_patch_payload(
+                synthetic_path=synthetic_path,
+                doc_id=doc_id,
+                ops=ops,
+            )
+            await emit_skill_ui_data_patch_event(payload)
         except Exception as exc:
             logger.error("add_artifact emit failed | {}", exc)
 
     async def emit_guidance(
         self,
         context: str,
-        actions: list[dict[str, str]],
+        actions: list[dict[str, Any]],
         *,
         card_id: str | None = None,
     ) -> ChatCardHandle:
@@ -224,6 +228,8 @@ class MissionControlManager:
         options: list[dict[str, str]],
         *,
         card_id: str | None = None,
+        module_id: str | None = None,
+        next_action: str | None = None,
     ) -> ChatCardHandle:
         """Send a ChoiceCard to the chat stream.
 
@@ -240,6 +246,12 @@ class MissionControlManager:
             "title": title,
             "options": options,
         }
+        mid = (module_id or "").strip()
+        na = (next_action or "").strip()
+        if mid:
+            node["moduleId"] = mid
+        if na:
+            node["nextAction"] = na
         payload: dict[str, Any] = {
             "threadId": self.thread_id,
             "cardId": cid,

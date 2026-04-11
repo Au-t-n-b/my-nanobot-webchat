@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "type": "SduiDocument",
+  "meta": { "docId": "dashboard:module-skill-demo", "provenance": "module_skill_demo" },
+  "root": {
+    "type": "Stack",
+    "gap": "lg",
+    "children": [
+      {
+        "type": "Text",
+        "variant": "heading",
+        "content": "安全合规检查 · 标准模块样本"
+      },
+      {
+        "type": "Stepper",
+        "id": "stepper-main",
+        "steps": [
+          { "id": "s1", "title": "初始化检查", "status": "waiting", "detail": [{ "title": "等待启动", "status": "waiting" }] },
+          { "id": "s2", "title": "选择检查标准", "status": "waiting", "detail": [{ "title": "等待用户确认", "status": "waiting" }] },
+          { "id": "s3", "title": "上传补充材料", "status": "waiting", "detail": [{ "title": "等待上传", "status": "waiting" }] },
+          { "id": "s4", "title": "生成合规报告", "status": "waiting", "detail": [{ "title": "尚未开始", "status": "waiting" }] }
+        ]
+      },
+      {
+        "type": "Row",
+        "gap": "md",
+        "children": [
+          { "type": "Statistic", "id": "stat-total", "title": "检查项", "value": "—" },
+          { "type": "Statistic", "id": "stat-passed", "title": "通过", "value": "—", "color": "success" },
+          { "type": "Statistic", "id": "stat-failed", "title": "风险", "value": "—", "color": "danger" },
+          { "type": "Statistic", "id": "stat-progress", "title": "进度", "value": "—" }
+        ]
+      },
+      {
+        "type": "ArtifactGrid",
+        "id": "artifacts",
+        "artifacts": []
+      }
+    ]
+  }
+}

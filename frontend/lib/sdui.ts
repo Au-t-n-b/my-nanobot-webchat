@@ -357,7 +357,7 @@ export type SduiArtifactGridNode = {
   flex?: number;
 };
 
-export type SduiGuidanceAction = { label: string; verb: string };
+export type SduiGuidanceAction = { label: string; verb: string; payload?: unknown };
 
 export type SduiGuidanceCardNode = {
   type: "GuidanceCard";
@@ -374,6 +374,9 @@ export type SduiChoiceCardNode = {
   id?: string;
   title: string;
   options: SduiChoiceOption[];
+  /** 与 nextAction 一起用于 HITL 回传 module_action */
+  moduleId?: string;
+  nextAction?: string;
   flex?: number;
 };
 
@@ -519,6 +522,8 @@ export type SduiFilePickerNode = SduiOptionalId & {
   helpText?: string;
   accept?: string;
   multiple?: boolean;
+  moduleId?: string;
+  nextAction?: string;
 };
 
 export type SduiBadgeNode = SduiOptionalId & {

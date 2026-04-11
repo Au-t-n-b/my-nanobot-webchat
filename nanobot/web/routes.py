@@ -742,6 +742,20 @@ def _last_user_text(messages: Any) -> str | None:
     return None
 
 
+def _try_parse_chat_card_intent(text: str) -> dict[str, Any] | None:
+    """若用户消息为 ``chat_card_intent`` JSON，则解析为 dict；否则 None。"""
+    t = (text or "").strip()
+    if not t.startswith("{"):
+        return None
+    try:
+        obj = json.loads(t)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(obj, dict) or obj.get("type") != "chat_card_intent":
+        return None
+    return obj
+
+
 async def handle_chat(request: web.Request) -> web.StreamResponse | web.Response:
     registry: RunRegistry = request.app[RUN_REGISTRY_KEY]
     approvals: ApprovalRegistry = request.app[APPROVAL_REGISTRY_KEY]
@@ -866,6 +880,9 @@ async def handle_chat(request: web.Request) -> web.StreamResponse | web.Response
             async def emit_skill_ui_patch(payload: dict[str, Any]) -> None:
                 await safe_write("SkillUiDataPatch", payload)
 
+            async def emit_skill_ui_chat_card(payload: dict[str, Any]) -> None:
+                await safe_write("SkillUiChatCard", payload)
+
             streamed_chunks: list[str] = []
             run_choices: list[dict[str, str]] = []
 
@@ -943,6 +960,8 @@ async def handle_chat(request: web.Request) -> web.StreamResponse | web.Response
 
             token = agent.set_tool_approval_callback(on_tool_approval)
             token_skill_ui_patch = agent.set_skill_ui_patch_emitter(emit_skill_ui_patch)
+            token_skill_ui_chat = agent.set_skill_ui_chat_card_emitter(emit_skill_ui_chat_card)
+            token_thread_id = agent.set_current_thread_id(thread_id)
 
             async def _sse_heartbeat() -> None:
                 """Independent keepalive: fires every 10 s regardless of agent output.
@@ -965,31 +984,50 @@ async def handle_chat(request: web.Request) -> web.StreamResponse | web.Response
             heartbeat_task = asyncio.create_task(_sse_heartbeat())
             try:
                 assert user_text is not None
-                process_task = asyncio.create_task(
-                    agent.process_direct(
-                        user_text,
-                        session_key=thread_id,
-                        channel="web",
-                        chat_id=thread_id,
-                        on_progress=on_progress,
-                        on_stream=on_stream,
-                        on_stream_end=on_stream_end,
-                        model_name=model_name_override,
-                    )
+                from nanobot.web.module_skill_runtime import dispatch_chat_card_intent
+
+                intent = _try_parse_chat_card_intent(user_text)
+                handled, hitl_message = await dispatch_chat_card_intent(
+                    intent, thread_id=thread_id, docman=None
                 )
-                out = await process_task
-                final = (out.content if out is not None else "") or "".join(streamed_chunks)
-                if not client_disconnected and not run_finished_sent:
-                    await safe_write(
-                        "RunFinished",
-                        {
-                            "threadId": thread_id,
-                            "runId": run_id,
-                            "message": final,
-                            "choices": run_choices,
-                        },
+                if handled:
+                    if not client_disconnected and not run_finished_sent:
+                        await safe_write(
+                            "RunFinished",
+                            {
+                                "threadId": thread_id,
+                                "runId": run_id,
+                                "message": hitl_message,
+                                "choices": run_choices,
+                            },
+                        )
+                        run_finished_sent = True
+                else:
+                    process_task = asyncio.create_task(
+                        agent.process_direct(
+                            user_text,
+                            session_key=thread_id,
+                            channel="web",
+                            chat_id=thread_id,
+                            on_progress=on_progress,
+                            on_stream=on_stream,
+                            on_stream_end=on_stream_end,
+                            model_name=model_name_override,
+                        )
                     )
-                    run_finished_sent = True
+                    out = await process_task
+                    final = (out.content if out is not None else "") or "".join(streamed_chunks)
+                    if not client_disconnected and not run_finished_sent:
+                        await safe_write(
+                            "RunFinished",
+                            {
+                                "threadId": thread_id,
+                                "runId": run_id,
+                                "message": final,
+                                "choices": run_choices,
+                            },
+                        )
+                        run_finished_sent = True
             except asyncio.CancelledError:
                 if not client_disconnected:
                     await safe_write(
@@ -1049,6 +1087,8 @@ async def handle_chat(request: web.Request) -> web.StreamResponse | web.Response
                     await heartbeat_task
                 agent.reset_tool_approval_callback(token)
                 agent.reset_skill_ui_patch_emitter(token_skill_ui_patch)
+                agent.reset_skill_ui_chat_card_emitter(token_skill_ui_chat)
+                agent.reset_current_thread_id(token_thread_id)
     except asyncio.CancelledError:
         client_disconnected = True
         if process_task is not None and not process_task.done():

@@ -2,7 +2,7 @@
 
 import { startTransition, useCallback, useEffect, useRef, useState } from "react";
 import { getLocalStorage } from "@/lib/browserStorage";
-import type { SduiPatch } from "@/lib/sdui";
+import type { SduiNode, SduiPatch } from "@/lib/sdui";
 
 const CURRENT_THREAD_STORAGE_KEY = "nanobot_agui_current_thread_id";
 const THREAD_MESSAGES_STORAGE_KEY = "nanobot_agui_messages_by_thread";
@@ -12,12 +12,21 @@ const MESSAGES_CAP = 50;
 const MESSAGES_MAX_BYTES = 1.8 * 1024 * 1024;
 const STREAM_IDLE_TIMEOUT_MS = 90_000;   // 90 s — SSE proxy may buffer; heartbeat fires every 10 s
 
+export type ChatCardAttachment = {
+  cardId: string;
+  docId: string;
+  title?: string | null;
+  node: SduiNode;
+};
+
 export type AgentMessage = {
   id: string;
   role: "user" | "assistant";
   content: string;
   /** File paths inferred from tool-execution step logs during this message's run */
   artifacts?: string[];
+  kind?: "text" | "chat_card";
+  chatCard?: ChatCardAttachment;
 };
 
 export type SessionSummary = {
@@ -62,7 +71,13 @@ function debugSkillUiPatchIngest(reason: string, detail: unknown) {
 
 function sanitizeMessages(msgs: AgentMessage[]): AgentMessage[] {
   let toSave = msgs
-    .filter((m) => m && typeof m.id === "string" && (m.role === "user" || m.role === "assistant") && typeof m.content === "string")
+    .filter((m) => {
+      if (!m || typeof m.id !== "string" || (m.role !== "user" && m.role !== "assistant")) return false;
+      if (m.kind === "chat_card") {
+        return Boolean(m.chatCard && typeof m.chatCard.cardId === "string" && typeof m.chatCard.docId === "string");
+      }
+      return typeof m.content === "string";
+    })
     .slice(-MESSAGES_CAP);
   let serialized = JSON.stringify(toSave);
   while (serialized.length > MESSAGES_MAX_BYTES && toSave.length > 1) {
@@ -122,12 +137,18 @@ function clipText(text: string, max: number): string {
 
 function deriveSessionSummary(threadId: string, messages: AgentMessage[], updatedAt = Date.now()): SessionSummary {
   const firstUser = messages.find((m) => m.role === "user" && m.content.trim());
-  const lastMessage = [...messages].reverse().find((m) => m.content.trim());
+  const lastMessage = [...messages].reverse().find((m) => m.content.trim() || m.kind === "chat_card");
   const titleSource = firstUser?.content || lastMessage?.content || "新对话";
+  const preview =
+    lastMessage?.kind === "chat_card"
+      ? clipText(lastMessage.chatCard?.title || "交互卡片", 42)
+      : lastMessage
+        ? clipText(lastMessage.content, 42)
+        : "还没有消息";
   return {
     id: threadId,
     title: clipText(titleSource, 24),
-    preview: lastMessage ? clipText(lastMessage.content, 42) : "还没有消息",
+    preview,
     updatedAt,
     messageCount: messages.length,
   };
@@ -485,7 +506,9 @@ export function useAgentChat() {
       const asstId = newId();
 
       const bodyMessages = [
-        ...messagesRef.current.map((m) => ({ role: m.role, content: m.content })),
+        ...messagesRef.current
+          .filter((m) => m.kind !== "chat_card")
+          .map((m) => ({ role: m.role, content: m.content })),
         { role: "user" as const, content: trimmed },
       ];
 
@@ -599,6 +622,16 @@ export function useAgentChat() {
             setStatusMessage(`等待你确认：${String(data.toolName ?? "工具调用")}`);
           } else if (event === "RunFinished") {
             sawRunFinished = true;
+            const finishMsg = typeof data.message === "string" ? data.message.trim() : "";
+            if (finishMsg) {
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === asstId
+                    ? { ...m, content: (m.content && m.content.trim()) ? m.content : finishMsg }
+                    : m,
+                ),
+              );
+            }
             // Persist tool-inferred file paths into the assistant message
             if (toolArtifactPaths.length > 0) {
               setMessages((prev) =>
@@ -674,6 +707,42 @@ export function useAgentChat() {
                 syntheticPath: syntheticPathRaw,
                 patch: patchObj as SduiPatch,
                 receivedAt: Date.now(),
+              });
+            });
+          } else if (event === "SkillUiChatCard") {
+            const cardId = typeof data.cardId === "string" ? data.cardId.trim() : "";
+            const docIdRaw = typeof data.docId === "string" ? data.docId.trim() : "";
+            if (!cardId) return;
+            const docId = docIdRaw || `chat:${String(data.threadId ?? "").trim() || "unknown"}`;
+            const mode = data.mode === "replace" ? "replace" : "append";
+            const title = typeof data.title === "string" ? data.title : null;
+            const rawNode = (data.node ?? data.document) as unknown;
+            const node = (rawNode && typeof rawNode === "object" ? rawNode : { type: "Text", content: "（空卡片）" }) as SduiNode;
+            startTransition(() => {
+              setMessages((prev) => {
+                if (mode === "replace") {
+                  const idx = prev.findIndex((m) => m.kind === "chat_card" && m.chatCard?.cardId === cardId);
+                  if (idx >= 0) {
+                    const next = [...prev];
+                    next[idx] = {
+                      ...next[idx],
+                      content: "",
+                      kind: "chat_card",
+                      chatCard: { cardId, docId, title, node },
+                    };
+                    return next;
+                  }
+                }
+                return [
+                  ...prev,
+                  {
+                    id: newId(),
+                    role: "assistant" as const,
+                    content: "",
+                    kind: "chat_card" as const,
+                    chatCard: { cardId, docId, title, node },
+                  },
+                ];
               });
             });
           }

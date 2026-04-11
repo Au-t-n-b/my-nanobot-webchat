@@ -22,6 +22,8 @@ type Props = {
   disabled: boolean;
   focusSignal?: number;
   prefillText?: string;
+  /** ChatCard 内 HITL 回传（JSON chat_card_intent） */
+  chatCardPostToAgent?: (text: string) => void;
 };
 
 export function ChatArea({
@@ -42,6 +44,7 @@ export function ChatArea({
   disabled,
   focusSignal,
   prefillText,
+  chatCardPostToAgent,
 }: Props) {
   const inlineStatusTag =
     !isLoading && runStatus === "completed" && statusMessage === "本轮执行完成"
@@ -89,6 +92,7 @@ export function ChatArea({
         onFileLinkClick={onFileLinkClick}
         onDeleteMessage={onDeleteMessage}
         searchQuery={searchQuery}
+        chatCardPostToAgent={chatCardPostToAgent}
       />
       <ChatInput
         onSubmit={onSend}

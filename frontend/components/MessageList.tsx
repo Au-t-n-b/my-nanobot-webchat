@@ -15,6 +15,7 @@ type Props = {
   onFileLinkClick?: (path: string) => void;
   onDeleteMessage?: (id: string) => void;
   searchQuery?: string;
+  chatCardPostToAgent?: (text: string) => void;
 };
 
 /**
@@ -198,9 +199,11 @@ class ChatCardErrorBoundary extends (require("react").Component as typeof import
 function ChatCardBubble({
   msg,
   onFileLinkClick,
+  postToAgentRaw,
 }: {
   msg: AgentMessage;
   onFileLinkClick?: (path: string) => void;
+  postToAgentRaw: (text: string) => void;
 }) {
   const card = msg.chatCard;
   if (!card) return null;
@@ -221,9 +224,7 @@ function ChatCardBubble({
       <ChatCardErrorBoundary>
         <div key={mountKey} className="min-w-0">
           <SkillUiRuntimeProvider
-            postToAgentRaw={() => {
-              /* ChatCard 默认不直接发消息；需时在后续支持 */
-            }}
+            postToAgentRaw={postToAgentRaw}
             onOpenPreview={(p) => onFileLinkClick?.(p)}
             docId={card.docId}
           >
@@ -242,6 +243,7 @@ export const MessageList = memo(function MessageList({
   onFileLinkClick,
   onDeleteMessage,
   searchQuery,
+  chatCardPostToAgent,
 }: Props) {
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -271,7 +273,11 @@ export const MessageList = memo(function MessageList({
                 {/* Bubble + action bar stacked vertically, wrapped in a group for hover */}
                 <div className={"group flex flex-col " + (isUser ? "items-end max-w-[92%]" : "items-start max-w-[92%]")}>
                   {isChatCard ? (
-                    <ChatCardBubble msg={m} onFileLinkClick={onFileLinkClick} />
+                    <ChatCardBubble
+                      msg={m}
+                      onFileLinkClick={onFileLinkClick}
+                      postToAgentRaw={chatCardPostToAgent ?? (() => {})}
+                    />
                   ) : (
                     <div
                       className={

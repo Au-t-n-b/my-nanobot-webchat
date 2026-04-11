@@ -24,6 +24,7 @@ from nanobot.agent.tools.filesystem import EditFileTool, ListDirTool, ReadFileTo
 from nanobot.agent.tools.message import MessageTool
 from nanobot.agent.tools.registry import ToolRegistry
 from nanobot.agent.tools.shell import ExecTool
+from nanobot.agent.tools.module_skill_runtime import ModuleSkillRuntimeTool
 from nanobot.agent.tools.site_survey import AnalyzeSiteArtifactsTool
 from nanobot.agent.tools.test_sdui_v3 import RunAssetScanTool
 from nanobot.agent.tools.spawn import SpawnTool
@@ -50,6 +51,32 @@ _SKILL_UI_PATCH_EMITTER: ContextVar[SkillUiPatchEmitter | None] = ContextVar(
     "nanobot_skill_ui_patch_emitter",
     default=None,
 )
+
+# SSE SkillUiChatCard: bound per /api/chat request (see routes.handle_chat).
+SkillUiChatCardEmitter = Callable[[dict[str, Any]], Awaitable[None]]
+_SKILL_UI_CHAT_CARD_EMITTER: ContextVar[SkillUiChatCardEmitter | None] = ContextVar(
+    "nanobot_skill_ui_chat_card_emitter",
+    default=None,
+)
+
+_CURRENT_THREAD_ID: ContextVar[str | None] = ContextVar("nanobot_current_thread_id", default=None)
+
+
+def get_current_thread_id() -> str | None:
+    """Thread id for the active /api/chat request (None outside web chat)."""
+    return _CURRENT_THREAD_ID.get()
+
+
+async def emit_skill_ui_chat_card_event(payload: dict[str, Any]) -> None:
+    """Push SkillUiChatCard to the current SSE stream; no-op if emitter unbound."""
+    cb = _SKILL_UI_CHAT_CARD_EMITTER.get()
+    if cb is None:
+        logger.info("skill_ui_chat_card_emit_skipped | reason=no_sse_emitter")
+        return
+    try:
+        await cb(payload)
+    except Exception:
+        logger.exception("skill_ui_chat_card_emit_failed")
 
 
 async def emit_skill_ui_data_patch_event(payload: dict[str, Any]) -> None:
@@ -287,6 +314,18 @@ class AgentLoop:
     def reset_skill_ui_patch_emitter(self, token: Token) -> None:
         _SKILL_UI_PATCH_EMITTER.reset(token)
 
+    def set_skill_ui_chat_card_emitter(self, callback: SkillUiChatCardEmitter | None) -> Token:
+        return _SKILL_UI_CHAT_CARD_EMITTER.set(callback)
+
+    def reset_skill_ui_chat_card_emitter(self, token: Token) -> None:
+        _SKILL_UI_CHAT_CARD_EMITTER.reset(token)
+
+    def set_current_thread_id(self, thread_id: str) -> Token:
+        return _CURRENT_THREAD_ID.set(thread_id)
+
+    def reset_current_thread_id(self, token: Token) -> None:
+        _CURRENT_THREAD_ID.reset(token)
+
     def _register_default_tools(self) -> None:
         """Register the default set of tools."""
         allowed_dir = self.workspace if self.restrict_to_workspace else None
@@ -311,6 +350,7 @@ class AgentLoop:
             )
         )
         self.tools.register(RunAssetScanTool(workspace=self.workspace))
+        self.tools.register(ModuleSkillRuntimeTool())
         self.tools.register(PresentChoicesTool())
         self.tools.register(MessageTool(send_callback=self.bus.publish_outbound))
         self.tools.register(SpawnTool(manager=self.subagents))

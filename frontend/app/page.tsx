@@ -692,6 +692,7 @@ export default function Home() {
               disabled={isLoading || !threadId}
               focusSignal={inputFocusSignal}
               prefillText={inputPrefill}
+              chatCardPostToAgent={(text) => void sendMessage(text, selectedModel)}
             />
           </div>
         </div>
@@ -786,6 +787,7 @@ export default function Home() {
           disabled={isLoading || !threadId}
           focusSignal={inputFocusSignal}
           prefillText={inputPrefill}
+          chatCardPostToAgent={(text) => void sendMessage(text, selectedModel)}
         />
       </div>
     </main>

@@ -12,6 +12,28 @@ from aiohttp.test_utils import TestClient, TestServer
 from nanobot.web.app import create_app
 
 
+class _AguiHandleChatAgentMixin:
+    """routes.handle_chat 会绑定 Patch / ChatCard SSE 与 thread_id；测试用 FakeAgent 需实现这些方法。"""
+
+    def set_skill_ui_patch_emitter(self, _cb: object) -> str:
+        return "tok_skill_ui_patch"
+
+    def reset_skill_ui_patch_emitter(self, _token: object) -> None:
+        pass
+
+    def set_skill_ui_chat_card_emitter(self, _cb: object) -> str:
+        return "tok_skill_ui_chat"
+
+    def reset_skill_ui_chat_card_emitter(self, _token: object) -> None:
+        pass
+
+    def set_current_thread_id(self, _tid: str) -> str:
+        return "tok_thread_id"
+
+    def reset_current_thread_id(self, _token: object) -> None:
+        pass
+
+
 def _sse_event_payload(body: str, event_name: str) -> dict | None:
     """Parse first ``data:`` JSON after ``event: <name>``."""
     blocks = body.split("\n\n")
@@ -365,7 +387,7 @@ async def test_post_chat_includes_choices_on_run_finished() -> None:
                 ]
             }
 
-    class FakeAgent:
+    class FakeAgent(_AguiHandleChatAgentMixin):
         def __init__(self) -> None:
             self.model = "m1"
             self._cb = None
@@ -414,7 +436,7 @@ async def test_post_chat_human_in_the_loop_false_skips_tool_pending() -> None:
             self.name = "write_file"
             self.arguments = {"path": "a.txt", "content": "x"}
 
-    class FakeAgent:
+    class FakeAgent(_AguiHandleChatAgentMixin):
         def __init__(self) -> None:
             self.model = "m1"
             self._cb = None

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import "frappe-gantt/dist/frappe-gantt.css";
+/* package exports 未声明 ./dist/*.css，裸包子路径在 Turbopack 下会解析失败 */
+import "../node_modules/frappe-gantt/dist/frappe-gantt.css";
 import { ThemeProvider } from "@/components/ThemeProvider";
 
 export const metadata: Metadata = {

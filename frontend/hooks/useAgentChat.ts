@@ -2,7 +2,10 @@
 
 import { startTransition, useCallback, useEffect, useRef, useState } from "react";
 import { getLocalStorage } from "@/lib/browserStorage";
-import type { SduiNode, SduiPatch } from "@/lib/sdui";
+import { applyTaskStatusSnapshot } from "@/lib/projectOverviewStore";
+import type { SduiNode, SduiPatch, SkillUiBootstrapEvent } from "@/lib/sdui";
+
+export type { SkillUiBootstrapEvent };
 
 const CURRENT_THREAD_STORAGE_KEY = "nanobot_agui_current_thread_id";
 const THREAD_MESSAGES_STORAGE_KEY = "nanobot_agui_messages_by_thread";
@@ -53,6 +56,23 @@ export type ToolPendingPayload = {
 
 export type ChoiceItem = { label: string; value: string };
 export type RunStatus = "idle" | "running" | "awaitingApproval" | "completed" | "error";
+
+export type TaskStatusPayload = {
+  updatedAt: string | number | null;
+  overall: { doneCount: number; totalCount: number };
+  summary?: {
+    activeCount: number;
+    pendingCount: number;
+    completedCount: number;
+    completionRate: number;
+  };
+  modules: Array<{
+    id: string;
+    name: string;
+    status: "pending" | "running" | "completed";
+    steps: Array<{ id: string; name: string; done: boolean }>;
+  }>;
+};
 
 export type SkillUiDataPatchEvent = {
   id: string;
@@ -274,6 +294,9 @@ export function useAgentChat() {
   const [statusMessage, setStatusMessage] = useState("准备就绪");
   const [effectiveModel, setEffectiveModel] = useState<string | null>(null);
   const [skillUiPatchEvent, setSkillUiPatchEvent] = useState<SkillUiDataPatchEvent | null>(null);
+  const [taskStatusEvent, setTaskStatusEvent] = useState<TaskStatusPayload | null>(null);
+  /** 工具级模块焦点：仅由 SSE ModuleSessionFocus 维护，不用 Patch 超时猜测 */
+  const [activeModuleIds, setActiveModuleIds] = useState<ReadonlySet<string>>(() => new Set());
   const abortRef = useRef<AbortController | null>(null);
   const hydratedRef = useRef(false);
   const runStatusRef = useRef<RunStatus>("idle");
@@ -368,6 +391,7 @@ export function useAgentChat() {
 
   const createSession = useCallback(() => {
     abortRef.current?.abort();
+    setActiveModuleIds(new Set());
     const nextThreadId = crypto.randomUUID();
     if (typeof window !== "undefined") {
       getLocalStorage()?.setItem(CURRENT_THREAD_STORAGE_KEY, nextThreadId);
@@ -402,6 +426,7 @@ export function useAgentChat() {
 
       // If deleting the active session, switch to a remaining one (or create a new empty session)
       if (deleteThreadId === threadId) {
+        setActiveModuleIds(new Set());
         const nextThreadId = nextSessions[0]?.id ?? crypto.randomUUID();
         getLocalStorage()?.setItem(CURRENT_THREAD_STORAGE_KEY, nextThreadId);
 
@@ -432,6 +457,7 @@ export function useAgentChat() {
 
   const switchSession = useCallback((nextThreadId: string) => {
     abortRef.current?.abort();
+    setActiveModuleIds(new Set());
     if (typeof window !== "undefined") {
       getLocalStorage()?.setItem(CURRENT_THREAD_STORAGE_KEY, nextThreadId);
       const messageMap = loadMessageMap();
@@ -486,10 +512,15 @@ export function useAgentChat() {
     abortRef.current?.abort();
   }, []);
 
-  const sendMessage = useCallback(
-    async (text: string, modelName?: string) => {
+  const sendChatRequest = useCallback(
+    async (
+      text: string,
+      modelName?: string,
+      options?: { showInTranscript?: boolean },
+    ) => {
       const trimmed = text.trim();
       if (!trimmed || !threadId || isLoading) return;
+      const showInTranscript = options?.showInTranscript !== false;
 
       abortRef.current?.abort();
       const ac = new AbortController();
@@ -502,8 +533,8 @@ export function useAgentChat() {
       setRunStatus("running");
       setStatusMessage("Nanobot 正在生成回复");
 
-      const userId = newId();
-      const asstId = newId();
+      const userId = showInTranscript ? newId() : "";
+      const asstId = showInTranscript ? newId() : "";
 
       const bodyMessages = [
         ...messagesRef.current
@@ -512,15 +543,18 @@ export function useAgentChat() {
         { role: "user" as const, content: trimmed },
       ];
 
-      setMessages((prev) => [
-        ...prev,
-        { id: userId, role: "user", content: trimmed },
-        { id: asstId, role: "assistant", content: "" },
-      ]);
+      if (showInTranscript) {
+        setMessages((prev) => [
+          ...prev,
+          { id: userId, role: "user", content: trimmed },
+          { id: asstId, role: "assistant", content: "" },
+        ]);
+      }
 
       const runId = crypto.randomUUID();
 
       const rollbackNewTurn = () => {
+        if (!showInTranscript) return;
         setMessages((prev) => prev.filter((m) => m.id !== asstId && m.id !== userId));
       };
       let streamError = false;
@@ -590,6 +624,7 @@ export function useAgentChat() {
               setEffectiveModel(data.model);
             }
           } else if (event === "TextMessageContent" && typeof data.delta === "string") {
+            if (!showInTranscript) return;
             const d = data.delta;
             setMessages((prev) =>
               prev.map((m) => (m.id === asstId ? { ...m, content: m.content + d } : m)),
@@ -623,7 +658,7 @@ export function useAgentChat() {
           } else if (event === "RunFinished") {
             sawRunFinished = true;
             const finishMsg = typeof data.message === "string" ? data.message.trim() : "";
-            if (finishMsg) {
+            if (showInTranscript && finishMsg) {
               setMessages((prev) =>
                 prev.map((m) =>
                   m.id === asstId
@@ -633,7 +668,7 @@ export function useAgentChat() {
               );
             }
             // Persist tool-inferred file paths into the assistant message
-            if (toolArtifactPaths.length > 0) {
+            if (showInTranscript && toolArtifactPaths.length > 0) {
               setMessages((prev) =>
                 prev.map((m) =>
                   m.id === asstId
@@ -670,6 +705,29 @@ export function useAgentChat() {
             // agent is alive; do NOT add a step log entry (would be noisy).
             const msg = typeof data.message === "string" ? data.message : "Agent 正在处理中…";
             setStatusMessage(msg);
+          } else if (event === "ModuleSessionFocus") {
+            const evtTid = String(data.threadId ?? "").trim();
+            if (evtTid && evtTid !== threadId) return;
+            const mid = String(data.moduleId ?? "").trim();
+            const st = String(data.status ?? "").trim();
+            if (!mid || (st !== "running" && st !== "idle")) return;
+            startTransition(() => {
+              setActiveModuleIds((prev) => {
+                const next = new Set(prev);
+                if (st === "running") next.add(mid);
+                else next.delete(mid);
+                return next;
+              });
+            });
+          } else if (event === "TaskStatusUpdate") {
+            const modules = data.modules;
+            const overall = data.overall;
+            if (!Array.isArray(modules) || !overall || typeof overall !== "object") return;
+            startTransition(() => {
+              const snapshot = data as unknown as TaskStatusPayload;
+              applyTaskStatusSnapshot(snapshot);
+              setTaskStatusEvent(snapshot);
+            });
           } else if (event === "SkillUiDataPatch") {
             // v3 生产契约：syntheticPath 必填；patch 含 docId、revision（整数）。
             const syntheticPathRaw = typeof data.syntheticPath === "string" ? data.syntheticPath.trim() : "";
@@ -811,6 +869,20 @@ export function useAgentChat() {
     [threadId, isLoading],
   );
 
+  const sendMessage = useCallback(
+    async (text: string, modelName?: string) => {
+      await sendChatRequest(text, modelName, { showInTranscript: true });
+    },
+    [sendChatRequest],
+  );
+
+  const sendSilentMessage = useCallback(
+    async (text: string, modelName?: string) => {
+      await sendChatRequest(text, modelName, { showInTranscript: false });
+    },
+    [sendChatRequest],
+  );
+
   return {
     threadId,
     sessions,
@@ -824,7 +896,11 @@ export function useAgentChat() {
     statusMessage,
     effectiveModel,
     skillUiPatchEvent,
+    taskStatusEvent,
+    skillUiBootstrapEvent: null as SkillUiBootstrapEvent | null,
+    activeModuleIds,
     sendMessage,
+    sendSilentMessage,
     stopGenerating,
     approveTool,
     clearPendingChoices,

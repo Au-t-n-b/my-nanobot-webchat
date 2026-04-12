@@ -334,7 +334,7 @@ export function SkillUiWrapper({
 
   return (
     <SkillUiRuntimeProvider postToAgentRaw={postToAgentRaw} onOpenPreview={onOpenPreview}>
-      <div className="animate-in fade-in slide-in-from-bottom-3 duration-500 fill-mode-both ease-out">
+      <div className="h-full min-h-0">
         <Inner {...injected} />
       </div>
     </SkillUiRuntimeProvider>

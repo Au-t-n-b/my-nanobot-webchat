@@ -1,6 +1,10 @@
 "use client";
 
+import { useMemo } from "react";
+
 import type { ModuleEntry } from "@/components/DashboardNavigator";
+import { SduiGanttLane } from "@/components/sdui/SduiGanttLane";
+import type { SduiGanttLaneRow } from "@/lib/sdui";
 
 type Props = {
   modules: ModuleEntry[];
@@ -13,10 +17,10 @@ const STATUS_STYLES: Record<ModuleEntry["status"], { badge: string; bar: string;
     bar: "bg-[var(--accent)]",
     dot: "bg-[var(--accent)] shadow-[0_0_6px_var(--accent)]",
   },
-  done: {
-    badge: "bg-[color-mix(in_oklab,var(--success)_12%,transparent)] text-[var(--success)] border-[color-mix(in_oklab,var(--success)_25%,transparent)]",
+  completed: {
+    badge: "bg-[color-mix(in_oklab,var(--success)_18%,transparent)] text-[var(--success)] border-[color-mix(in_oklab,var(--success)_30%,transparent)]",
     bar: "bg-[var(--success)]",
-    dot: "bg-[var(--success)]",
+    dot: "bg-[var(--success)] shadow-[0_0_6px_var(--success)]",
   },
   idle: {
     badge: "bg-[var(--surface-3)] text-[var(--text-muted)] border-[var(--border-subtle)]",
@@ -27,24 +31,138 @@ const STATUS_STYLES: Record<ModuleEntry["status"], { badge: string; bar: string;
 
 const STATUS_LABEL: Record<ModuleEntry["status"], string> = {
   running: "进行中",
-  done: "已完成",
-  idle: "待开始",
+  completed: "已完成",
+  idle: "待命",
 };
 
 export function ProjectOverview({ modules, onSelectModule }: Props) {
-  const doneCount = modules.filter((m) => m.status === "done").length;
-  const pct = modules.length === 0 ? 0 : Math.round((doneCount / modules.length) * 100);
+  const runningCount = modules.filter((item) => item.status === "running").length;
+  const completedCount = modules.filter((item) => item.status === "completed").length;
+  const pendingCount = Math.max(0, modules.length - runningCount - completedCount);
+  const completionPct = modules.length ? Math.round((completedCount / modules.length) * 100) : 0;
+
+  const workbenchModule = useMemo(
+    () => modules.find((item) => item.label === "智能分析工作台") ?? null,
+    [modules],
+  );
+
+  const ganttLanes = useMemo<SduiGanttLaneRow[]>(
+    () =>
+      modules.map((module) => {
+        const steps = module.steps?.length
+          ? module.steps
+          : [{ id: `${module.moduleId}-idle`, name: "待开始", done: false }];
+        const total = Math.max(steps.length, 1);
+        const segmentWidth = 100 / total;
+        const firstPendingIndex = steps.findIndex((step) => !step.done);
+        const currentIndex = module.status === "running" ? Math.max(0, firstPendingIndex) : -1;
+        return {
+          label: module.label,
+          bars: steps.map((step, index) => ({
+            label: step.name,
+            startPct: Number((index * segmentWidth).toFixed(2)),
+            widthPct: Number((segmentWidth - 0.8).toFixed(2)),
+            color: step.done
+              ? "success"
+              : index === currentIndex
+                ? "accent"
+                : "subtle",
+          })),
+        };
+      }),
+    [modules],
+  );
 
   return (
     <div className="h-full min-h-0 overflow-y-auto p-4 flex flex-col gap-4">
       <div className="flex items-center justify-between">
         <h2 className="text-sm font-bold ui-text-primary tracking-wide">项目总览</h2>
-        <span className="text-xs ui-text-muted">{doneCount}/{modules.length} 模块完成</span>
+        <span className="text-xs ui-text-muted">
+          {runningCount}/{modules.length} 模块活跃
+        </span>
       </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <div className="rounded-xl border p-3" style={{ background: "var(--surface-1)", borderColor: "var(--border-subtle)" }}>
+          <p className="text-[11px] ui-text-muted">项目完成度</p>
+          <p className="mt-1 text-lg font-semibold ui-text-primary">{completionPct}%</p>
+          <p className="text-[11px] ui-text-muted">{completedCount} 个模块完成</p>
+        </div>
+        <div className="rounded-xl border p-3" style={{ background: "var(--surface-1)", borderColor: "var(--border-subtle)" }}>
+          <p className="text-[11px] ui-text-muted">任务活跃态</p>
+          <p className="mt-1 text-lg font-semibold ui-text-primary">{runningCount}</p>
+          <p className="text-[11px] ui-text-muted">运行中 / {pendingCount} 待开始</p>
+        </div>
+      </div>
+
+      {workbenchModule ? (
+        <button
+          type="button"
+          onClick={() => onSelectModule(workbenchModule.moduleId)}
+          className="rounded-xl border p-3 text-left transition-colors hover:bg-[var(--surface-2)]"
+          style={{ background: "var(--surface-1)", borderColor: "var(--border-subtle)" }}
+        >
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              <p className="text-sm font-semibold ui-text-primary">进入智能分析工作台</p>
+              <p className="mt-1 text-[11px] ui-text-muted">
+                当前项目阶段：{workbenchModule.progressLabel ?? "待开始"}
+              </p>
+            </div>
+            <span className="text-xs text-[var(--accent)]">打开大盘</span>
+          </div>
+        </button>
+      ) : null}
+
+      {modules.length > 0 ? (
+        <div className="rounded-xl border p-3" style={{ background: "var(--surface-1)", borderColor: "var(--border-subtle)" }}>
+          <div className="mb-2 flex items-center justify-between">
+            <h3 className="text-xs font-semibold ui-text-primary">项目阶段进展</h3>
+            <span className="text-[11px] ui-text-muted">
+              {completedCount}/{modules.length}
+            </span>
+          </div>
+          <div className="mb-3 flex flex-wrap items-center gap-3 text-[11px] ui-text-muted">
+            <span className="inline-flex items-center gap-1.5">
+              <span className="h-2.5 w-2.5 rounded-full bg-[var(--success)]" />
+              已完成
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <span className="h-2.5 w-2.5 rounded-full bg-[var(--accent)]" />
+              进行中
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <span className="h-2.5 w-2.5 rounded-full bg-[var(--surface-3)] border border-[var(--border-subtle)]" />
+              待开始
+            </span>
+          </div>
+          <div className="space-y-3">
+            <SduiGanttLane
+              title="项目阶段甘特图"
+              caption="每条轨道代表一个模块，轨道中的分段表示该模块的阶段推进位置。"
+              lanes={ganttLanes}
+            />
+            <div className="space-y-2">
+              {modules.map((module) => {
+                const doneCount = module.steps?.filter((step) => step.done).length ?? 0;
+                const totalCount = module.steps?.length ?? 0;
+                return (
+                  <div key={module.moduleId} className="flex items-center justify-between gap-3 text-[11px]">
+                    <span className="ui-text-primary truncate">{module.label}</span>
+                    <span className="shrink-0 ui-text-muted">
+                      {module.progressLabel ?? "待开始"} · {doneCount}/{totalCount}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {modules.length === 0 && (
         <div className="flex-1 flex flex-col items-center justify-center gap-3 text-center py-16">
-          <div className="text-4xl opacity-30">📊</div>
+          <div className="text-2xl font-semibold tracking-[0.3em] opacity-30">PLAN</div>
           <p className="text-sm ui-text-muted leading-relaxed">
             等待 Skill 执行…<br />
             <span className="text-xs opacity-60">Skill 启动后，模块大盘将自动出现</span>
@@ -54,32 +172,37 @@ export function ProjectOverview({ modules, onSelectModule }: Props) {
 
       {modules.length > 0 && (
         <div className="module-cards-grid gap-3">
-          {modules.map((m) => {
-            const s = STATUS_STYLES[m.status];
+          {modules.map((module) => {
+            const style = STATUS_STYLES[module.status];
             return (
               <button
-                key={m.moduleId}
+                key={module.moduleId}
                 type="button"
-                onClick={() => onSelectModule(m.moduleId)}
+                onClick={() => onSelectModule(module.moduleId)}
                 className="text-left rounded-xl p-3 border transition-colors hover:bg-[var(--surface-2)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
                 style={{ background: "var(--surface-1)", borderColor: "var(--border-subtle)" }}
               >
                 <div className="flex items-start justify-between gap-2 mb-2">
-                  <span className="text-sm font-semibold ui-text-primary leading-tight">{m.label}</span>
-                  <span className={`shrink-0 text-[10px] font-medium px-1.5 py-0.5 rounded-full border ${s.badge}`}>
-                    {m.status === "running" && (
-                      <span className={`inline-block w-1.5 h-1.5 rounded-full mr-1 ${s.dot} animate-pulse`} />
+                  <div className="min-w-0">
+                    <span className="text-sm font-semibold ui-text-primary leading-tight">{module.label}</span>
+                    {module.description ? (
+                      <p className="mt-1 text-[11px] ui-text-muted line-clamp-2">{module.description}</p>
+                    ) : null}
+                  </div>
+                  <span className={`shrink-0 text-[10px] font-medium px-1.5 py-0.5 rounded-full border ${style.badge}`}>
+                    {module.status === "running" && (
+                      <span className={`inline-block w-1.5 h-1.5 rounded-full mr-1 ${style.dot} animate-pulse`} />
                     )}
-                    {STATUS_LABEL[m.status]}
+                    {STATUS_LABEL[module.status]}
                   </span>
                 </div>
                 <div className="h-1 rounded-full overflow-hidden" style={{ background: "var(--surface-3)" }}>
                   <div
-                    className={`h-full rounded-full transition-all duration-500 ${s.bar}`}
-                    style={{ width: m.status === "done" ? "100%" : m.status === "running" ? "60%" : "0%" }}
+                    className={`h-full rounded-full transition-all duration-500 ${style.bar}`}
+                    style={{ width: `${module.progressPct ?? (module.status === "completed" ? 100 : 0)}%` }}
                   />
                 </div>
-                <p className="text-[11px] ui-text-muted mt-1.5">{m.moduleId}</p>
+                <p className="text-[11px] ui-text-muted mt-1.5">{module.progressLabel ?? module.moduleId}</p>
               </button>
             );
           })}
@@ -89,13 +212,13 @@ export function ProjectOverview({ modules, onSelectModule }: Props) {
       {modules.length > 0 && (
         <div className="mt-auto pt-3 border-t border-[var(--border-subtle)]">
           <div className="flex justify-between text-xs ui-text-muted mb-1">
-            <span>项目整体进度</span>
-            <span className="font-bold" style={{ color: "var(--accent)" }}>{pct}%</span>
+            <span>模块完成占比</span>
+            <span className="font-bold" style={{ color: "var(--accent)" }}>{completionPct}%</span>
           </div>
           <div className="h-1.5 rounded-full overflow-hidden" style={{ background: "var(--surface-3)" }}>
             <div
               className="h-full rounded-full transition-all duration-700"
-              style={{ width: `${pct}%`, background: "linear-gradient(90deg, var(--success), var(--accent))" }}
+              style={{ width: `${completionPct}%`, background: "linear-gradient(90deg, var(--success), var(--accent))" }}
             />
           </div>
         </div>

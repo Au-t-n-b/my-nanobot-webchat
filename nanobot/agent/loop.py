@@ -61,6 +61,20 @@ _SKILL_UI_CHAT_CARD_EMITTER: ContextVar[SkillUiChatCardEmitter | None] = Context
 
 _CURRENT_THREAD_ID: ContextVar[str | None] = ContextVar("nanobot_current_thread_id", default=None)
 
+# SSE ModuleSessionFocus: 工具级模块焦点（见 routes.handle_chat、module_skill_runtime）
+ModuleSessionFocusEmitter = Callable[[dict[str, Any]], Awaitable[None]]
+_MODULE_SESSION_FOCUS_EMITTER: ContextVar[ModuleSessionFocusEmitter | None] = ContextVar(
+    "nanobot_module_session_focus_emitter",
+    default=None,
+)
+
+# SSE TaskStatusUpdate: project-level progress payload for top bar / project overview.
+TaskStatusEmitter = Callable[[dict[str, Any]], Awaitable[None]]
+_TASK_STATUS_EMITTER: ContextVar[TaskStatusEmitter | None] = ContextVar(
+    "nanobot_task_status_emitter",
+    default=None,
+)
+
 
 def get_current_thread_id() -> str | None:
     """Thread id for the active /api/chat request (None outside web chat)."""
@@ -77,6 +91,30 @@ async def emit_skill_ui_chat_card_event(payload: dict[str, Any]) -> None:
         await cb(payload)
     except Exception:
         logger.exception("skill_ui_chat_card_emit_failed")
+
+
+async def emit_module_session_focus_event(payload: dict[str, Any]) -> None:
+    """Emit ModuleSessionFocus SSE (threadId, moduleId, status=running|idle). No-op if unbound."""
+    cb = _MODULE_SESSION_FOCUS_EMITTER.get()
+    if cb is None:
+        logger.debug("module_session_focus_emit_skipped | reason=no_sse_emitter")
+        return
+    try:
+        await cb(payload)
+    except Exception:
+        logger.exception("module_session_focus_emit_failed")
+
+
+async def emit_task_status_event(payload: dict[str, Any]) -> None:
+    """Emit TaskStatusUpdate SSE for project-level task progress."""
+    cb = _TASK_STATUS_EMITTER.get()
+    if cb is None:
+        logger.debug("task_status_emit_skipped | reason=no_sse_emitter")
+        return
+    try:
+        await cb(payload)
+    except Exception:
+        logger.exception("task_status_emit_failed")
 
 
 async def emit_skill_ui_data_patch_event(payload: dict[str, Any]) -> None:
@@ -325,6 +363,18 @@ class AgentLoop:
 
     def reset_current_thread_id(self, token: Token) -> None:
         _CURRENT_THREAD_ID.reset(token)
+
+    def set_module_session_focus_emitter(self, callback: ModuleSessionFocusEmitter | None) -> Token:
+        return _MODULE_SESSION_FOCUS_EMITTER.set(callback)
+
+    def reset_module_session_focus_emitter(self, token: Token) -> None:
+        _MODULE_SESSION_FOCUS_EMITTER.reset(token)
+
+    def set_task_status_emitter(self, callback: TaskStatusEmitter | None) -> Token:
+        return _TASK_STATUS_EMITTER.set(callback)
+
+    def reset_task_status_emitter(self, token: Token) -> None:
+        _TASK_STATUS_EMITTER.reset(token)
 
     def _register_default_tools(self) -> None:
         """Register the default set of tools."""

@@ -18,11 +18,13 @@ class ModuleSkillRuntimeTool(Tool):
     @property
     def description(self) -> str:
         return (
-            "运行已安装的模块 Skill：更新右侧 Skill-UI 大盘（SkillUiDataPatch），"
-            "并在会话中下发引导 / 选择 / 上传等 ChatCard。"
-            "参数 module_id 对应技能目录名；action 为流程步骤（如 guide、start、choose_standard、"
-            "upload_material、finish）；state 为可选 JSON 对象（如 passed/failed、standard）。"
-            "仅在与 Web 聊天绑定的请求中可用（需要 thread_id）。"
+            "运行已安装的模块 Skill：更新中间栏 Skill-UI 大盘（SkillUiDataPatch），"
+            "并在会话中下发引导 / 选择 / 真实文件上传（FilePicker，可拖拽）等 ChatCard。"
+            "module_id 为技能目录名；action 依模块 flow（如 demo_compliance：guide/start/choose_standard/upload_material/finish；"
+            "module_boilerplate：guide/start/choose_strategy/upload_evidence/after_upload/finish）。"
+            "上传步骤必须由本工具 action=upload_evidence（或 demo 的 upload_material）触发，"
+            "禁止用 present_choices 模拟上传。"
+            "state 可含 standard（策略 id）、upload 等。仅 Web 聊天上下文可用（需 thread_id）。"
         )
 
     @property

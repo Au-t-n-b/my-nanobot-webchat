@@ -68,9 +68,10 @@ export function parseSkillUiPath(path: string): ParsedSkillUiUri | null {
 
 /**
  * 大模块看板（Base Layer）命名约定（Convention）：
- * - `skill-ui://…?dataFile=…` 中，路径（不区分大小写）**包含**以下任一段即视为常驻大盘，路由到右栏底层：
+ * - `skill-ui://…?dataFile=…` 中，路径（不区分大小写）符合以下任一模式即视为模块主大盘：
  *   - `-master/data/dashboard.json`
  *   - `-pipeline/data/dashboard.json`
+ *   - `skills/<module-id>/data/dashboard.json`
  * - 其余 `skill-ui`（如各 Step 的 `ui.json`）与文件 / 浏览器预览 → Overlay Layer。
  */
 export function isBaseLayerDashboardSkillUi(path: string): boolean {
@@ -81,7 +82,8 @@ export function isBaseLayerDashboardSkillUi(path: string): boolean {
   if (!df) return false;
   return (
     df.includes("-master/data/dashboard.json") ||
-    df.includes("-pipeline/data/dashboard.json")
+    df.includes("-pipeline/data/dashboard.json") ||
+    /(^|\/)skills\/[^/]+\/data\/dashboard\.json$/i.test(df)
   );
 }
 

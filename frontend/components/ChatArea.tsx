@@ -24,6 +24,9 @@ type Props = {
   prefillText?: string;
   /** ChatCard 内 HITL 回传（JSON chat_card_intent） */
   chatCardPostToAgent?: (text: string) => void;
+  /** present_choices 工具：在会话内嵌选项（不再使用全屏弹窗） */
+  onSelectPendingChoice?: (choice: ChoiceItem) => void;
+  onDismissPendingChoices?: () => void;
 };
 
 export function ChatArea({
@@ -45,6 +48,8 @@ export function ChatArea({
   focusSignal,
   prefillText,
   chatCardPostToAgent,
+  onSelectPendingChoice,
+  onDismissPendingChoices,
 }: Props) {
   const inlineStatusTag =
     !isLoading && runStatus === "completed" && statusMessage === "本轮执行完成"
@@ -78,12 +83,6 @@ export function ChatArea({
         </div>
       )}
 
-      {pendingChoices && pendingChoices.length > 0 && (
-        <div className="rounded-xl px-3 py-2 text-sm" style={{ border: "1px solid rgba(124,196,250,0.22)", background: "rgba(124,196,250,0.08)" }}>
-          <span className="ui-text-secondary">系统已生成下一步选项：</span> {pendingChoices.map((c) => c.label).join("、")}
-        </div>
-      )}
-
       <StepLogs stepLogs={stepLogs} runStatus={runStatus} statusMessage={statusMessage} runModel={effectiveModel} />
       <MessageList
         messages={messages}
@@ -93,6 +92,9 @@ export function ChatArea({
         onDeleteMessage={onDeleteMessage}
         searchQuery={searchQuery}
         chatCardPostToAgent={chatCardPostToAgent}
+        pendingChoices={pendingChoices}
+        onSelectPendingChoice={onSelectPendingChoice}
+        onDismissPendingChoices={onDismissPendingChoices}
       />
       <ChatInput
         onSubmit={onSend}

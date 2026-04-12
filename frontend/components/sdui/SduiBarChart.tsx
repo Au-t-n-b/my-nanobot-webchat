@@ -74,7 +74,14 @@ export function SduiBarChart({ data, valueUnit }: Props) {
                 height={h}
                 rx={6}
                 fill={fill}
-                className={clickable ? "cursor-pointer transition-opacity hover:opacity-85" : undefined}
+                className={[
+                  "sdui-transition-fill",
+                  clickable ? "cursor-pointer hover:opacity-85" : "",
+                ].join(" ").trim() || undefined}
+                style={{
+                  transition:
+                    "x 420ms cubic-bezier(0.4, 0, 0.2, 1), y 420ms cubic-bezier(0.4, 0, 0.2, 1), height 420ms cubic-bezier(0.4, 0, 0.2, 1), fill 280ms ease, opacity 280ms ease",
+                }}
                 onClick={
                   clickable
                     ? () => {

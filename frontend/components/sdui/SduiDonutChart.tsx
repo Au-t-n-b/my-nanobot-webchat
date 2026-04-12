@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 
 import type { SduiDonutSegment } from "@/lib/sdui";
+import { normalizeDonutSegments } from "@/lib/sduiDonutChart";
 import { isSemanticColor, semanticToCssColorValue } from "@/components/sdui/sduiSemanticColor";
 import { useSkillUiRuntime } from "@/components/sdui/SkillUiRuntimeProvider";
 
@@ -15,73 +16,62 @@ const DEFAULT_COLORS = [
 ];
 
 type Props = {
-  segments: SduiDonutSegment[];
+  segments?: SduiDonutSegment[] | null;
   centerLabel?: string;
   centerValue?: string;
 };
 
-function polar(cx: number, cy: number, r: number, angle: number) {
-  return { x: cx + r * Math.cos(angle), y: cy + r * Math.sin(angle) };
-}
-
-/** 从 angle0 扫到 angle1（弧度），圆环扇区 */
-function donutSlicePath(
-  cx: number,
-  cy: number,
-  rInner: number,
-  rOuter: number,
-  angle0: number,
-  angle1: number,
-): string {
-  const largeArc = angle1 - angle0 > Math.PI ? 1 : 0;
-  const p0o = polar(cx, cy, rOuter, angle0);
-  const p1o = polar(cx, cy, rOuter, angle1);
-  const p1i = polar(cx, cy, rInner, angle1);
-  const p0i = polar(cx, cy, rInner, angle0);
-  return [
-    `M ${p0o.x} ${p0o.y}`,
-    `A ${rOuter} ${rOuter} 0 ${largeArc} 1 ${p1o.x} ${p1o.y}`,
-    `L ${p1i.x} ${p1i.y}`,
-    `A ${rInner} ${rInner} 0 ${largeArc} 0 ${p0i.x} ${p0i.y}`,
-    "Z",
-  ].join(" ");
-}
-
 export function SduiDonutChart({ segments, centerLabel, centerValue }: Props) {
   const { postToAgent, openPreview } = useSkillUiRuntime();
-  const { paths, total, legend } = useMemo(() => {
-    const safe = segments.filter((s) => Number.isFinite(s.value) && s.value > 0);
+  const { rings, total, legend, radius, strokeWidth } = useMemo(() => {
+    const safe = normalizeDonutSegments(segments) as SduiDonutSegment[];
     const sum = safe.reduce((a, s) => a + s.value, 0);
+    const r = 43;
+    const sw = 18;
+    const circ = 2 * Math.PI * r;
     if (sum <= 0) {
-      return { paths: [] as { d: string; color: string; key: string; action?: SduiDonutSegment["action"] }[], total: 0, legend: safe };
+      return {
+        rings: [] as Array<{
+          color: string;
+          key: string;
+          action?: SduiDonutSegment["action"];
+          dashArray: string;
+          dashOffset: number;
+        }>,
+        total: 0,
+        legend: safe,
+        radius: r,
+        strokeWidth: sw,
+      };
     }
-    const cx = 100;
-    const cy = 100;
-    const rOuter = 52;
-    const rInner = 34;
-    let angle = -Math.PI / 2;
-    const out: { d: string; color: string; key: string; action?: SduiDonutSegment["action"] }[] = [];
+    let offset = 0;
+    const out: Array<{
+      color: string;
+      key: string;
+      action?: SduiDonutSegment["action"];
+      dashArray: string;
+      dashOffset: number;
+    }> = [];
     safe.forEach((seg, i) => {
-      const sweep = (seg.value / sum) * Math.PI * 2;
-      const a0 = angle;
-      const a1 = angle + sweep;
       const raw = seg.color;
       const color =
         (isSemanticColor(raw) ? semanticToCssColorValue(raw) : null) ??
         (typeof raw === "string" && raw.trim() ? raw : null) ??
         DEFAULT_COLORS[i % DEFAULT_COLORS.length];
+      const arc = (seg.value / sum) * circ;
       out.push({
-        d: donutSlicePath(cx, cy, rInner, rOuter, a0, a1),
         color,
         key: `${seg.label}-${i}`,
         action: seg.action,
+        dashArray: `${arc} ${Math.max(circ - arc, 0)}`,
+        dashOffset: -offset,
       });
-      angle = a1;
+      offset += arc;
     });
-    return { paths: out, total: sum, legend: safe };
+    return { rings: out, total: sum, legend: safe, radius: r, strokeWidth: sw };
   }, [segments]);
 
-  if (paths.length === 0) {
+  if (rings.length === 0) {
     return (
       <div className="flex min-h-[168px] w-full items-center justify-center rounded-xl border border-dashed border-[var(--border-subtle)] bg-[var(--surface-2)] px-4 py-6 text-xs text-[var(--text-muted)]">
         暂无分布数据
@@ -98,30 +88,52 @@ export function SduiDonutChart({ segments, centerLabel, centerValue }: Props) {
           aria-hidden
         >
           <title>圆环图</title>
-          {paths.map((p) => {
-            const act = p.action;
-            const clickable = Boolean(act && (act.kind === "open_preview" || act.kind === "post_user_message"));
-            return (
-              <path
-                key={p.key}
-                d={p.d}
-                fill={p.color}
-                stroke="var(--surface-1)"
-                strokeWidth={1}
-                strokeLinejoin="round"
-                className={clickable ? "cursor-pointer transition-opacity hover:opacity-85" : undefined}
-                onClick={
-                  clickable
-                    ? () => {
-                        if (!act) return;
-                        if (act.kind === "open_preview") openPreview(act.path);
-                        else if (act.kind === "post_user_message") postToAgent(act.text);
-                      }
-                    : undefined
-                }
-              />
-            );
-          })}
+          <circle
+            cx="100"
+            cy="100"
+            r={radius}
+            fill="none"
+            stroke="color-mix(in oklab, var(--border-subtle) 75%, var(--surface-2))"
+            strokeWidth={strokeWidth}
+          />
+          <g transform="rotate(-90 100 100)">
+            {rings.map((ring) => {
+              const act = ring.action;
+              const clickable = Boolean(act && (act.kind === "open_preview" || act.kind === "post_user_message"));
+              return (
+                <circle
+                  key={ring.key}
+                  cx="100"
+                  cy="100"
+                  r={radius}
+                  fill="none"
+                  stroke={ring.color}
+                  strokeWidth={strokeWidth}
+                  strokeLinecap="round"
+                  strokeDasharray={ring.dashArray}
+                  strokeDashoffset={ring.dashOffset}
+                  className={[
+                    "sdui-transition-fill",
+                    clickable ? "cursor-pointer hover:opacity-85" : "",
+                  ].join(" ").trim() || undefined}
+                  style={{
+                    transition:
+                      "stroke-dasharray 420ms cubic-bezier(0.4, 0, 0.2, 1), stroke-dashoffset 420ms cubic-bezier(0.4, 0, 0.2, 1), stroke 280ms ease, opacity 280ms ease",
+                    transformOrigin: "50% 50%",
+                  }}
+                  onClick={
+                    clickable
+                      ? () => {
+                          if (!act) return;
+                          if (act.kind === "open_preview") openPreview(act.path);
+                          else if (act.kind === "post_user_message") postToAgent(act.text);
+                        }
+                      : undefined
+                  }
+                />
+              );
+            })}
+          </g>
         </svg>
         <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-center">
           {centerLabel ? (

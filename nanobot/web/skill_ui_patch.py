@@ -63,6 +63,7 @@ async def build_skill_ui_data_patch_payload(
     synthetic_path: str,
     ops: list[dict[str, Any]],
     doc_id: str = SDUI_GC_DASHBOARD_DOC_ID,
+    is_partial: bool = False,
 ) -> dict[str, Any]:
     """Validate path, assign revision, return SSE ``data`` object for SkillUiDataPatch."""
     ok, reason = validate_skill_ui_synthetic_path(synthetic_path)
@@ -81,6 +82,7 @@ async def build_skill_ui_data_patch_payload(
             "type": "SduiPatch",
             "docId": doc_id,
             "revision": revision,
+            "isPartial": is_partial,
             "ops": ops,
         },
     }
@@ -139,11 +141,23 @@ class SkillUiPatchPusher:
     def doc_id(self) -> str:
         return self._doc_id
 
-    async def update_node(self, node_id: str, node_type: str, fields: dict[str, Any]) -> None:
+    async def update_node(
+        self,
+        node_id: str,
+        node_type: str,
+        fields: dict[str, Any],
+        *,
+        is_partial: bool = False,
+    ) -> None:
         """One ``merge`` op for ``target.by=id``; ``fields`` are merged into the node (leaf fields)."""
-        await self.update_nodes([(node_id.strip(), node_type, dict(fields))])
+        await self.update_nodes([(node_id.strip(), node_type, dict(fields))], is_partial=is_partial)
 
-    async def update_nodes(self, updates: list[tuple[str, str, dict[str, Any]]]) -> None:
+    async def update_nodes(
+        self,
+        updates: list[tuple[str, str, dict[str, Any]]],
+        *,
+        is_partial: bool = False,
+    ) -> None:
         """Multiple merge ops in a single Patch (one revision)."""
         if not updates:
             return
@@ -159,6 +173,7 @@ class SkillUiPatchPusher:
             synthetic_path=self._synthetic_path,
             doc_id=self._doc_id,
             ops=ops,
+            is_partial=is_partial,
         )
         # Lazy import avoids import cycle (agent.loop ↔ tools ↔ skill_ui_patch).
         from nanobot.agent.loop import emit_skill_ui_data_patch_event

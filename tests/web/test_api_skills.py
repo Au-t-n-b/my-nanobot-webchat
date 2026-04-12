@@ -93,3 +93,109 @@ async def test_get_skills_error_payload_shape_on_internal_error() -> None:
             assert "error" in payload
             assert payload["error"]["code"] == "internal_error"
             assert isinstance(payload["error"]["message"], str)
+
+
+@pytest.mark.asyncio
+async def test_get_modules_scans_module_json_contract(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path / "skills"
+    module_dir = root / "intelligent_analysis_workbench"
+    module_dir.mkdir(parents=True)
+    (module_dir / "module.json").write_text(
+        """
+        {
+          "moduleId": "intelligent_analysis_workbench",
+          "docId": "dashboard:intelligent-analysis-workbench",
+          "dataFile": "skills/intelligent_analysis_workbench/data/dashboard.json",
+          "flow": "intelligent_analysis_workbench",
+          "taskProgress": {
+            "moduleId": "intelligent_analysis_workbench",
+            "moduleName": "智能分析工作台",
+            "tasks": ["模块待启动", "分析目标已确认"]
+          },
+          "caseTemplate": {
+            "moduleTitle": "智能分析工作台",
+            "moduleGoal": "标准案例模块"
+          }
+        }
+        """,
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("NANOBOT_AGUI_SKILLS_ROOT", str(root))
+
+    app = create_app()
+    async with TestClient(TestServer(app)) as client:
+        resp = await client.get("/api/modules")
+        assert resp.status == 200
+        assert await resp.json() == {
+            "items": [
+                {
+                    "moduleId": "intelligent_analysis_workbench",
+                    "label": "智能分析工作台",
+                    "description": "标准案例模块",
+                    "taskProgress": {
+                        "moduleId": "intelligent_analysis_workbench",
+                        "moduleName": "智能分析工作台",
+                        "tasks": ["模块待启动", "分析目标已确认"],
+                    },
+                    "dashboard": {
+                        "docId": "dashboard:intelligent-analysis-workbench",
+                        "dataFile": "skills/intelligent_analysis_workbench/data/dashboard.json",
+                    },
+                }
+            ]
+        }
+
+
+@pytest.mark.asyncio
+async def test_get_modules_skips_invalid_module_json(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path / "skills"
+    valid_dir = root / "valid_module"
+    valid_dir.mkdir(parents=True)
+    (valid_dir / "module.json").write_text(
+        """
+        {
+          "moduleId": "valid_module",
+          "docId": "dashboard:valid-module",
+          "dataFile": "skills/valid_module/data/dashboard.json",
+          "flow": "valid_flow",
+          "caseTemplate": {
+            "moduleTitle": "有效模块",
+            "moduleGoal": "可显示"
+          }
+        }
+        """,
+        encoding="utf-8",
+    )
+    invalid_dir = root / "broken_module"
+    invalid_dir.mkdir(parents=True)
+    (invalid_dir / "module.json").write_text("{not-json", encoding="utf-8")
+    monkeypatch.setenv("NANOBOT_AGUI_SKILLS_ROOT", str(root))
+
+    app = create_app()
+    async with TestClient(TestServer(app)) as client:
+        resp = await client.get("/api/modules")
+        assert resp.status == 200
+        assert await resp.json() == {
+            "items": [
+                {
+                    "moduleId": "valid_module",
+                    "label": "有效模块",
+                    "description": "可显示",
+                    "taskProgress": {
+                        "moduleId": "valid_module",
+                        "moduleName": "有效模块",
+                        "tasks": [],
+                    },
+                    "dashboard": {
+                        "docId": "dashboard:valid-module",
+                        "dataFile": "skills/valid_module/data/dashboard.json",
+                    },
+                }
+            ]
+        }

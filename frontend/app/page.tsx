@@ -1,23 +1,24 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { FileText, Menu, PanelRightClose, PanelRightOpen, Plus, Settings, X, Zap } from "lucide-react";
+import { FileText, Menu, PanelRightClose, PanelRightOpen, Plus, Settings, Sidebar as SidebarIcon, X, Zap } from "lucide-react";
 import { ChatArea } from "@/components/ChatArea";
-import { ChoicesModal } from "@/components/ChoicesModal";
 import { ErrorToast } from "@/components/ErrorToast";
 import { PreviewPanel } from "@/components/PreviewPanel";
 import { RemoteAssetDetailPanel } from "@/components/RemoteAssetDetailPanel";
 import { RemoteAssetUploadPanel } from "@/components/RemoteAssetUploadPanel";
 import { SearchOverlay } from "@/components/SearchOverlay";
-import { SettingsPanel } from "@/components/SettingsPanel";
 import { SystemShellModal } from "@/components/SystemShellModal";
 import { Sidebar } from "@/components/Sidebar";
 import { ModelSelector } from "@/components/ModelSelector";
-import { ConfigPanel } from "@/components/ConfigPanel";
-import { TaskProgressBar } from "@/components/TaskProgressBar";
 import { ThemeToggle } from "@/components/ThemeToggle";
-import { useAgentChat } from "@/hooks/useAgentChat";
+import { useAgentChat, type ChoiceItem } from "@/hooks/useAgentChat";
 import { DashboardNavigator } from "@/components/DashboardNavigator";
+import { ControlCenterPanel } from "@/components/ControlCenterPanel";
+import {
+  hydrateProjectOverview,
+  resetProjectOverviewSessionState,
+} from "@/lib/projectOverviewStore";
 import { previewKindFromPath } from "@/lib/previewKind";
 import {
   isBaseLayerDashboardSkillUi,
@@ -29,13 +30,27 @@ const RIGHT_PANEL_MAX = typeof window !== "undefined"
   ? Math.floor(window.innerWidth * 0.62)
   : 900;
 
-type SystemModal = null | "settings" | "config" | "remoteAssetDetail" | "remoteUpload";
+const CHAT_COLUMN_MIN_PX = 180;
+/** 导航 + 大盘最小宽 + 分隔条 + 预览条近似总宽；会话列最大 = 视口 − 该预留 */
+const CHAT_COLUMN_LAYOUT_RESERVE_PX = 480;
+
+function getChatColumnMaxPx(): number {
+  if (typeof window === "undefined") return 960;
+  return Math.max(CHAT_COLUMN_MIN_PX + 80, window.innerWidth - CHAT_COLUMN_LAYOUT_RESERVE_PX);
+}
+
+type SystemModal = null | "controlCenter" | "remoteAssetDetail" | "remoteUpload";
+type ControlCenterTab = "config" | "settings";
 
 function previewTabLabel(path: string): string {
   if (path.startsWith("browser://")) return "浏览器";
   const base = path.split(/[/\\]/).pop() ?? path;
   return base.length > 36 ? `${base.slice(0, 34)}…` : base;
 }
+
+const headerIconButtonClass =
+  "inline-flex h-9 w-9 items-center justify-center rounded-xl border transition-colors " +
+  "border-[var(--border-subtle)] bg-[var(--surface-1)] ui-text-secondary hover:bg-[var(--surface-3)] hover:ui-text-primary";
 
 export default function Home() {
   const {
@@ -52,7 +67,9 @@ export default function Home() {
     effectiveModel,
     skillUiPatchEvent,
     skillUiBootstrapEvent,
+    activeModuleIds,
     sendMessage,
+    sendSilentMessage,
     stopGenerating,
     approveTool,
     clearPendingChoices,
@@ -63,13 +80,13 @@ export default function Home() {
     switchSession,
   } = useAgentChat();
   const [inputPrefill, setInputPrefill] = useState("");
-  /** 右栏业务视窗：底层大盘 + 预览类 Tab + 强阻断 Action SDUI */
-  const [baseDashboardUrl, setBaseDashboardUrl] = useState<string | null>(null);
+  /** 右栏业务视窗：预览类 Tab + 强阻断 Action SDUI */
   const [blockingActionPath, setBlockingActionPath] = useState<string | null>(null);
   const [previewTabs, setPreviewTabs] = useState<Array<{ id: string; path: string; label: string }>>([]);
-  /** 右栏当前激活 Tab：__dashboard__ / __blocking__ / 具体 previewTab.id(path) */
+  /** 右栏当前激活 Tab：__blocking__ / 具体 previewTab.id(path) */
   const [activeRightTabId, setActiveRightTabId] = useState<string | null>(null);
   const [systemModal, setSystemModal] = useState<SystemModal>(null);
+  const [controlCenterTab, setControlCenterTab] = useState<ControlCenterTab>("config");
   const [activeSkillName, setActiveSkillName] = useState<string | null>(null);
   const [selectedOrgAssetId, setSelectedOrgAssetId] = useState<string | null>(null);
   const [sidebarRefreshNonce, setSidebarRefreshNonce] = useState(0);
@@ -82,8 +99,7 @@ export default function Home() {
   const [chatWidth, setChatWidth] = useState(240);
   const [previewWidth, setPreviewWidth] = useState(32);
   const [previewAnimating, setPreviewAnimating] = useState(false);
-  const CHAT_MIN = 180;
-  const CHAT_MAX = 420;
+  const CHAT_MIN = CHAT_COLUMN_MIN_PX;
   const PREVIEW_OPEN_DEFAULT = 460;
   const [selectedModel, setSelectedModel] = useState<string>("glm-4");
   const [modelOptions, setModelOptions] = useState<string[]>([]);
@@ -153,6 +169,15 @@ export default function Home() {
     void loadModelFromConfig();
   }, [loadModelFromConfig]);
 
+  useEffect(() => {
+    void hydrateProjectOverview();
+  }, []);
+
+  useEffect(() => {
+    resetProjectOverviewSessionState();
+    void hydrateProjectOverview();
+  }, [threadId]);
+
   const refreshRuntimeMode = useCallback(async () => {
     const base = apiBase.replace(/\/$/, "");
     try {
@@ -208,10 +233,9 @@ export default function Home() {
     setBlockingActionPath(null);
     setActiveRightTabId((cur) => {
       if (cur !== "__blocking__") return cur;
-      if (baseDashboardUrl) return "__dashboard__";
       return previewTabs[0]?.id ?? null;
     });
-  }, [baseDashboardUrl, previewTabs]);
+  }, [previewTabs]);
 
   const closePreviewTab = useCallback((id: string) => {
     setPreviewTabs((prev) => {
@@ -219,18 +243,15 @@ export default function Home() {
       setActiveRightTabId((cur) => {
         if (cur !== id) return cur;
         if (blockingActionPath) return "__blocking__";
-        if (baseDashboardUrl) return "__dashboard__";
         return next[0]?.id ?? null;
       });
       return next;
     });
-  }, [blockingActionPath, baseDashboardUrl]);
+  }, [blockingActionPath]);
 
   const openFilePreview = useCallback((path: string) => {
     const p = normalizeSyntheticSkillUiPath(path);
     if (isBaseLayerDashboardSkillUi(p)) {
-      setBaseDashboardUrl(p);
-      setActiveRightTabId("__dashboard__");
       return;
     }
     if (isBlockingActionSkillUi(p)) {
@@ -252,7 +273,12 @@ export default function Home() {
   }, []);
 
   const wakePreview = useCallback((path: string) => {
-    openFilePreview(path);
+    const normalized = normalizeSyntheticSkillUiPath(path);
+    if (isBaseLayerDashboardSkillUi(normalized)) {
+      openFilePreview(normalized);
+      return;
+    }
+    openFilePreview(normalized);
     if (previewWidth <= 32) {
       setPreviewAnimating(true);
       setPreviewWidth(PREVIEW_OPEN_DEFAULT);
@@ -305,9 +331,14 @@ export default function Home() {
     setSystemModal(null);
   }, []);
 
-  const openSettings = useCallback(() => {
-    setSystemModal("settings");
+  const openControlCenter = useCallback((tab: ControlCenterTab = "config") => {
+    setControlCenterTab(tab);
+    setSystemModal("controlCenter");
   }, []);
+
+  const openSettings = useCallback(() => {
+    openControlCenter("settings");
+  }, [openControlCenter]);
 
   const openRemoteAssetDetail = useCallback((assetId: string) => {
     setSelectedOrgAssetId(assetId);
@@ -326,6 +357,24 @@ export default function Home() {
     setActiveSkillName(skillName);
   }, []);
 
+  /** 从会话文本解析 moduleId（支持 payload.moduleId 或顶层 moduleId，不要求整段为合法 JSON） */
+  const moduleIdInferredFromMessages = useMemo(() => {
+    const re = /"moduleId"\s*:\s*"([^"]+)"/g;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const raw = messages[i]?.content ?? "";
+      if (!raw.includes("moduleId")) continue;
+      re.lastIndex = 0;
+      let m: RegExpExecArray | null;
+      while ((m = re.exec(raw)) !== null) {
+        const t = m[1]?.trim();
+        if (t) return t;
+      }
+    }
+    return null;
+  }, [messages]);
+
+  const dashboardActiveSkillName = activeSkillName?.trim() || moduleIdInferredFromMessages;
+
   const handleFillInput = useCallback((text: string) => {
     setInputPrefill(text);
     setInputFocusSignal((n) => n + 1);
@@ -337,6 +386,21 @@ export default function Home() {
     setToastDismissed(false);
     void sendMessage(v, selectedModel);
   }, [selectedModel, sendMessage]);
+
+  const handlePendingChoiceSelect = useCallback(
+    (choice: ChoiceItem) => {
+      clearPendingChoices();
+      void sendMessage(choice.value, selectedModel);
+    },
+    [clearPendingChoices, sendMessage, selectedModel],
+  );
+
+  const expandPreviewPanel = useCallback(() => {
+    if (previewWidth > 32) return;
+    setPreviewAnimating(true);
+    setPreviewWidth(PREVIEW_OPEN_DEFAULT);
+    setTimeout(() => setPreviewAnimating(false), 260);
+  }, [previewWidth]);
 
   const handleRetry = useCallback(() => {
     if (!lastInputRef.current) return;
@@ -358,7 +422,8 @@ export default function Home() {
       if (!draggingRef.current) return;
       const dx = e.clientX - dragStartX.current;
       if (draggingRef.current === "chat") {
-        setChatWidth(Math.max(CHAT_MIN, Math.min(CHAT_MAX, dragStartWidth.current + dx)));
+        const cap = getChatColumnMaxPx();
+        setChatWidth(Math.max(CHAT_MIN, Math.min(cap, dragStartWidth.current + dx)));
       } else if (draggingRef.current === "preview") {
         const next = Math.max(PREVIEW_OPEN_DEFAULT, Math.min(RIGHT_PANEL_MAX, dragStartWidth.current - dx));
         setPreviewWidth(next);
@@ -371,6 +436,15 @@ export default function Home() {
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
     };
+  }, []);
+
+  useEffect(() => {
+    const clamp = () => {
+      setChatWidth((w) => Math.max(CHAT_MIN, Math.min(getChatColumnMaxPx(), w)));
+    };
+    window.addEventListener("resize", clamp);
+    clamp();
+    return () => window.removeEventListener("resize", clamp);
   }, []);
 
   // Track header width for compact mode.
@@ -424,7 +498,6 @@ export default function Home() {
     setPreviewWidth(32);
     setTimeout(() => {
       setPreviewAnimating(false);
-      setBaseDashboardUrl(null);
       setBlockingActionPath(null);
       setPreviewTabs([]);
       setActiveRightTabId(null);
@@ -433,10 +506,9 @@ export default function Home() {
 
   const activePreviewTabPath = useMemo(() => {
     if (!activeRightTabId) return null;
-    if (activeRightTabId === "__dashboard__") return baseDashboardUrl;
     if (activeRightTabId === "__blocking__") return blockingActionPath;
     return previewTabs.find((t) => t.id === activeRightTabId)?.path ?? null;
-  }, [activeRightTabId, baseDashboardUrl, blockingActionPath, previewTabs]);
+  }, [activeRightTabId, blockingActionPath, previewTabs]);
 
   const sidebarProps = {
     threadId,
@@ -444,7 +516,7 @@ export default function Home() {
     onClear: clearChat,
     onPreviewPath: openFilePreview,
     currentPreviewPath: previewWidth > 32
-      ? blockingActionPath ?? activePreviewTabPath ?? baseDashboardUrl
+      ? blockingActionPath ?? activePreviewTabPath
       : null,
     onClosePreview: closePreview,
     messages,
@@ -460,8 +532,8 @@ export default function Home() {
   };
 
   const openConfig = useCallback(() => {
-    setSystemModal("config");
-  }, []);
+    openControlCenter("config");
+  }, [openControlCenter]);
 
   const artifacts = useMemo(() => {
     const paths: string[] = [];
@@ -471,12 +543,40 @@ export default function Home() {
     return [...new Set(paths)];
   }, [messages]);
 
+  const toggleDesktopSidebar = useCallback(() => {
+    setNavExpanded((prev) => !prev);
+  }, []);
+
+  const togglePreviewPanel = useCallback(() => {
+    if (previewWidth > 32) {
+      closePreview();
+      return;
+    }
+    if (activePreviewTabPath) {
+      wakePreview(activePreviewTabPath);
+      return;
+    }
+    expandPreviewPanel();
+  }, [activePreviewTabPath, closePreview, expandPreviewPanel, previewWidth, wakePreview]);
+
+  const openArtifactsHub = useCallback(() => {
+    if (artifacts.length > 0) {
+      wakePreview(artifacts[0]);
+    } else {
+      setNavExpanded(true);
+    }
+  }, [artifacts, wakePreview]);
+
+  const openSkillsHub = useCallback(() => {
+    setNavExpanded(true);
+  }, []);
+
   return (
     <main className="h-dvh overflow-hidden p-4" style={{ background: "var(--surface-0)", color: "var(--text-primary)" }}>
       {runtimeMode === "unconfigured" ? (
         <div className="mb-3 rounded-xl border border-[color-mix(in_oklab,var(--warning)_35%,transparent)] bg-[color-mix(in_oklab,var(--warning)_10%,var(--surface-1))] px-4 py-3 text-xs text-[var(--text-primary)]">
           <span className="font-medium">当前处于未初始化配置模式：</span>
-          可进入右上角「配置中心」填写模型与 API Key；保存后请重启{" "}
+          可进入右上角「控制中心」填写模型与 API Key；保存后请重启{" "}
           <code className="font-mono">npm run dev</code> 使配置生效。
         </div>
       ) : null}
@@ -495,34 +595,18 @@ export default function Home() {
           messages={messages}
         />
       )}
-      <ChoicesModal
-        choices={pendingChoices}
-        onSelect={(choice) => {
-          clearPendingChoices();
-          void sendMessage(choice.value, selectedModel);
-        }}
-        onClose={clearPendingChoices}
-      />
-
-      {systemModal === "settings" && (
-        <SystemShellModal onClose={closeSystemModal} title="设置">
-          <div className="max-h-[92vh] min-h-0 overflow-y-auto">
-            <SettingsPanel onClose={closeSystemModal} onOpenRemoteUpload={openRemoteAssetUpload} showCloseButton={false} />
-          </div>
-        </SystemShellModal>
-      )}
-      {systemModal === "config" && (
-        <SystemShellModal onClose={closeSystemModal} title="配置中心">
-          <div className="h-[85vh] min-h-[480px] max-h-[92vh] overflow-hidden flex flex-col">
-            <ConfigPanel
-              onClose={closeSystemModal}
-              showCloseButton={false}
-              onSaved={() => {
-                void loadModelFromConfig();
-                void refreshRuntimeMode();
-              }}
-            />
-          </div>
+      {systemModal === "controlCenter" && (
+        <SystemShellModal onClose={closeSystemModal} title="控制中心">
+          <ControlCenterPanel
+            key={controlCenterTab}
+            initialTab={controlCenterTab}
+            onClose={closeSystemModal}
+            onOpenRemoteUpload={openRemoteAssetUpload}
+            onSaved={() => {
+              void loadModelFromConfig();
+              void refreshRuntimeMode();
+            }}
+          />
         </SystemShellModal>
       )}
       {systemModal === "remoteAssetDetail" && (
@@ -584,6 +668,29 @@ export default function Home() {
         </div>
       )}
 
+      {/* 预览收起时：会话区旁的胶囊入口，展开右侧分屏（不依赖是否已有预览 Tab） */}
+      {previewWidth <= 32 ? (
+        <button
+          type="button"
+          className="hidden md:flex fixed z-[35] items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium shadow-lg transition-colors hover:opacity-95"
+          style={{
+            right: "44px",
+            bottom: "calc(5rem + env(safe-area-inset-bottom, 0px))",
+            background: "var(--surface-2)",
+            borderColor: "var(--border-subtle)",
+            color: "var(--text-primary)",
+          }}
+          title="展开右侧预览分屏"
+          onClick={() => {
+            if (activePreviewTabPath) wakePreview(activePreviewTabPath);
+            else expandPreviewPanel();
+          }}
+        >
+          <PanelRightOpen size={14} className="shrink-0 opacity-80" />
+          预览分屏
+        </button>
+      ) : null}
+
       {/* Desktop layout: 4-column Mission Control */}
       <div className="hidden md:flex h-full min-h-0 gap-0">
 
@@ -611,23 +718,7 @@ export default function Home() {
             <button type="button" onClick={createSession} title="新建会话" className="nav-icon-btn">
               <Plus size={18} />
             </button>
-            <button type="button" title="产物" className="nav-icon-btn">
-              <FileText size={18} />
-              {artifacts.length > 0 && (
-                <span className="absolute top-0 right-0 w-3.5 h-3.5 rounded-full text-[8px] font-bold flex items-center justify-center text-white pointer-events-none" style={{ background: "var(--accent)" }}>
-                  {artifacts.length > 9 ? "9+" : artifacts.length}
-                </span>
-              )}
-            </button>
-            <button type="button" title="Skills" className="nav-icon-btn">
-              <Zap size={18} />
-            </button>
-            <div className="mt-auto flex flex-col items-center gap-1">
-              <button type="button" onClick={openConfig} title="配置" className="nav-icon-btn">
-                <Settings size={18} />
-              </button>
-              <ThemeToggle vertical />
-            </div>
+            <div className="mt-auto" />
           </div>
         )}
 
@@ -636,8 +727,18 @@ export default function Home() {
           className="shrink-0 min-h-0 flex flex-col bg-[var(--paper-chat)] rounded-2xl shadow-[var(--shadow-card)] ring-1 ring-black/[0.05] dark:ring-white/10 overflow-hidden"
           style={{ width: chatWidth }}
         >
-          <div ref={headerRef} className="flex items-start gap-1.5 mb-2 shrink-0 min-w-0 px-2 pt-2">
-            <TaskProgressBar runStatus={runStatus} compact={headerWidth < 760} />
+          <div ref={headerRef} className="mb-2 flex shrink-0 items-start justify-between gap-2 px-2 pt-2 min-w-0">
+            <div className="flex items-center gap-1.5 shrink-0">
+              <button
+                type="button"
+                onClick={toggleDesktopSidebar}
+                aria-label={navExpanded ? "收起左侧栏" : "打开左侧栏"}
+                title={navExpanded ? "收起左侧栏" : "打开左侧栏"}
+                className={headerIconButtonClass}
+              >
+                <SidebarIcon size={17} />
+              </button>
+            </div>
             <div className="flex items-center gap-1.5 shrink-0">
               {providerOptions.length > 0 && (
                 <label className="inline-flex items-center gap-2 text-xs ui-text-secondary">
@@ -667,10 +768,45 @@ export default function Home() {
                 models={modelOptions}
                 compact={headerWidth < 760}
               />
-              <button type="button" onClick={openConfig} aria-label="配置中心" title="配置中心"
-                className="rounded-lg p-2 ui-text-secondary hover:bg-[var(--surface-3)] hover:ui-text-primary transition-colors border border-transparent hover:border-[var(--border-subtle)]">
+              <button type="button" onClick={openConfig} aria-label="控制中心" title="控制中心"
+                className={headerIconButtonClass}>
                 <Settings size={17} />
               </button>
+              <button
+                type="button"
+                onClick={togglePreviewPanel}
+                aria-label={previewWidth > 32 ? "收起右侧栏" : "打开右侧栏"}
+                title={previewWidth > 32 ? "收起右侧栏" : "打开右侧栏"}
+                className={headerIconButtonClass}
+              >
+                {previewWidth > 32 ? <PanelRightClose size={17} /> : <PanelRightOpen size={17} />}
+              </button>
+              <button
+                type="button"
+                onClick={openArtifactsHub}
+                aria-label="产物中心"
+                title={artifacts.length > 0 ? `产物中心（${artifacts.length}）` : "产物中心"}
+                className={`relative ${headerIconButtonClass}`}
+              >
+                <FileText size={17} />
+                {artifacts.length > 0 && (
+                  <span className="absolute right-1 top-1 flex h-3.5 min-w-3.5 items-center justify-center rounded-full px-1 text-[8px] font-bold text-white" style={{ background: "var(--accent)" }}>
+                    {artifacts.length > 9 ? "9+" : artifacts.length}
+                  </span>
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={openSkillsHub}
+                aria-label="技能中心"
+                title="技能中心"
+                className={headerIconButtonClass}
+              >
+                <Zap size={17} />
+              </button>
+              <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-1)] px-1 py-1 transition-colors hover:bg-[var(--surface-3)]">
+                <ThemeToggle />
+              </div>
             </div>
           </div>
           <div className="flex-1 min-h-0">
@@ -693,12 +829,21 @@ export default function Home() {
               focusSignal={inputFocusSignal}
               prefillText={inputPrefill}
               chatCardPostToAgent={(text) => void sendMessage(text, selectedModel)}
+              onSelectPendingChoice={handlePendingChoiceSelect}
+              onDismissPendingChoices={clearPendingChoices}
             />
           </div>
         </div>
 
         {/* Drag handle: chat ↔ dashboard */}
-        <div className="w-3 shrink-0 cursor-col-resize flex items-center justify-center group" onMouseDown={(e) => startDrag("chat", e)}>
+        <div
+          className="w-3 shrink-0 cursor-col-resize flex items-center justify-center group select-none"
+          title="拖拽调整会话区宽度"
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="调整会话与大盘宽度"
+          onMouseDown={(e) => startDrag("chat", e)}
+        >
           <div className="w-0.5 h-12 rounded-full transition-colors group-hover:bg-[var(--accent)]" style={{ background: "var(--border-subtle)" }} />
         </div>
 
@@ -708,12 +853,15 @@ export default function Home() {
           style={{ containerType: "inline-size", containerName: "dashboard" } as React.CSSProperties}
         >
           <DashboardNavigator
+            threadId={threadId}
+            activeModuleIds={activeModuleIds}
             skillUiPatchEvent={skillUiPatchEvent}
             skillUiBootstrapEvent={skillUiBootstrapEvent}
             onOpenPreview={wakePreview}
             postToAgent={(text) => void sendMessage(text, selectedModel)}
+            postToAgentSilently={(text) => void sendSilentMessage(text, selectedModel)}
             isAgentRunning={isAgentRunning}
-            activeSkillName={activeSkillName}
+            activeSkillName={dashboardActiveSkillName}
           />
         </div>
 
@@ -755,12 +903,11 @@ export default function Home() {
                 onSelectTab={setActiveRightTabId}
                 onClosePreviewTab={closePreviewTab}
                 onOpenPath={openFilePreview}
-                activeSkillName={activeSkillName}
+                activeSkillName={dashboardActiveSkillName}
                 onFillInput={handleFillInput}
                 postToAgent={(text) => void sendMessage(text, selectedModel)}
                 isAgentRunning={isAgentRunning}
                 skillUiPatchEvent={skillUiPatchEvent}
-                skillUiBootstrapEvent={skillUiBootstrapEvent}
               />
             </div>
           )}
@@ -788,6 +935,8 @@ export default function Home() {
           focusSignal={inputFocusSignal}
           prefillText={inputPrefill}
           chatCardPostToAgent={(text) => void sendMessage(text, selectedModel)}
+          onSelectPendingChoice={handlePendingChoiceSelect}
+          onDismissPendingChoices={clearPendingChoices}
         />
       </div>
     </main>

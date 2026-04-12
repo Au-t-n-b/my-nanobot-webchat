@@ -92,6 +92,7 @@ class MissionControlManager:
         card_id: str | None = None,
         module_id: str | None = None,
         next_action: str | None = None,
+        save_relative_dir: str | None = None,
     ) -> ChatCardHandle:
         """Emit a chat card that asks user to upload a file.
 
@@ -101,13 +102,18 @@ class MissionControlManager:
         t = (title or "").strip() or "请上传文件"
         did = await self._ensure_chat_doc()
         cid = (card_id or "").strip() or f"upload:{p}:{uuid.uuid4().hex}"
+        save_dir = (save_relative_dir or "").strip().replace("\\", "/").strip("/")
         fp_node: dict[str, Any] = {
             "type": "FilePicker",
             "purpose": p,
             "accept": (accept or "").strip() or None,
             "multiple": bool(multiple),
             "label": "上传文件",
-            "helpText": "上传成功后会自动同步到当前会话状态（不进入对话历史）。",
+            "helpText": (
+                f"将文件拖到下方区域或点击选择；保存目录（workspace 相对）：{save_dir}/<文件名>"
+                if save_dir
+                else "将文件拖到下方区域或点击选择；上传成功后会同步会话并触发下一步。"
+            ),
         }
         mid = (module_id or "").strip()
         na = (next_action or "").strip()
@@ -115,6 +121,8 @@ class MissionControlManager:
             fp_node["moduleId"] = mid
         if na:
             fp_node["nextAction"] = na
+        if save_dir:
+            fp_node["saveRelativeDir"] = save_dir
         payload: dict[str, Any] = {
             "threadId": self.thread_id,
             "cardId": cid,

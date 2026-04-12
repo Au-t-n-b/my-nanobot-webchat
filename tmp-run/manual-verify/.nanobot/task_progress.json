@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "updatedAt": 1775958460,
+  "progress": [
+    {
+      "moduleId": "m_7",
+      "moduleName": "智能分析工作台",
+      "updatedAt": 1775958460,
+      "tasks": [
+        {
+          "name": "模块待启动",
+          "completed": true
+        },
+        {
+          "name": "分析目标已确认",
+          "completed": true
+        },
+        {
+          "name": "资料已上传",
+          "completed": true
+        },
+        {
+          "name": "并行分析进行中",
+          "completed": true
+        },
+        {
+          "name": "结论汇总中",
+          "completed": false
+        },
+        {
+          "name": "分析完成",
+          "completed": false
+        }
+      ]
+    }
+  ]
+}

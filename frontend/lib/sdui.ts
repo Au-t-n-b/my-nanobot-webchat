@@ -38,12 +38,16 @@ export type SduiNodeType =
   | "Button"
   | "Link"
   | "ChartPlaceholder"
+  | "GoldenMetrics"
   | "DonutChart"
   | "BarChart"
   | "FileKindBadge"
   | "ArtifactGrid"
   | "GuidanceCard"
-  | "ChoiceCard";
+  | "ChoiceCard"
+  | "StatisticRow"
+  | "GanttLane"
+  | "GanttChart";
 
 /** 运行时校验 / normalizer 用：全部合法 `type` 字面量 */
 export const SDUI_NODE_TYPE_VALUES: readonly SduiNodeType[] = [
@@ -66,12 +70,16 @@ export const SDUI_NODE_TYPE_VALUES: readonly SduiNodeType[] = [
   "Button",
   "Link",
   "ChartPlaceholder",
+  "GoldenMetrics",
   "DonutChart",
   "BarChart",
   "FileKindBadge",
   "ArtifactGrid",
   "GuidanceCard",
   "ChoiceCard",
+  "StatisticRow",
+  "GanttLane",
+  "GanttChart",
 ] as const;
 
 /** Tabs 子项图标的封闭枚举（宿主映射到 Lucide，禁止自由 SVG/URL） */
@@ -126,7 +134,7 @@ export type SduiPatch = {
     | { op: "remove"; target: { by: "id"; nodeId: string } }
     | {
         op: "append";
-        target: { by: "id"; nodeId: string; field: "children" | "rows" };
+        target: { by: "id"; nodeId: string; field: "children" | "rows" | "artifacts" };
         value: unknown;
       }
   >;
@@ -304,6 +312,21 @@ export function applySduiPatch(doc: SduiDocument, patch: SduiPatch): SduiDocumen
         const nextItems = Array.isArray(op.value) ? op.value : [op.value];
         const safeNext = nextItems.filter((x) => x !== undefined);
         if (safeNext.length) grid.rows = prev.concat(safeNext);
+      } else if (field === "artifacts") {
+        // ArtifactGrid.artifacts — 与 mission_control.add_artifact / build_append_op 对齐
+        const grid = existing as unknown as { type?: string; artifacts?: SduiArtifactItem[] };
+        if (grid.type !== "ArtifactGrid") continue;
+        const prev = Array.isArray(grid.artifacts) ? grid.artifacts : [];
+        const nextItems = Array.isArray(op.value) ? op.value : [op.value];
+        const safeNext = nextItems.filter(
+          (x): x is SduiArtifactItem =>
+            x !== null &&
+            typeof x === "object" &&
+            typeof (x as SduiArtifactItem).id === "string" &&
+            typeof (x as SduiArtifactItem).label === "string" &&
+            typeof (x as SduiArtifactItem).path === "string",
+        );
+        if (safeNext.length) grid.artifacts = prev.concat(safeNext);
       }
       continue;
     }
@@ -343,18 +366,32 @@ export type SduiArtifactStatus = "ready" | "generating" | "error";
 export type SduiArtifactKind = "docx" | "xlsx" | "pdf" | "html" | "json" | "md" | "png" | "other";
 
 export type SduiArtifactItem = {
-  id: string;
-  label: string;
-  path: string;
-  kind: SduiArtifactKind;
+  id?: string;
+  label?: string;
+  path?: string;
+  kind?: SduiArtifactKind;
   status?: SduiArtifactStatus;
 };
 
 export type SduiArtifactGridNode = {
   type: "ArtifactGrid";
   id?: string;
+  title?: string;
+  mode?: "input" | "output";
   artifacts: SduiArtifactItem[];
   flex?: number;
+};
+
+export type SduiGoldenMetricItem = {
+  id?: string;
+  label?: string;
+  value?: number | string;
+  color?: string;
+};
+
+export type SduiGoldenMetricsNode = SduiOptionalId & {
+  type: "GoldenMetrics";
+  metrics?: SduiGoldenMetricItem[];
 };
 
 export type SduiGuidanceAction = { label: string; verb: string; payload?: unknown };
@@ -400,12 +437,16 @@ export type SduiNode =
   | SduiButtonNode
   | SduiLinkNode
   | SduiChartPlaceholderNode
+  | SduiGoldenMetricsNode
   | SduiDonutChartNode
   | SduiBarChartNode
   | SduiFileKindBadgeNode
   | SduiArtifactGridNode
   | SduiGuidanceCardNode
-  | SduiChoiceCardNode;
+  | SduiChoiceCardNode
+  | SduiStatisticRowNode
+  | SduiGanttLaneNode
+  | SduiGanttChartNode;
 
 /** 各节点可选的稳定 id，用于列表 React key 与排查 */
 type SduiOptionalId = {
@@ -524,6 +565,8 @@ export type SduiFilePickerNode = SduiOptionalId & {
   multiple?: boolean;
   moduleId?: string;
   nextAction?: string;
+  /** workspace 相对目录，上传文件落盘为 ``<saveRelativeDir>/<净化后的原文件名>`` */
+  saveRelativeDir?: string;
 };
 
 export type SduiBadgeNode = SduiOptionalId & {
@@ -542,6 +585,47 @@ export type SduiStatisticNode = SduiOptionalId & {
   title: string;
   value: string | number;
   color?: SduiSemanticColor;
+};
+
+/** 横向指标行（JSON 中替代 Row+多个 Statistic，避免 Agent 拼错子节点） */
+export type SduiStatisticRowItem = {
+  title: string;
+  value: string | number;
+  color?: SduiSemanticColor;
+};
+
+export type SduiStatisticRowNode = SduiOptionalId & {
+  type: "StatisticRow";
+  items: SduiStatisticRowItem[];
+};
+
+export type SduiGanttBar = {
+  label: string;
+  /** 0–100，相对轨道起点 */
+  startPct?: number;
+  /** 0–100，宽度 */
+  widthPct: number;
+  color?: SduiSemanticColor;
+};
+
+export type SduiGanttLaneRow = {
+  label: string;
+  bars?: SduiGanttBar[];
+};
+
+export type SduiGanttLaneNode = SduiOptionalId & {
+  type: "GanttLane";
+  title?: string;
+  caption?: string;
+  lanes?: SduiGanttLaneRow[];
+};
+
+/** 与 {@link SduiGanttLaneNode} 同模型；常见 LLM 误写为 GanttChart，宿主统一映射到甘特轨 */
+export type SduiGanttChartNode = SduiOptionalId & {
+  type: "GanttChart";
+  title?: string;
+  caption?: string;
+  lanes?: SduiGanttLaneRow[];
 };
 
 export type SduiKeyValueListNode = SduiOptionalId & {

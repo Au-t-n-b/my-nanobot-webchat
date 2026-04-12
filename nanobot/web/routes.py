@@ -9,6 +9,7 @@ import json
 import mimetypes
 import os
 import traceback
+import uuid
 import zipfile
 from collections.abc import Awaitable, Callable
 from pathlib import Path
@@ -41,11 +42,17 @@ from nanobot.web.skills import (
     build_skill_archive,
     get_skill_dir,
     get_skills_root,
+    list_modules,
     list_skills,
     parse_skill_metadata,
     read_remote_skill_metadata,
     skill_latest_modified_at,
     write_remote_skill_metadata,
+)
+from nanobot.web.task_progress import (
+    default_task_progress_file_payload,
+    load_task_status_payload,
+    normalize_task_progress_payload,
 )
 from nanobot.web.sse import format_sse
 
@@ -54,141 +61,7 @@ if TYPE_CHECKING:
 
 
 def _default_task_status_payload() -> dict[str, Any]:
-    return _normalize_task_progress_payload(_default_task_progress_file_payload())
-
-
-def _default_task_progress_file_payload() -> dict[str, Any]:
-    return {
-        "schemaVersion": 1,
-        "updatedAt": None,
-        "progress": [
-            {
-                "moduleId": "m_1",
-                "moduleName": "机房准备",
-                "updatedAt": None,
-                "tasks": [
-                    {"name": "提资", "completed": False},
-                    {"name": "工勘数据采集与处理", "completed": False},
-                    {"name": "勘测记录智能分析", "completed": False},
-                    {"name": "工勘报告生成", "completed": False},
-                ],
-            },
-            {
-                "moduleId": "m_2",
-                "moduleName": "机房工勘",
-                "updatedAt": None,
-                "tasks": [
-                    {"name": "数据解析/架构/空间设", "completed": False},
-                    {"name": "数据智能提取", "completed": False},
-                    {"name": "网段规划/格式转换", "completed": False},
-                    {"name": "智能数据校验", "completed": False},
-                ],
-            },
-            {
-                "moduleId": "m_3",
-                "moduleName": "规划设计",
-                "updatedAt": None,
-                "tasks": [
-                    {"name": "施工智能调度", "completed": False},
-                    {"name": "进度智能化反馈", "completed": False},
-                ],
-            },
-            {
-                "moduleId": "m_4",
-                "moduleName": "硬装/昇腾安装",
-                "updatedAt": None,
-                "tasks": [
-                    {"name": "智能化生成配置文件", "completed": False},
-                    {"name": "昇腾软件安装", "completed": False},
-                    {"name": "单机测试/集群测试", "completed": False},
-                    {"name": "测试结果智能分析", "completed": False},
-                ],
-            },
-            {
-                "moduleId": "m_5",
-                "moduleName": "软件部署/对接",
-                "updatedAt": None,
-                "tasks": [
-                    {"name": "软件部署/测试", "completed": False},
-                    {"name": "对接问题处理", "completed": False},
-                    {"name": "平台对接", "completed": False},
-                ],
-            },
-            {
-                "moduleId": "m_6",
-                "moduleName": "验收上线",
-                "updatedAt": None,
-                "tasks": [
-                    {"name": "验收文档生成", "completed": False},
-                    {"name": "问题定界定位", "completed": False},
-                    {"name": "系统上线", "completed": False},
-                ],
-            },
-        ],
-    }
-
-
-def _task_progress_file_path() -> Path:
-    from nanobot.config.loader import get_config_path
-
-    return get_config_path().parent / "task_progress.json"
-
-
-def _normalize_task_progress_payload(payload: dict[str, Any]) -> dict[str, Any]:
-    """Normalize persisted progress data into the frontend's existing shape."""
-    # Backward compatibility: if some external writer still emits the old
-    # AGUI-facing structure, pass it through unchanged during migration.
-    if "modules" in payload and "overall" in payload:
-        return payload
-
-    progress = payload.get("progress")
-    if not isinstance(progress, list):
-        progress = []
-
-    modules: list[dict[str, Any]] = []
-    for mod_index, raw_module in enumerate(progress, start=1):
-        module_id = str(raw_module.get("moduleId") or f"m_{mod_index}")
-        module_name = str(raw_module.get("moduleName") or module_id)
-        raw_tasks = raw_module.get("tasks")
-        if not isinstance(raw_tasks, list):
-            raw_tasks = []
-
-        steps: list[dict[str, Any]] = []
-        completed_count = 0
-        for task_index, raw_task in enumerate(raw_tasks, start=1):
-            done = bool(raw_task.get("completed"))
-            if done:
-                completed_count += 1
-            steps.append(
-                {
-                    "id": f"{module_id}_s_{task_index}",
-                    "name": str(raw_task.get("name") or f"任务 {task_index}"),
-                    "done": done,
-                }
-            )
-
-        if steps and completed_count == len(steps):
-            status = "completed"
-        elif completed_count > 0:
-            status = "running"
-        else:
-            status = "pending"
-
-        modules.append(
-            {
-                "id": module_id,
-                "name": module_name,
-                "status": status,
-                "steps": steps,
-            }
-        )
-
-    done_count = sum(1 for module in modules if module["status"] == "completed")
-    return {
-        "updatedAt": payload.get("updatedAt"),
-        "overall": {"doneCount": done_count, "totalCount": len(modules)},
-        "modules": modules,
-    }
+    return normalize_task_progress_payload(default_task_progress_file_payload())
 
 
 async def _cleanup_chat_run(
@@ -610,6 +483,13 @@ async def handle_skills(_request: web.Request) -> web.Response:
         return _error("internal_error", "Failed to list skills", detail=str(e), status=500)
 
 
+async def handle_modules(_request: web.Request) -> web.Response:
+    try:
+        return web.json_response({"items": list_modules()})
+    except Exception as e:
+        return _error("internal_error", "Failed to list modules", detail=str(e), status=500)
+
+
 async def handle_skill_publish(request: web.Request) -> web.Response:
     store_or_response = _require_remote_session(request)
     if isinstance(store_or_response, web.Response):
@@ -743,17 +623,31 @@ def _last_user_text(messages: Any) -> str | None:
 
 
 def _try_parse_chat_card_intent(text: str) -> dict[str, Any] | None:
-    """若用户消息为 ``chat_card_intent`` JSON，则解析为 dict；否则 None。"""
+    """若用户消息内含 ``chat_card_intent`` JSON 对象，则解析为 dict；否则 None。
+
+    支持整段即为 JSON，或前面有分隔线/说明文字（如 ``————{\\\"type\\\":\\\"chat_card_intent\\\"...``），
+    避免误走 LLM 导致模型谎称「没有工具」。
+    """
     t = (text or "").strip()
-    if not t.startswith("{"):
+    if not t:
         return None
-    try:
-        obj = json.loads(t)
-    except json.JSONDecodeError:
-        return None
-    if not isinstance(obj, dict) or obj.get("type") != "chat_card_intent":
-        return None
-    return obj
+    dec = json.JSONDecoder()
+    # 从每个 ``{`` 起尝试 raw_decode，取第一个合法且 type 匹配的 object
+    search_from = 0
+    while True:
+        i = t.find("{", search_from)
+        if i < 0:
+            break
+        chunk = t[i:].lstrip()
+        try:
+            obj, _end = dec.raw_decode(chunk)
+        except json.JSONDecodeError:
+            search_from = i + 1
+            continue
+        if isinstance(obj, dict) and obj.get("type") == "chat_card_intent":
+            return obj
+        search_from = i + 1
+    return None
 
 
 async def handle_chat(request: web.Request) -> web.StreamResponse | web.Response:
@@ -883,6 +777,12 @@ async def handle_chat(request: web.Request) -> web.StreamResponse | web.Response
             async def emit_skill_ui_chat_card(payload: dict[str, Any]) -> None:
                 await safe_write("SkillUiChatCard", payload)
 
+            async def emit_module_session_focus(payload: dict[str, Any]) -> None:
+                await safe_write("ModuleSessionFocus", payload)
+
+            async def emit_task_status(payload: dict[str, Any]) -> None:
+                await safe_write("TaskStatusUpdate", payload)
+
             streamed_chunks: list[str] = []
             run_choices: list[dict[str, str]] = []
 
@@ -961,6 +861,8 @@ async def handle_chat(request: web.Request) -> web.StreamResponse | web.Response
             token = agent.set_tool_approval_callback(on_tool_approval)
             token_skill_ui_patch = agent.set_skill_ui_patch_emitter(emit_skill_ui_patch)
             token_skill_ui_chat = agent.set_skill_ui_chat_card_emitter(emit_skill_ui_chat_card)
+            token_module_focus = agent.set_module_session_focus_emitter(emit_module_session_focus)
+            token_task_status = agent.set_task_status_emitter(emit_task_status)
             token_thread_id = agent.set_current_thread_id(thread_id)
 
             async def _sse_heartbeat() -> None:
@@ -1088,6 +990,8 @@ async def handle_chat(request: web.Request) -> web.StreamResponse | web.Response
                 agent.reset_tool_approval_callback(token)
                 agent.reset_skill_ui_patch_emitter(token_skill_ui_patch)
                 agent.reset_skill_ui_chat_card_emitter(token_skill_ui_chat)
+                agent.reset_module_session_focus_emitter(token_module_focus)
+                agent.reset_task_status_emitter(token_task_status)
                 agent.reset_current_thread_id(token_thread_id)
     except asyncio.CancelledError:
         client_disconnected = True
@@ -1171,6 +1075,66 @@ def _content_type_for_file(path: Path) -> str:
     return "application/octet-stream"
 
 
+def _safe_upload_basename(name: str) -> str:
+    raw = Path(str(name or "")).name
+    out = "".join(c for c in raw if c.isalnum() or c in "._-")
+    out = out[:180].strip(".")
+    return out or "upload.bin"
+
+
+async def handle_workspace_upload(request: web.Request) -> web.Response:
+    """POST /api/upload — 保存到 AGUI workspace（供会话内 FilePicker）。
+
+    multipart 字段：
+    - ``file``：必填
+    - ``purpose``：可选，用于默认落盘子目录 ``uploads/<purpose>/``
+    - ``targetDir`` / ``saveRelativeDir``：可选，workspace 相对目录，文件名为客户端原始文件名（净化后）
+    """
+    cfg = request.app[CONFIG_KEY]
+    workspace = _agui_workspace_root(cfg)
+    try:
+        data = await request.post()
+    except Exception as e:
+        return web.json_response({"detail": f"invalid multipart form: {e}"}, status=400)
+
+    upload = data.get("file")
+    if upload is None or not hasattr(upload, "file"):
+        return web.json_response({"detail": "file is required"}, status=400)
+
+    purpose = str(data.get("purpose") or "").strip() or "upload"
+    save_dir_raw = str(data.get("targetDir") or data.get("saveRelativeDir") or "").strip()
+
+    content = upload.file.read()
+    max_bytes = 52 * 1024 * 1024
+    if len(content) > max_bytes:
+        return web.json_response({"detail": "file too large (max 52MB)"}, status=400)
+
+    filename = _safe_upload_basename(str(upload.filename or "file.bin"))
+    try:
+        if save_dir_raw:
+            norm_dir = normalize_file_query(save_dir_raw).strip("/")
+            if not norm_dir or ".." in norm_dir.split("/"):
+                return web.json_response({"detail": "invalid targetDir"}, status=400)
+            rel = f"{norm_dir}/{filename}"
+        else:
+            rel = f"uploads/{purpose}/{uuid.uuid4().hex}_{filename}"
+        dest = resolve_file_target(rel, workspace)
+    except ValueError as e:
+        return web.json_response({"detail": str(e)}, status=400)
+
+    try:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(content)
+    except OSError as e:
+        logger.error("workspace upload write failed | path={} | {}", dest, e)
+        return web.json_response({"detail": "failed to write file"}, status=500)
+
+    logical = str(dest.resolve().relative_to(workspace.resolve())).replace("\\", "/")
+    file_id = f"ws:{logical}"
+    logical_path = f"workspace/{logical}"
+    return web.json_response({"fileId": file_id, "logicalPath": logical_path})
+
+
 async def handle_file(request: web.Request) -> web.Response:
     raw = request.rel_url.query.get("path")
     if raw is None or not str(raw).strip():
@@ -1208,19 +1172,12 @@ async def handle_file(request: web.Request) -> web.Response:
 
 
 async def handle_task_status(request: web.Request) -> web.Response:
-    progress_file = _task_progress_file_path()
-
-    if not progress_file.exists():
-        return web.json_response(_default_task_status_payload())
-
     try:
-        payload = json.loads(progress_file.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
+        return web.json_response(load_task_status_payload())
+    except (json.JSONDecodeError, ValueError):
         return web.json_response({"detail": "invalid task_progress.json"}, status=500)
     except OSError as e:
         return web.json_response({"detail": str(e)}, status=500)
-
-    return web.json_response(_normalize_task_progress_payload(payload))
 
 
 async def handle_config_get(request: web.Request) -> web.Response:
@@ -1910,6 +1867,7 @@ async def handle_browser(request: web.Request) -> web.WebSocketResponse:
 
 def setup_routes(app: web.Application) -> None:
     app.router.add_post("/api/chat", handle_chat)
+    app.router.add_post("/api/upload", handle_workspace_upload)
     app.router.add_post("/api/approve-tool", handle_approve)
     app.router.add_get("/api/task-status", handle_task_status)
     app.router.add_get("/api/file", handle_file)
@@ -1928,11 +1886,13 @@ def setup_routes(app: web.Application) -> None:
     app.router.add_post("/api/remote-assets/personal-artifacts/upload", handle_personal_artifacts_upload)
     app.router.add_post("/api/remote-assets/personal-artifacts/upload-from-session", handle_personal_artifacts_upload_from_session)
     app.router.add_get("/api/skills", handle_skills)
+    app.router.add_get("/api/modules", handle_modules)
     app.router.add_post("/api/skills/publish", handle_skill_publish)
     app.router.add_post("/api/open-folder", handle_open_folder)
     app.router.add_post("/api/trash-files", handle_trash_files)
     app.router.add_get("/api/browser", handle_browser)
     app.router.add_options("/api/chat", handle_options)
+    app.router.add_options("/api/upload", handle_options)
     app.router.add_options("/api/approve-tool", handle_options)
     app.router.add_options("/api/task-status", handle_options)
     app.router.add_options("/api/file", handle_options)
@@ -1950,6 +1910,7 @@ def setup_routes(app: web.Application) -> None:
     app.router.add_options("/api/remote-assets/personal-artifacts/upload", handle_options)
     app.router.add_options("/api/remote-assets/personal-artifacts/upload-from-session", handle_options)
     app.router.add_options("/api/skills", handle_options)
+    app.router.add_options("/api/modules", handle_options)
     app.router.add_options("/api/skills/publish", handle_options)
     app.router.add_options("/api/open-folder", handle_options)
     app.router.add_options("/api/trash-files", handle_options)

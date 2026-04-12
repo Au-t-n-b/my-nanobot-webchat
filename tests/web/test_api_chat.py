@@ -27,6 +27,12 @@ class _AguiHandleChatAgentMixin:
     def reset_skill_ui_chat_card_emitter(self, _token: object) -> None:
         pass
 
+    def set_module_session_focus_emitter(self, _cb: object) -> str:
+        return "tok_module_focus"
+
+    def reset_module_session_focus_emitter(self, _token: object) -> None:
+        pass
+
     def set_current_thread_id(self, _tid: str) -> str:
         return "tok_thread_id"
 

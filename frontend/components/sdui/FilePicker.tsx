@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { Upload, CheckCircle2, AlertTriangle, Check } from "lucide-react";
 import type { SduiFilePickerNode } from "@/lib/sdui";
 import { useSkillUiRuntime } from "@/components/sdui/SkillUiRuntimeProvider";
@@ -19,6 +19,14 @@ function clamp01(n: number): number {
   return Math.max(0, Math.min(1, n));
 }
 
+function aguiRequestPath(path: string): string {
+  if (process.env.NEXT_PUBLIC_AGUI_DIRECT === "1") {
+    const base = (process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8765").replace(/\/$/, "");
+    return `${base}${path.startsWith("/") ? path : `/${path}`}`;
+  }
+  return path.startsWith("/") ? path : `/${path}`;
+}
+
 export function SduiFilePicker({
   purpose,
   label = "上传文件",
@@ -28,91 +36,144 @@ export function SduiFilePicker({
   moduleId,
   nextAction,
   cardId,
+  saveRelativeDir,
 }: Props) {
   const { syncState, postToAgent } = useSkillUiRuntime();
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [state, setState] = useState<UploadState>({ status: "idle" });
+  const [dragOver, setDragOver] = useState(false);
+
+  const uploadOne = useCallback(
+    (file: File) =>
+      new Promise<{ fileId: string; logicalPath?: string }>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open("POST", aguiRequestPath("/api/upload"), true);
+        xhr.responseType = "json";
+        xhr.upload.onprogress = (e) => {
+          if (!e.lengthComputable) return;
+          setState({ status: "uploading", progress: clamp01(e.loaded / e.total), filename: file.name });
+        };
+        xhr.onerror = () => reject(new Error("upload failed"));
+        xhr.onload = () => {
+          const ok = xhr.status >= 200 && xhr.status < 300;
+          const res = (xhr.response ?? {}) as { fileId?: unknown; logicalPath?: unknown; detail?: unknown };
+          if (!ok) {
+            reject(new Error(typeof res.detail === "string" ? res.detail : `HTTP ${xhr.status}`));
+            return;
+          }
+          const fileId = typeof res.fileId === "string" ? res.fileId : "";
+          const logicalPath = typeof res.logicalPath === "string" ? res.logicalPath : undefined;
+          if (!fileId) {
+            reject(new Error("missing fileId"));
+            return;
+          }
+          resolve({ fileId, logicalPath });
+        };
+        const fd = new FormData();
+        fd.append("purpose", purpose);
+        fd.append("file", file, file.name);
+        const dir = (saveRelativeDir ?? "").trim();
+        if (dir) {
+          fd.append("targetDir", dir);
+        }
+        xhr.send(fd);
+      }),
+    [purpose, saveRelativeDir],
+  );
+
+  const finishUpload = useCallback(
+    async (file: File) => {
+      try {
+        setState({ status: "uploading", progress: 0, filename: file.name });
+        const { fileId, logicalPath } = await uploadOne(file);
+        setState({ status: "success_anim", filename: file.name, fileId, logicalPath });
+        window.setTimeout(() => {
+          const uploadRecord = {
+            fileId,
+            name: file.name,
+            logicalPath,
+            savedDir: saveRelativeDir,
+            uploadedAt: Date.now(),
+          };
+          setState({ status: "success", filename: file.name, fileId, logicalPath });
+          syncState({
+            key: `uploads.${purpose}`,
+            value: uploadRecord,
+            behavior: "immediate",
+          });
+          const mid = (moduleId ?? "").trim();
+          const na = (nextAction ?? "").trim();
+          const cid = (cardId ?? "").trim();
+          if (mid && na && cid) {
+            postToAgent(
+              JSON.stringify({
+                type: "chat_card_intent",
+                verb: "module_action",
+                cardId: cid,
+                payload: {
+                  moduleId: mid,
+                  action: na,
+                  state: {
+                    upload: uploadRecord,
+                    uploads: [uploadRecord],
+                  },
+                },
+              }),
+            );
+          }
+        }, 300);
+      } catch (err) {
+        setState({
+          status: "error",
+          filename: file?.name,
+          message: err instanceof Error ? err.message : String(err),
+        });
+      }
+    },
+    [uploadOne, syncState, purpose, moduleId, nextAction, cardId, postToAgent],
+  );
 
   const onPick = () => {
     if (state.status === "success" || state.status === "success_anim") return;
     inputRef.current?.click();
   };
 
-  const uploadOne = (file: File) =>
-    new Promise<{ fileId: string; logicalPath?: string }>((resolve, reject) => {
-      const xhr = new XMLHttpRequest();
-      xhr.open("POST", "/api/upload", true);
-      xhr.responseType = "json";
-      xhr.upload.onprogress = (e) => {
-        if (!e.lengthComputable) return;
-        setState({ status: "uploading", progress: clamp01(e.loaded / e.total), filename: file.name });
-      };
-      xhr.onerror = () => reject(new Error("upload failed"));
-      xhr.onload = () => {
-        const ok = xhr.status >= 200 && xhr.status < 300;
-        const res = (xhr.response ?? {}) as { fileId?: unknown; logicalPath?: unknown; detail?: unknown };
-        if (!ok) {
-          reject(new Error(typeof res.detail === "string" ? res.detail : `HTTP ${xhr.status}`));
-          return;
-        }
-        const fileId = typeof res.fileId === "string" ? res.fileId : "";
-        const logicalPath = typeof res.logicalPath === "string" ? res.logicalPath : undefined;
-        if (!fileId) {
-          reject(new Error("missing fileId"));
-          return;
-        }
-        resolve({ fileId, logicalPath });
-      };
-      const fd = new FormData();
-      fd.append("purpose", purpose);
-      fd.append("file", file, file.name);
-      xhr.send(fd);
-    });
-
   const onChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files ? Array.from(e.target.files) : [];
     if (!files.length) return;
     const first = files[0]!;
-    try {
-      setState({ status: "uploading", progress: 0, filename: first.name });
-      const { fileId, logicalPath } = await uploadOne(first);
-      setState({ status: "success_anim", filename: first.name, fileId, logicalPath });
-      window.setTimeout(() => {
-        setState({ status: "success", filename: first.name, fileId, logicalPath });
-        syncState({
-          key: `uploads.${purpose}`,
-          value: { fileId, name: first.name, logicalPath },
-          behavior: "immediate",
-        });
-        const mid = (moduleId ?? "").trim();
-        const na = (nextAction ?? "").trim();
-        const cid = (cardId ?? "").trim();
-        if (mid && na && cid) {
-          postToAgent(
-            JSON.stringify({
-              type: "chat_card_intent",
-              verb: "module_action",
-              cardId: cid,
-              payload: {
-                moduleId: mid,
-                action: na,
-                state: {
-                  upload: { fileId, name: first.name, logicalPath },
-                },
-              },
-            })
-          );
-        }
-      }, 300);
-    } catch (err) {
-      setState({ status: "error", filename: first?.name, message: err instanceof Error ? err.message : String(err) });
-    } finally {
-      e.target.value = "";
-    }
+    await finishUpload(first);
+    e.target.value = "";
+  };
+
+  const onDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (state.status === "success" || state.status === "success_anim") return;
+    setDragOver(true);
+  };
+
+  const onDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOver(false);
+  };
+
+  const onDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOver(false);
+    if (state.status === "success" || state.status === "success_anim") return;
+    const files = e.dataTransfer.files ? Array.from(e.dataTransfer.files) : [];
+    if (!files.length) return;
+    await finishUpload(files[0]!);
   };
 
   return (
-    <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-2)] p-4">
+    <div
+      className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-2)] p-4"
+      data-testid="sdui-file-picker"
+    >
       <div className="flex items-start gap-3">
         <div className="mt-0.5 h-9 w-9 rounded-lg flex items-center justify-center bg-[var(--surface-3)] border border-[var(--border-subtle)]">
           <Upload className="h-4 w-4 ui-text-secondary" />
@@ -121,10 +182,45 @@ export function SduiFilePicker({
           <div className="text-sm font-semibold ui-text-primary">{label}</div>
           {helpText ? <div className="mt-1 text-xs ui-text-secondary leading-relaxed">{helpText}</div> : null}
 
-          <div className="mt-3 flex items-center gap-2">
+          <div
+            role="button"
+            aria-label="将文件拖入此窗口上传，或点击选择文件"
+            tabIndex={0}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onPick();
+              }
+            }}
+            onDragOver={onDragOver}
+            onDragLeave={onDragLeave}
+            onDrop={onDrop}
+            onClick={onPick}
+            className={[
+              "mt-3 min-h-[148px] rounded-xl border-2 border-dashed px-4 py-10 text-center transition-colors cursor-pointer select-none flex flex-col items-center justify-center gap-2",
+              dragOver
+                ? "border-[var(--accent)] bg-[color-mix(in_oklab,var(--accent)_12%,var(--surface-2))]"
+                : "border-[var(--border-subtle)] bg-[var(--surface-3)]/40 hover:border-[var(--accent)]/50",
+              state.status === "success" || state.status === "success_anim" ? "pointer-events-none opacity-70" : "",
+            ].join(" ")}
+          >
+            <Upload className="h-8 w-8 ui-text-muted opacity-60" aria-hidden />
+            <p className="text-sm font-medium ui-text-primary">将文件拖入此窗口</p>
+            <p className="text-xs ui-text-secondary max-w-[18rem]">
+              松开即上传到工作区；亦可点击此区域从磁盘选择
+              {saveRelativeDir ? (
+                <span className="block mt-2 font-mono text-[10px] opacity-80">{saveRelativeDir}/</span>
+              ) : null}
+            </p>
+          </div>
+
+          <div className="mt-3 flex items-center gap-2 flex-wrap">
             <button
               type="button"
-              onClick={onPick}
+              onClick={(e) => {
+                e.stopPropagation();
+                onPick();
+              }}
               disabled={state.status === "success" || state.status === "success_anim"}
               className={[
                 "rounded-lg px-3 py-1.5 text-sm font-medium ui-btn-accent inline-flex items-center gap-1.5",

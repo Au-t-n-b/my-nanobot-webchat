@@ -111,6 +111,14 @@ Whenever you need the user to **choose between options** (e.g. selecting a scena
 - After calling `present_choices`, stop and wait — the user's selection will arrive as the next message.
 - NEVER ask the user to "type a number" or "reply with X" — always use `present_choices` for structured selection.
 
+## File uploads & module_skill_runtime (CRITICAL)
+- **NEVER** use `present_choices` for file uploads, "模拟上传", "选择文件上传", or skip/upload confirmation. The Web UI renders a real **drag-and-drop FilePicker** only when you call the **`module_skill_runtime`** tool with `action="upload_evidence"` (after strategy is known).
+- For **`module_boilerplate`**: after the user selects a strategy (e.g. their message is `balanced`, `speed`, or `quality`), your **next step MUST** be a tool call:
+  `module_skill_runtime(module_id="module_boilerplate", action="upload_evidence", state={"standard":"<same id>"})`
+  — not `present_choices`. Do not invent fake upload buttons.
+- If the user already sent a strategy id as plain text, still call `upload_evidence` with that `state` instead of presenting more choice buttons for uploading.
+- When `module.json` sets `flowOptions.requireEvidenceBeforeStrategy`, the host may **already** show a FilePicker after `start` without your tool call — do not duplicate with `present_choices` for uploads.
+
 ## Multi-step Skill Workflows (CRITICAL)
 When executing a multi-step workflow (e.g. 智慧工勘 Steps 1→2→3→4), you MUST pause and call `present_choices` between steps to confirm with the user before proceeding.
 - Complete the current step fully, then call `present_choices` to ask whether to continue.

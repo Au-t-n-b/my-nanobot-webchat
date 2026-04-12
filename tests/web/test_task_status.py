@@ -35,9 +35,16 @@ async def test_task_status_returns_default_when_file_missing(
 
     modules = body.get("modules")
     assert isinstance(modules, list)
-    assert len(modules) == 6
+    assert len(modules) == 7
     assert body["overall"]["totalCount"] == len(modules)
     assert body["overall"]["doneCount"] == sum(1 for m in modules if m.get("status") == "completed")
+    assert body["summary"] == {
+        "activeCount": 0,
+        "pendingCount": len(modules),
+        "completedCount": 0,
+        "completionRate": 0,
+    }
+    assert any(module.get("name") == "智能分析工作台" for module in modules)
     for module in modules:
         assert module.get("status") in {"pending", "running", "completed"}
         assert isinstance(module.get("steps"), list)
@@ -84,6 +91,12 @@ async def test_task_status_returns_file_payload_when_valid(
 
     assert got["updatedAt"] == 1774659000
     assert got["overall"] == {"doneCount": 1, "totalCount": 2}
+    assert got["summary"] == {
+        "activeCount": 1,
+        "pendingCount": 0,
+        "completedCount": 1,
+        "completionRate": 50,
+    }
     assert got["modules"] == [
         {
             "id": "m_1",

@@ -12,7 +12,7 @@ type Props = {
 };
 
 export function SduiTextArea({ inputId, label, placeholder, rows = 4, defaultValue = "" }: Props) {
-  const { getInputValue, setInputValue } = useSkillUiRuntime();
+  const { getInputValue, setInputValue, syncState } = useSkillUiRuntime();
   const id = inputId?.trim() || "_sdui_textarea";
 
   useEffect(() => {
@@ -31,7 +31,11 @@ export function SduiTextArea({ inputId, label, placeholder, rows = 4, defaultVal
         rows={rows}
         placeholder={placeholder}
         value={value}
-        onChange={(e) => setInputValue(id, e.target.value)}
+        onChange={(e) => {
+          const v = e.target.value;
+          setInputValue(id, v);
+          syncState({ key: `inputs.${id}`, value: v, behavior: "debounce" });
+        }}
       />
     </label>
   );

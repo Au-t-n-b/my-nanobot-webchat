@@ -1,0 +1,238 @@
+<h2>SDUI v3.0 协议草案（Milestone-1）</h2>
+<p class="subtitle">优先闭环：①局部增量更新（Patch）④图表交互（下钻联动预览）⑤韧性（Skeleton/局部降级）。目标：工勘大盘高频同步“无闪烁”，点击图表→自动打开右栏预览。</p>
+
+<div class="section">
+  <div class="label">v2 vs v3：能力对比（摘要）</div>
+  <div class="mockup">
+    <div class="mockup-header">对比表</div>
+    <div class="mockup-body">
+      <table style="width:100%;border-collapse:collapse;font-size:13px">
+        <thead>
+          <tr>
+            <th style="text-align:left;border-bottom:1px solid rgba(255,255,255,.12);padding:8px">主题</th>
+            <th style="text-align:left;border-bottom:1px solid rgba(255,255,255,.12);padding:8px">v2（现状）</th>
+            <th style="text-align:left;border-bottom:1px solid rgba(255,255,255,.12);padding:8px">v3（Milestone-1）</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td style="padding:8px;border-bottom:1px solid rgba(255,255,255,.06)">更新粒度</td>
+            <td style="padding:8px;border-bottom:1px solid rgba(255,255,255,.06)">全量下发 <code>SduiDocument</code></td>
+            <td style="padding:8px;border-bottom:1px solid rgba(255,255,255,.06)"><b>Patch</b>：按 <code>nodeId</code> / <code>path</code> 做局部替换/合并</td>
+          </tr>
+          <tr>
+            <td style="padding:8px;border-bottom:1px solid rgba(255,255,255,.06)">交互</td>
+            <td style="padding:8px;border-bottom:1px solid rgba(255,255,255,.06)"><code>SduiAction</code> 仅 <code>open_preview</code>/<code>post_user_message</code></td>
+            <td style="padding:8px;border-bottom:1px solid rgba(255,255,255,.06)"><b>事件绑定</b>：图表 segment/datum 绑定 <code>action</code>，点击触发 open_preview 或回传</td>
+          </tr>
+          <tr>
+            <td style="padding:8px;border-bottom:1px solid rgba(255,255,255,.06)">右栏联动</td>
+            <td style="padding:8px;border-bottom:1px solid rgba(255,255,255,.06)">依赖 Agent 文本标记（RENDER_UI/AUTO_OPEN）</td>
+            <td style="padding:8px;border-bottom:1px solid rgba(255,255,255,.06)"><b>协议内联动</b>：chart click → <code>open_preview</code>(file/browser/skill-ui)</td>
+          </tr>
+          <tr>
+            <td style="padding:8px;border-bottom:1px solid rgba(255,255,255,.06)">韧性</td>
+            <td style="padding:8px;border-bottom:1px solid rgba(255,255,255,.06)">加载/解析失败多为留白或整块报错</td>
+            <td style="padding:8px;border-bottom:1px solid rgba(255,255,255,.06)"><b>Skeleton</b>：节点级占位；<b>ErrorBoundary</b>：局部降级不拖垮整棵树</td>
+          </tr>
+          <tr>
+            <td style="padding:8px">兼容策略</td>
+            <td style="padding:8px">单一模式</td>
+            <td style="padding:8px"><b>共存</b>：仍可全量；Patch 以 <code>schemaVersion: 3</code> + <code>op</code> 区分</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="label">1) SduiPatch：JSON 结构（草案）</div>
+  <p class="subtitle">原则：后端不做复杂 diff，只发送“稳定 id 定位 + 局部节点/属性”。前端负责按规则 merge，确保组件实例不销毁。</p>
+
+  <div class="mockup">
+    <div class="mockup-header">建议新增：SduiEnvelope（统一承载 full/patch/batch）</div>
+    <div class="mockup-body">
+<pre style="white-space:pre-wrap;line-height:1.35;margin:0">
+{
+  "schemaVersion": 3,
+  "type": "SduiEnvelope",
+  "docId": "dashboard:gc",              // 可选：同一大盘稳定 ID，用于 patch 归属/回放
+  "revision": 128,                     // 单调递增（或时间戳），用于乱序丢弃
+  "payload": {
+    "kind": "document",                // 或 "patch" / "batch"
+    "document": { ...SduiDocument... } // v2 文档原样复用（root/meta/node.type 不变）
+  }
+}
+</pre>
+    </div>
+  </div>
+
+  <div class="mockup" style="margin-top:10px">
+    <div class="mockup-header">SduiPatch（path-based / id-based 二选一或并存）</div>
+    <div class="mockup-body">
+<pre style="white-space:pre-wrap;line-height:1.35;margin:0">
+{
+  "schemaVersion": 3,
+  "type": "SduiPatch",
+  "docId": "dashboard:gc",
+  "baseRevision": 127,                 // 可选：乐观并发；不匹配则前端可请求全量或丢弃
+  "revision": 128,
+  "ops": [
+    {
+      "op": "merge",                   // merge | replace | remove
+      "target": { "by": "id", "nodeId": "stat-1" },
+      "value": { "type": "Statistic", "id": "stat-1", "value": "95%" },
+      "anim": { "kind": "numberTick" } // 可选：提示宿主做数字跳变
+    },
+    {
+      "op": "merge",
+      "target": { "by": "path", "path": "/root/children/2/tabs/0/children/1" },
+      "value": { "type": "Text", "content": "更新于 12:01" }
+    }
+  ]
+}
+</pre>
+    </div>
+  </div>
+
+  <p class="subtitle" style="margin-top:10px">
+    <b>建议约束（确保“无闪烁”）</b>：Patch 默认只能更新“叶子节点的展示字段”（如 Statistic.value/Text.content/Badge.label/Chart.data），不允许改动结构性 children（Milestone-1）。结构变更仍走全量 document。
+  </p>
+</div>
+
+<div class="section">
+  <div class="label">2) 图表事件绑定：点击 → SduiAction（草案）</div>
+  <p class="subtitle">目标：不经 Agent 往返也能完成“下钻打开预览”。若需要查询/过滤，则可选回传。</p>
+
+  <div class="mockup">
+    <div class="mockup-header">扩展：DonutChart / BarChart 的数据点支持 action</div>
+    <div class="mockup-body">
+<pre style="white-space:pre-wrap;line-height:1.35;margin:0">
+// DonutChart
+{
+  "type": "DonutChart",
+  "id": "risk-donut",
+  "segments": [
+    {
+      "label": "不满足",
+      "value": 20,
+      "color": "warning",
+      "action": { "kind": "open_preview", "path": "/.nanobot/workspace/reports/risk.pdf" }
+    },
+    {
+      "label": "满足",
+      "value": 45
+    }
+  ]
+}
+
+// BarChart
+{
+  "type": "BarChart",
+  "id": "risk-bars",
+  "data": [
+    {
+      "label": "消防",
+      "value": 8,
+      "action": { "kind": "open_preview", "path": "skill-ui://SduiView?dataFile=.../drilldown-fire.json" }
+    }
+  ]
+}
+</pre>
+    </div>
+  </div>
+
+  <div class="mockup" style="margin-top:10px">
+    <div class="mockup-header">可选：回传事件（需要后端查询时）</div>
+    <div class="mockup-body">
+<pre style="white-space:pre-wrap;line-height:1.35;margin:0">
+// 新增 action kind（Milestone-1 可先不做，留 v3.1）：
+{ "kind": "emit_event", "name": "chart.drilldown", "payload": { "chartId":"risk-bars", "datum":"消防" } }
+</pre>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="label">3) 向后兼容：v2 文档与 v3 Patch 共存策略</div>
+  <div class="pros-cons">
+    <div class="pros">
+      <h4>兼容规则（建议）</h4>
+      <ul>
+        <li><b>v2 文档不变</b>：<code>SduiDocument(schemaVersion=1)</code> 继续可渲染</li>
+        <li><b>v3 引入 Envelope</b>：宿主优先解析 Envelope；否则按旧逻辑 parse doc</li>
+        <li><b>Patch 仅作用于指定 docId</b>：没有对应 docId 的基线文档则丢弃/请求全量</li>
+        <li><b>Revision 单调递增</b>：乱序/重复 patch 直接丢弃</li>
+      </ul>
+    </div>
+    <div class="cons">
+      <h4>版本演进（里程碑）</h4>
+      <ul>
+        <li>v3.0（M1）：叶子字段 patch + 图表 open_preview + skeleton</li>
+        <li>v3.1：emit_event / client-state / expressions（你提的 #2）</li>
+        <li>v3.2：动态表单（#3）</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="label">4) Patch 更新时序图（Milestone-1）</div>
+  <div class="mockup">
+    <div class="mockup-header">Sequence（SSE → Host Merge → React 更新）</div>
+    <div class="mockup-body">
+<pre style="white-space:pre-wrap;line-height:1.35;margin:0">
+Agent / Python                 AGUI SSE                Frontend Host                 SDUI Runtime
+    |                            |                          |                            |
+    | 1) 先发全量 SduiDocument     |                          |                            |
+    |--------------------------->|  Run: Text/RENDER_UI      |  load dataFile → parseDoc   |
+    |                            |------------------------->|--------------------------->|
+    |                            |                          | render root (stable ids)    |
+    |                            |                          |<---------------------------|
+    |
+    | 2) 高频刷新：只发 SduiPatch   |
+    |--------------------------->|  SSE: SkillUiDataPatch    |  applyPatch(docId, ops)     |
+    |                            |------------------------->|  deepMerge by nodeId/path   |
+    |                            |                          |  setState(doc)              |
+    |                            |                          |--------------------------->|
+    |                            |                          | React 保持组件实例，仅 props 变化
+    |
+    | 3) 点击图表扇区/柱子          |                          |
+    |                            |                          | onClick → action.open_preview
+    |                            |                          | open right-panel preview tab
+    |                            |                          v
+    |                            |                    PreviewPanel loads /api/file or browser ws
+</pre>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="label">请你确认（只需回复 1/2/3）</div>
+  <div class="options">
+    <div class="option" data-choice="confirm-structure" onclick="toggleSelect(this)">
+      <div class="letter">1</div>
+      <div class="content">
+        <h3>确认 Patch 寻址策略</h3>
+        <p>Milestone-1 只做 <b>by=id</b>（强依赖每个节点有稳定 id），还是同时支持 by=path？</p>
+      </div>
+    </div>
+    <div class="option" data-choice="confirm-chart-action" onclick="toggleSelect(this)">
+      <div class="letter">2</div>
+      <div class="content">
+        <h3>确认图表交互形态</h3>
+        <p>Milestone-1 只做 <b>open_preview</b>（零 RTT），还是同时加 <b>emit_event</b>（需要后端查询/过滤）？</p>
+      </div>
+    </div>
+    <div class="option" data-choice="confirm-skeleton" onclick="toggleSelect(this)">
+      <div class="letter">3</div>
+      <div class="content">
+        <h3>确认 Skeleton 策略</h3>
+        <p>是“宿主自动生成 skeleton”，还是“协议显式声明 skeletonHint”？</p>
+      </div>
+    </div>
+  </div>
+  <p class="subtitle">看完后在终端回复：1/2/3 对应的选择（以及你偏好的具体选项）。</p>
+</div>
+

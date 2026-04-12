@@ -9,6 +9,9 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 import zipfile
+from typing import Any
+
+from nanobot.web.module_contract_schema import validate_module_contract
 
 REMOTE_SKILL_METADATA_FILE = ".nanobot-remote-skill.json"
 
@@ -161,5 +164,67 @@ def list_skills() -> list[dict[str, object]]:
         )
 
     items.sort(key=lambda it: str(it["name"]).lower())
+    return items
+
+
+def _module_registry_item_from_config(raw: dict[str, Any]) -> dict[str, object]:
+    cfg = validate_module_contract(raw)
+    module_id = str(cfg.get("moduleId") or "").strip()
+    task_progress = cfg.get("taskProgress") if isinstance(cfg.get("taskProgress"), dict) else {}
+    case_template = cfg.get("caseTemplate") if isinstance(cfg.get("caseTemplate"), dict) else {}
+    label = (
+        str(case_template.get("moduleTitle") or "").strip()
+        or str(task_progress.get("moduleName") or "").strip()
+        or module_id
+    )
+    description = (
+        str(case_template.get("moduleGoal") or "").strip()
+        or str(cfg.get("description") or "").strip()
+    )
+    task_names = task_progress.get("tasks")
+    return {
+        "moduleId": module_id,
+        "label": label,
+        "description": description,
+        "taskProgress": {
+            "moduleId": str(task_progress.get("moduleId") or module_id).strip() or module_id,
+            "moduleName": str(task_progress.get("moduleName") or label).strip() or label,
+            "tasks": [
+                str(item).strip()
+                for item in task_names
+                if str(item).strip()
+            ] if isinstance(task_names, list) else [],
+        },
+        "dashboard": {
+            "docId": str(cfg.get("docId") or "").strip(),
+            "dataFile": str(cfg.get("dataFile") or "").strip(),
+        },
+    }
+
+
+def list_modules() -> list[dict[str, object]]:
+    """Scan ``<skills_root>/*/module.json`` and return valid module registry items."""
+    root = get_skills_root()
+    root.mkdir(parents=True, exist_ok=True)
+
+    items: list[dict[str, object]] = []
+    for child in root.iterdir():
+        if not child.is_dir():
+            continue
+        module_file = child / "module.json"
+        if not module_file.is_file():
+            continue
+        try:
+            raw = json.loads(module_file.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(raw, dict):
+            continue
+        try:
+            items.append(_module_registry_item_from_config(raw))
+        except ValueError:
+            continue
+
+    items.sort(key=lambda it: str(it["moduleId"]).lower())
     return items
 

@@ -1,8 +1,8 @@
 "use client";
 
-import { ChevronLeft } from "lucide-react";
+import { ChevronLeft, RotateCcw } from "lucide-react";
 import type { ModuleEntry } from "@/components/DashboardNavigator";
-import type { SkillUiBootstrapEvent, SkillUiDataPatchEvent } from "@/hooks/useAgentChat";
+import type { SkillUiDataPatchEvent } from "@/hooks/useAgentChat";
 import { SkillUiWrapper } from "@/components/SkillUiWrapper";
 
 type Props = {
@@ -11,7 +11,6 @@ type Props = {
   onSelectModule: (id: string) => void;
   onBack: () => void;
   skillUiPatchEvent: SkillUiDataPatchEvent | null | undefined;
-  skillUiBootstrapEvent: SkillUiBootstrapEvent | null | undefined;
   onOpenPreview: (path: string) => void;
   postToAgent: (text: string) => void;
   isAgentRunning: boolean;
@@ -24,7 +23,6 @@ export function ModuleDashboard({
   onSelectModule,
   onBack,
   skillUiPatchEvent,
-  skillUiBootstrapEvent,
   onOpenPreview,
   postToAgent,
   isAgentRunning,
@@ -46,7 +44,6 @@ export function ModuleDashboard({
 
         {allModules.map((m) => {
           const isActive = m.moduleId === entry?.moduleId;
-          const isDone = m.status === "done";
           return (
             <button
               key={m.moduleId}
@@ -62,13 +59,50 @@ export function ModuleDashboard({
               {m.status === "running" && (
                 <span className="w-2 h-2 rounded-full bg-[var(--accent)] animate-pulse shadow-[0_0_5px_var(--accent)]" />
               )}
-              {isDone && !isActive && (
-                <span className="text-[var(--success)] text-[10px]">✓</span>
-              )}
               {m.label}
             </button>
           );
         })}
+
+        {entry ? (
+          <button
+            type="button"
+            disabled={isAgentRunning}
+            onClick={() => {
+              postToAgent(
+                JSON.stringify({
+                  type: "chat_card_intent",
+                  verb: "module_action",
+                  payload: { moduleId: entry.moduleId, action: "guide", state: {} },
+                }),
+              );
+            }}
+            className="shrink-0 flex items-center gap-1.5 px-3 py-2 text-xs border-l border-[var(--border-subtle)] text-[var(--accent)] hover:bg-[var(--surface-2)] disabled:opacity-40 disabled:pointer-events-none transition-colors"
+          >
+            启动模块
+          </button>
+        ) : null}
+
+        {entry ? (
+          <button
+            type="button"
+            disabled={isAgentRunning}
+            title="清空本模块会话状态并重置大盘为初始引导（再次执行 guide，便于重复测试）"
+            onClick={() => {
+              postToAgent(
+                JSON.stringify({
+                  type: "chat_card_intent",
+                  verb: "module_action",
+                  payload: { moduleId: entry.moduleId, action: "guide", state: {} },
+                }),
+              );
+            }}
+            className="ml-auto shrink-0 flex items-center gap-1.5 px-3 py-2 text-xs border-l border-[var(--border-subtle)] ui-text-muted hover:text-[var(--warning)] hover:bg-[var(--surface-2)] disabled:opacity-40 disabled:pointer-events-none transition-colors"
+          >
+            <RotateCcw size={12} aria-hidden />
+            清空进度
+          </button>
+        ) : null}
       </div>
 
       <div className="flex-1 min-h-0 overflow-hidden">
@@ -79,11 +113,6 @@ export function ModuleDashboard({
             incomingPatchEvent={
               skillUiPatchEvent?.syntheticPath === entry.syntheticPath
                 ? skillUiPatchEvent
-                : null
-            }
-            incomingBootstrapEvent={
-              skillUiBootstrapEvent?.syntheticPath === entry.syntheticPath
-                ? skillUiBootstrapEvent
                 : null
             }
             onOpenPreview={onOpenPreview}

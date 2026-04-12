@@ -96,6 +96,8 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ detail: "path query parameter is required" }, { status: 400 });
   }
 
+  const apiBase = (process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8765").replace(/\/$/, "");
+
   let filePath: string;
   try {
     filePath = resolveFilePath(normalizeQueryPath(raw));
@@ -132,7 +134,21 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ detail: "not a file" }, { status: 404 });
     }
   } catch {
-    return NextResponse.json({ detail: "file not found" }, { status: 404 });
+    // If local workspace resolution misses, fall back to Python AGUI /api/file
+    // so dev environments with a non-default workspace don't show noisy 404s.
+    try {
+      const u = `${apiBase}/api/file?path=${encodeURIComponent(raw)}`;
+      const proxied = await fetch(u, { cache: "no-store" });
+      const buf = await proxied.arrayBuffer();
+      return new NextResponse(buf, {
+        status: proxied.status,
+        headers: {
+          "Content-Type": proxied.headers.get("content-type") ?? "application/octet-stream",
+        },
+      });
+    } catch {
+      return NextResponse.json({ detail: "file not found" }, { status: 404 });
+    }
   }
 
   try {

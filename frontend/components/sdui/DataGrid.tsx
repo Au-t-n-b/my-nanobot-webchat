@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { SduiDataGridNode } from "@/lib/sdui";
 import { useSkillUiRuntime } from "@/components/sdui/SkillUiRuntimeProvider";
 
@@ -12,14 +12,17 @@ function cloneRows(rows: Array<Record<string, unknown>> | undefined | null): Arr
 }
 
 export function SduiDataGrid({
+  id,
   columns,
   rows: initialRows,
   editable = true,
   submitLabel = "提交",
   submitActionPrefix,
 }: Props) {
-  const { postToAgent } = useSkillUiRuntime();
+  const { postToAgent, syncState } = useSkillUiRuntime();
   const [rows, setRows] = useState(() => cloneRows(initialRows));
+  const [selectedRowIndex, setSelectedRowIndex] = useState<number | null>(null);
+  const stableId = useMemo(() => (typeof id === "string" && id.trim() ? id.trim() : "_sdui_datagrid"), [id]);
 
   useEffect(() => {
     setRows(cloneRows(initialRows));
@@ -63,7 +66,20 @@ export function SduiDataGrid({
               {rows.map((row, ri) => (
                 <tr
                   key={ri}
-                  className="border-b border-slate-50 last:border-0 hover:bg-slate-50/50 transition-colors dark:border-zinc-800/50 dark:hover:bg-zinc-800/30"
+                  className={[
+                    "border-b border-slate-50 last:border-0 hover:bg-slate-50/50 transition-colors dark:border-zinc-800/50 dark:hover:bg-zinc-800/30",
+                    selectedRowIndex === ri ? "bg-slate-50/70 dark:bg-zinc-800/40" : "",
+                  ]
+                    .join(" ")
+                    .trim()}
+                  onClick={() => {
+                    setSelectedRowIndex(ri);
+                    syncState({
+                      key: `datagrid.${stableId}.selectedRow`,
+                      value: { index: ri, row },
+                      behavior: "immediate",
+                    });
+                  }}
                 >
                   {safeColumns.map((col) => {
                     const raw = row[col.key];
@@ -74,7 +90,15 @@ export function SduiDataGrid({
                           <input
                             className="w-full bg-transparent border-b border-transparent focus:border-slate-400 focus:outline-none focus:ring-0 px-0 py-1 transition-colors dark:focus:border-zinc-500"
                             value={display}
-                            onChange={(e) => setCell(ri, col.key, e.target.value)}
+                            onChange={(e) => {
+                              const v = e.target.value;
+                              setCell(ri, col.key, v);
+                              syncState({
+                                key: `datagrid.${stableId}.cells.${ri}.${col.key}`,
+                                value: v,
+                                behavior: "debounce",
+                              });
+                            }}
                           />
                         ) : (
                           <span className="break-words">{display}</span>

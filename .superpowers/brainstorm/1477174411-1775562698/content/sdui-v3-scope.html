@@ -1,0 +1,72 @@
+<h2>SDUI v3.0：从“展示协议”到“交互协议”</h2>
+<p class="subtitle">范围：同时覆盖右栏预览体系（文件 / browser / skill-ui / tabs / 阻断层）与 SDUI。请先选一个“最先闭环”的方向。</p>
+
+<div class="section">
+  <div class="label">你提出的 5 个 v3 方向</div>
+  <div class="options" data-multiselect>
+    <div class="option" data-choice="partial-update" onclick="toggleSelect(this)">
+      <div class="letter">1</div>
+      <div class="content">
+        <h3>局部差量更新（Patch/Incremental Update）</h3>
+        <p>减少全量下发、避免闪烁；适合大盘高频刷新。</p>
+      </div>
+    </div>
+    <div class="option" data-choice="client-logic" onclick="toggleSelect(this)">
+      <div class="letter">2</div>
+      <div class="content">
+        <h3>客户端简单逻辑（Local State + Expressions）</h3>
+        <p>纯 UI 交互零 RTT；但需要最小表达式语言与安全沙箱。</p>
+      </div>
+    </div>
+    <div class="option" data-choice="dynamic-forms" onclick="toggleSelect(this)">
+      <div class="letter">3</div>
+      <div class="content">
+        <h3>动态表单（Form Schema）</h3>
+        <p>级联选择、校验、分组输入；从“对话输入”升级为“工单填写”。</p>
+      </div>
+    </div>
+    <div class="option" data-choice="interactive-charts" onclick="toggleSelect(this)">
+      <div class="letter">4</div>
+      <div class="content">
+        <h3>图表交互（事件绑定 / 下钻）</h3>
+        <p>点击扇区/柱子触发 open_preview / state 更新 / 查询回传。</p>
+      </div>
+    </div>
+    <div class="option" data-choice="resilience" onclick="toggleSelect(this)">
+      <div class="letter">5</div>
+      <div class="content">
+        <h3>韧性（骨架屏 / 错误边界 / 局部降级）</h3>
+        <p>加载阶段更“有质感”，解析失败不拖垮整棵树。</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="label">交互闭环（B 范围）我们要对齐的关键点</div>
+  <div class="pros-cons">
+    <div class="pros">
+      <h4>必须覆盖</h4>
+      <ul>
+        <li>右栏 Tabs：dashboard / blocking / previews</li>
+        <li>open_preview：文件 / browser / skill-ui 统一入口</li>
+        <li>SDUI：输入 → 提交 → 局部更新/预览联动</li>
+      </ul>
+    </div>
+    <div class="cons">
+      <h4>需要谨慎</h4>
+      <ul>
+        <li>表达式执行与可控能力（不能变成脚本注入）</li>
+        <li>Patch 语义与一致性（顺序、冲突、回放）</li>
+        <li>状态域划分（document state / preview state / global state）</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="label">请在终端回复</div>
+  <p>1) 你希望 v3.0 的第一个里程碑优先闭环哪几项（可多选）？</p>
+  <p>2) “工勘大盘”这种页面，你更在意：<b>流畅无闪烁</b>（差量更新）还是 <b>交互零延迟</b>（客户端逻辑）还是 <b>结构化填单</b>（动态表单）？</p>
+</div>
+

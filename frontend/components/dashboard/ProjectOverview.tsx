@@ -46,6 +46,17 @@ export function ProjectOverview({ modules, onSelectModule }: Props) {
     [modules],
   );
 
+  const modelingSimModule = useMemo(
+    () =>
+      modules.find((item) => item.label === "建模仿真模块" || item.label === "建模仿真") ?? null,
+    [modules],
+  );
+
+  const jobManagementModule = useMemo(
+    () => modules.find((item) => item.label === "作业管理" || item.moduleId === "job_management") ?? null,
+    [modules],
+  );
+
   return (
     <div className="h-full min-h-0 overflow-y-auto p-5 flex flex-col gap-5">
       <div className="flex items-center justify-between">
@@ -68,6 +79,26 @@ export function ProjectOverview({ modules, onSelectModule }: Props) {
         </div>
       </div>
 
+      {jobManagementModule ? (
+        <button
+          type="button"
+          onClick={() => onSelectModule(jobManagementModule.moduleId)}
+          className="ui-elevated-card p-5 text-left transition-colors hover:bg-[var(--surface-2)]"
+        >
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              <p className="text-base font-semibold ui-text-primary">进入作业管理大盘</p>
+              <p className="mt-2 text-[12px] ui-text-muted">
+                当前项目阶段：{jobManagementModule.progressLabel ?? "待开始"}
+              </p>
+            </div>
+            <span className="rounded-full bg-[color-mix(in_srgb,var(--accent)_16%,transparent)] px-3 py-1 text-xs text-[var(--accent)]">
+              打开大盘
+            </span>
+          </div>
+        </button>
+      ) : null}
+
       {workbenchModule ? (
         <button
           type="button"
@@ -79,6 +110,26 @@ export function ProjectOverview({ modules, onSelectModule }: Props) {
               <p className="text-base font-semibold ui-text-primary">进入智能分析工作台</p>
               <p className="mt-2 text-[12px] ui-text-muted">
                 当前项目阶段：{workbenchModule.progressLabel ?? "待开始"}
+              </p>
+            </div>
+            <span className="rounded-full bg-[color-mix(in_srgb,var(--accent)_16%,transparent)] px-3 py-1 text-xs text-[var(--accent)]">
+              打开大盘
+            </span>
+          </div>
+        </button>
+      ) : null}
+
+      {modelingSimModule ? (
+        <button
+          type="button"
+          onClick={() => onSelectModule(modelingSimModule.moduleId)}
+          className="ui-elevated-card p-5 text-left transition-colors hover:bg-[var(--surface-2)]"
+        >
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              <p className="text-base font-semibold ui-text-primary">进入建模仿真模块</p>
+              <p className="mt-2 text-[12px] ui-text-muted">
+                当前项目阶段：{modelingSimModule.progressLabel ?? "待开始"}
               </p>
             </div>
             <span className="rounded-full bg-[color-mix(in_srgb,var(--accent)_16%,transparent)] px-3 py-1 text-xs text-[var(--accent)]">

@@ -47,7 +47,8 @@ export type SduiNodeType =
   | "ChoiceCard"
   | "StatisticRow"
   | "GanttLane"
-  | "GanttChart";
+  | "GanttChart"
+  | "EmbeddedWeb";
 
 /** 运行时校验 / normalizer 用：全部合法 `type` 字面量 */
 export const SDUI_NODE_TYPE_VALUES: readonly SduiNodeType[] = [
@@ -80,6 +81,7 @@ export const SDUI_NODE_TYPE_VALUES: readonly SduiNodeType[] = [
   "StatisticRow",
   "GanttLane",
   "GanttChart",
+  "EmbeddedWeb",
 ] as const;
 
 /** Tabs 子项图标的封闭枚举（宿主映射到 Lucide，禁止自由 SVG/URL） */
@@ -446,7 +448,8 @@ export type SduiNode =
   | SduiChoiceCardNode
   | SduiStatisticRowNode
   | SduiGanttLaneNode
-  | SduiGanttChartNode;
+  | SduiGanttChartNode
+  | SduiEmbeddedWebNode;
 
 /** 各节点可选的稳定 id，用于列表 React key 与排查 */
 type SduiOptionalId = {
@@ -628,6 +631,28 @@ export type SduiGanttChartNode = SduiOptionalId & {
   lanes?: SduiGanttLaneRow[];
 };
 
+/**
+ * 内嵌外部网页（iframe），与 `public/sdk/claw-bridge.js` 通过 postMessage 双向通信。
+ * 下行：`CLAW_UPDATE_STATE` + `payload`；上行：`CLAW_EVENT` → `syncState` key `claw.embedded.<id>.lastEvent`。
+ */
+export type SduiEmbeddedWebNode = SduiOptionalId & {
+  type: "EmbeddedWeb";
+  /** iframe URL（建议 HTTPS 绝对地址） */
+  src: string;
+  /** 与 postMessage 的 embedId 对齐；缺省使用节点 `id` */
+  embedId?: string;
+  /** 下发给 iframe 的状态对象 */
+  state?: unknown;
+  /** 允许的 message 来源 origin（除从 `src` 解析出的 origin 外） */
+  allowedOrigins?: string[];
+  minHeight?: number | string;
+  /**
+   * 是否启用 iframe sandbox。视频站嵌入（如哔哩哔哩播放器）常为 false，否则可能无法播放。
+   * @default true
+   */
+  embedSandbox?: boolean;
+};
+
 export type SduiKeyValueListNode = SduiOptionalId & {
   type: "KeyValueList";
   items: Array<{ key: string; value: string; color?: SduiSemanticColor }>;
@@ -708,7 +733,8 @@ export type SduiBarDatum = {
 
 export type SduiBarChartNode = SduiOptionalId & {
   type: "BarChart";
-  data: SduiBarDatum[];
+  /** Patch/合并后可能暂缺，组件按空数组处理 */
+  data?: SduiBarDatum[] | null;
   /** 数值单位后缀，如「项」 */
   valueUnit?: string;
 };

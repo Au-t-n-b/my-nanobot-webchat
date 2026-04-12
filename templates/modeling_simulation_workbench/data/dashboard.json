@@ -1,0 +1,131 @@
+{
+  "schemaVersion": 1,
+  "type": "SduiDocument",
+  "meta": { "docId": "dashboard:modeling-simulation-workbench", "provenance": "modeling_simulation_workbench" },
+  "root": {
+    "type": "Stack",
+    "gap": "lg",
+    "children": [
+      {
+        "type": "Text",
+        "variant": "heading",
+        "content": "建模仿真模块 · 当前进展 / 参考视频（原黄金指标位）/ 产物总结"
+      },
+      {
+        "type": "Text",
+        "variant": "body",
+        "color": "subtle",
+        "content": "本模块基于「智能分析工作台」交付模板：流程与 Patch 一致；黄金指标区改为嵌入哔哩哔哩官方播放器页（可改 module.json / dashboard 中 bvid）。"
+      },
+      {
+        "type": "Stepper",
+        "id": "stepper-main",
+        "steps": [
+          {
+            "id": "s1",
+            "title": "项目引导与进入模块",
+            "status": "waiting",
+            "detail": [{ "title": "等待从项目总览进入", "status": "waiting" }]
+          },
+          {
+            "id": "s2",
+            "title": "目标选择 (HITL)",
+            "status": "waiting",
+            "detail": [{ "title": "等待选择仿真场景", "status": "waiting" }]
+          },
+          {
+            "id": "s3",
+            "title": "资料上传与预览",
+            "status": "waiting",
+            "detail": [{ "title": "等待上传资料包", "status": "waiting" }]
+          },
+          {
+            "id": "s4",
+            "title": "并行分析执行",
+            "status": "waiting",
+            "detail": [{ "title": "等待启动分析阶段", "status": "waiting" }]
+          },
+          {
+            "id": "s5",
+            "title": "结论汇总与产物",
+            "status": "waiting",
+            "detail": [{ "title": "等待生成结论", "status": "waiting" }]
+          }
+        ]
+      },
+      {
+        "type": "Text",
+        "variant": "heading",
+        "content": "黄金指标"
+      },
+      {
+        "type": "Text",
+        "variant": "caption",
+        "color": "subtle",
+        "content": "以下为哔哩哔哩嵌入播放器（占位视频，可替换 bvid）；右侧指标由 runtime Patch 写入 state.metrics。"
+      },
+      {
+        "type": "EmbeddedWeb",
+        "id": "embedded-bilibili-golden",
+        "src": "https://player.bilibili.com/player.html?bvid=BV1GJ411x7h7&page=1&high_quality=1&danmaku=0",
+        "embedSandbox": false,
+        "minHeight": "380px",
+        "state": {
+          "bvid": "BV1GJ411x7h7",
+          "metrics": {
+            "throughput": 0,
+            "quality": 0,
+            "risk": 0,
+            "centerValue": "0%",
+            "completed": 0,
+            "pending": 5,
+            "centerLabel": "仿真健康度",
+            "labels": {
+              "throughput": "模型完整度",
+              "quality": "仿真就绪度",
+              "risk": "网格/求解风险"
+            }
+          }
+        }
+      },
+      {
+        "type": "Stack",
+        "gap": "sm",
+        "children": [
+          {
+            "type": "ChartPlaceholder",
+            "id": "chart-analysis-placeholder",
+            "variant": "bar",
+            "caption": "可替换为仿真任务状态、求解器日志摘要等；保留节点 id 以便 Patch。"
+          }
+        ]
+      },
+      {
+        "type": "Text",
+        "variant": "heading",
+        "content": "作业结果"
+      },
+      {
+        "type": "Text",
+        "id": "summary-text",
+        "variant": "body",
+        "color": "subtle",
+        "content": "进入模块后，此处展示阶段结论与产物说明；最终文件在下方产物区。"
+      },
+      {
+        "type": "ArtifactGrid",
+        "id": "uploaded-files",
+        "title": "已上传文件",
+        "mode": "input",
+        "artifacts": []
+      },
+      {
+        "type": "ArtifactGrid",
+        "id": "artifacts",
+        "title": "作业结果",
+        "mode": "output",
+        "artifacts": []
+      }
+    ]
+  }
+}

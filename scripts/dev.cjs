@@ -6,7 +6,7 @@
  * - We only need to run 2 processes in parallel: Python AGUI + Next.js dev server.
  * - Avoid relying on `concurrently` so `npm run dev` works after `npm run setup` even if root npm install is skipped.
  */
-const { spawn } = require("child_process");
+const { spawn, execSync } = require("child_process");
 const net = require("net");
 const path = require("path");
 const { envForNextChild } = require("./node-env-for-next.cjs");
@@ -35,6 +35,49 @@ function spawnProc(name, command, args, options = {}) {
   return p;
 }
 
+/** 启动 AGUI 前打印 PATH 上实际会用的 python，便于与「手动开终端」时的解释器对比。 */
+function resolvePythonExecutableHint() {
+  try {
+    if (process.platform === "win32") {
+      const out = execSync("where python", {
+        encoding: "utf8",
+        shell: true,
+        cwd: root,
+        timeout: 8000,
+        stdio: ["ignore", "pipe", "pipe"],
+      }).trim();
+      const line = out
+        .split(/\r?\n/)
+        .map((s) => s.trim())
+        .find((s) => s && !s.toLowerCase().includes("information"));
+      return line || "python（未解析到路径，将依赖 PATH）";
+    }
+    let out = "";
+    try {
+      out = execSync("command -v python3 2>/dev/null", {
+        encoding: "utf8",
+        shell: true,
+        cwd: root,
+        timeout: 8000,
+        stdio: ["ignore", "pipe", "pipe"],
+      }).trim();
+    } catch {
+      /* ignore */
+    }
+    if (out) return out;
+    out = execSync("command -v python 2>/dev/null", {
+      encoding: "utf8",
+      shell: true,
+      cwd: root,
+      timeout: 8000,
+      stdio: ["ignore", "pipe", "pipe"],
+    }).trim();
+    return out || "python（未解析到路径，将依赖 PATH）";
+  } catch {
+    return "python（解析失败，将使用 PATH 中的 python）";
+  }
+}
+
 function canListenOnPort(port, host = "0.0.0.0") {
   return new Promise((resolve) => {
     const server = net.createServer();
@@ -56,7 +99,23 @@ async function main() {
   const aguiPort = 8765;
   const shouldSpawnAgui = await canListenOnPort(aguiPort);
   if (!shouldSpawnAgui) {
-    log("agui", `port ${aguiPort} already in use, reusing existing AGUI instance`);
+    log("agui", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+    log("agui", `警告：端口 ${aguiPort} 已被占用，本脚本不会启动新的 AGUI。`);
+    log("agui", "前端仍会启动，但请求会打到「当前已在监听该端口」的进程（可能是旧实例或其它程序）。");
+    log("agui", "若模型连不上或行为异常：请先结束占用端口的进程，再重新执行 npm run dev。");
+    if (process.platform === "win32") {
+      log("agui", "Windows 可执行: netstat -ano | findstr :8765   再用 taskkill /PID <pid> /F");
+    } else {
+      log("agui", "POSIX 可查: ss -lntp | grep 8765  或  lsof -i :8765");
+    }
+    log("agui", "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+  } else {
+    const py = resolvePythonExecutableHint();
+    log("dev", `将用此 Python 启动 AGUI: ${py}`);
+    log(
+      "dev",
+      "若内网访问外网模型需代理，请在本终端已配置 HTTPS_PROXY/HTTP_PROXY，或写入系统环境变量后再运行 npm run dev。",
+    );
   }
 
   const agui = shouldSpawnAgui

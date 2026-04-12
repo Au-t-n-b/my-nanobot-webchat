@@ -6,6 +6,7 @@ import type {
   SduiGuidanceCardNode,
   SduiChoiceCardNode,
   SduiGanttChartNode,
+  SduiEmbeddedWebNode,
 } from "@/lib/sdui";
 import { stableChildKey } from "@/lib/sduiKeys";
 import { SduiStack } from "@/components/sdui/Stack";
@@ -35,6 +36,7 @@ import { SduiGuidanceCard } from "@/components/sdui/GuidanceCard";
 import { SduiChoiceCard } from "@/components/sdui/ChoiceCard";
 import { SduiStatisticRow } from "@/components/sdui/SduiStatisticRow";
 import { SduiGanttLane } from "@/components/sdui/SduiGanttLane";
+import { EmbeddedWeb } from "@/components/sdui/EmbeddedWeb";
 
 function UnknownNode({ type }: { type: string }) {
   return (
@@ -242,6 +244,25 @@ export function SduiNodeView({ node, pathPrefix = "root" }: Props) {
         return <SduiGanttLane title={g.title} caption={g.caption} lanes={g.lanes} />;
       }
       return <SduiChartPlaceholder variant="bar" caption={g.caption ?? "甘特 / 时间线（数据就绪后展示）"} />;
+    }
+
+    case "EmbeddedWeb": {
+      const ew = node as SduiEmbeddedWebNode;
+      const src = typeof ew.src === "string" ? ew.src.trim() : "";
+      if (!src) {
+        return <UnknownNode type="EmbeddedWeb (missing src)" />;
+      }
+      const eid = ew.id?.trim() || ew.embedId?.trim() || "embedded-web";
+      return (
+        <EmbeddedWeb
+          src={src}
+          id={eid}
+          state={ew.state ?? {}}
+          allowedOrigins={ew.allowedOrigins}
+          minHeight={ew.minHeight}
+          embedSandbox={ew.embedSandbox !== false}
+        />
+      );
     }
 
     default:

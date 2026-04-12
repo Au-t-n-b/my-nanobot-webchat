@@ -15,14 +15,15 @@ const DEFAULT_BAR_COLORS = [
 ];
 
 type Props = {
-  data: SduiBarDatum[];
+  data?: SduiBarDatum[] | null;
   valueUnit?: string;
 };
 
 export function SduiBarChart({ data, valueUnit }: Props) {
   const { postToAgent, openPreview } = useSkillUiRuntime();
   const { rows, max } = useMemo(() => {
-    const safe = data.filter((d) => Number.isFinite(d.value));
+    const list = Array.isArray(data) ? data : [];
+    const safe = list.filter((d) => Number.isFinite(d.value));
     const m = Math.max(1, ...safe.map((d) => d.value));
     return { rows: safe, max: m };
   }, [data]);

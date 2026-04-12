@@ -2,7 +2,7 @@ const CANONICAL_STAGE_MODULES = [
   {
     moduleId: "job_management",
     label: "作业管理",
-    description: "负责项目开工前的作业编排、资源准备与前置检查。",
+    description: "作业管理大盘：资料上传与规划设计/工程安装/集群联调排期确认，可与同事 Skill 编排对接。",
     aliases: ["作业管理"],
   },
   {
@@ -12,10 +12,10 @@ const CANONICAL_STAGE_MODULES = [
     aliases: ["智慧工勘", "智慧工勘模块案例"],
   },
   {
-    moduleId: "modeling_simulation",
-    label: "建模仿真",
-    description: "负责建模、仿真推演与结果校核。",
-    aliases: ["建模仿真"],
+    moduleId: "modeling_simulation_workbench",
+    label: "建模仿真模块",
+    description: "负责建模、仿真推演与结果校核；模板大盘黄金指标位可嵌入哔哩哔哩播放器。",
+    aliases: ["建模仿真模块", "建模仿真", "modeling_simulation"],
   },
   {
     moduleId: "intelligent_analysis_workbench",

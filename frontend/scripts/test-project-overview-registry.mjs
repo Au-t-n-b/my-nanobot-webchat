@@ -26,7 +26,7 @@ test("composeProjectRegistryItems prepends canonical modules and preserves real 
     [
       ["job_management", "作业管理", true],
       ["zhgk_module_case", "智慧工勘", false],
-      ["modeling_simulation", "建模仿真", true],
+      ["modeling_simulation_workbench", "建模仿真模块", true],
       ["intelligent_analysis_workbench", "智能分析工作台", false],
     ],
   );

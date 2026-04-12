@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "modeling_simulation_workbench",
+  "docId": "dashboard:modeling-simulation-workbench",
+  "dataFile": "skills/modeling_simulation_workbench/data/dashboard.json",
+  "flow": "intelligent_analysis_workbench",
+  "metricsPresentation": "embedded_web",
+  "capabilities": {
+    "hitl": true,
+    "uploads": true,
+    "metrics": ["embedded_web", "kpi_cards"],
+    "skillOrchestration": ["serial", "parallel", "hybrid"],
+    "taskProgressAutoSync": true
+  },
+  "uploads": [
+    {
+      "purpose": "analysis_bundle",
+      "label": "建模仿真资料包",
+      "accept": ".zip,.xlsx,.csv,.pdf,.doc,.docx,.png,.jpg,.stp,.step,.iges,.stl,.json",
+      "multiple": true,
+      "save_relative_dir": "skills/modeling_simulation_workbench/input"
+    }
+  ],
+  "taskProgress": {
+    "moduleId": "modeling_simulation_workbench",
+    "moduleName": "建模仿真模块",
+    "tasks": [
+      "模块待启动",
+      "分析目标已确认",
+      "资料已上传",
+      "并行分析进行中",
+      "结论汇总中",
+      "分析完成"
+    ],
+    "actionMapping": {
+      "guide": ["模块待启动"],
+      "upload_bundle": ["模块待启动", "分析目标已确认"],
+      "upload_bundle_complete": ["模块待启动", "分析目标已确认", "资料已上传"],
+      "run_parallel_skills": ["模块待启动", "分析目标已确认", "资料已上传", "并行分析进行中"],
+      "synthesize_result": ["模块待启动", "分析目标已确认", "资料已上传", "并行分析进行中", "结论汇总中"],
+      "finish": ["模块待启动", "分析目标已确认", "资料已上传", "并行分析进行中", "结论汇总中", "分析完成"]
+    }
+  },
+  "caseTemplate": {
+    "moduleTitle": "建模仿真模块",
+    "moduleGoal": "参照智能分析工作台模板交付结构：项目总览引导、HITL、上传、并行阶段与产物；黄金指标区嵌入哔哩哔哩播放器页面，可替换 bvid 指向教程或仿真演示。",
+    "strategyPrompt": "请选择本次建模仿真场景：",
+    "strategyOptions": [
+      { "id": "geometry", "label": "几何建模与网格" },
+      { "id": "physics", "label": "物理场与边界条件" },
+      { "id": "coupled", "label": "多物理场耦合" },
+      { "id": "full", "label": "全流程仿真" }
+    ],
+    "metricLabels": {
+      "throughput": "模型完整度",
+      "quality": "仿真就绪度",
+      "risk": "网格/求解风险"
+    },
+    "reportLabel": "建模仿真模块结论.md",
+    "reportFileName": "modeling_simulation_workbench_report.md"
+  }
+}

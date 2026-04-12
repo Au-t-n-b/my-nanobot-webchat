@@ -414,6 +414,43 @@ def _boilerplate_metrics_nodes(
     ]
 
 
+def _embedded_web_golden_metrics_nodes(
+    case_cfg: dict[str, Any],
+    throughput: int,
+    quality: int,
+    risk: int,
+    *,
+    center_value: str,
+    completed: int,
+    pending: int,
+    center_label: str | None = None,
+) -> list[tuple[str, str, dict[str, Any]]]:
+    """
+    与 ``_boilerplate_metrics_nodes`` 参数一致，但只更新 ``EmbeddedWeb`` 节点 ``embedded-bilibili-golden`` 的 state
+    （用于建模仿真等「黄金指标位」嵌入 bilibili 播放器等外部页）。
+    """
+    return [
+        (
+            "embedded-bilibili-golden",
+            "EmbeddedWeb",
+            {
+                "state": {
+                    "metrics": {
+                        "throughput": throughput,
+                        "quality": quality,
+                        "risk": risk,
+                        "centerValue": center_value,
+                        "completed": completed,
+                        "pending": pending,
+                        "centerLabel": center_label or "仿真健康度",
+                        "labels": case_cfg["metric_labels"],
+                    }
+                }
+            },
+        ),
+    ]
+
+
 def _write_boilerplate_report(
     *,
     module_id: str,
@@ -517,6 +554,66 @@ def _write_workbench_report(
         f"## 结论建议\n"
         f"- 当前工作台展示的是标准模块骨架，可直接替换为实际业务 skill。\n"
         f"- 项目层进度建议继续由 task_progress 驱动，模块层细节建议继续由 dashboard patch 驱动。\n"
+    )
+    out_file.write_text(content, encoding="utf-8")
+    return f"workspace/skills/{module_id}/output/{out_file.name}"
+
+
+def _job_stepper_steps(stage: int, upload_name: str = "") -> list[dict[str, Any]]:
+    """stage 0–3：当前阶段 running；4：四步均已确认；与作业管理大盘四阶段一致。"""
+    un = (upload_name or "").strip() or "资料包"
+    specs = [
+        ("s1", "文件上传", "请上传作业资料", f"已上传：{un}"),
+        ("s2", "规划设计排期", "确认规划设计窗口与里程碑", "规划设计排期已确认"),
+        ("s3", "工程安装排期", "确认工程安装窗口与依赖", "工程安装排期已确认"),
+        ("s4", "集群联调排期", "确认联调窗口与准入条件", "集群联调排期已确认"),
+    ]
+    wait_msgs = [
+        "等待进入模块",
+        "等待资料就绪",
+        "等待规划设计确认",
+        "等待工程安装确认",
+    ]
+    out: list[dict[str, Any]] = []
+    for i, (sid, title, run_det, done_det) in enumerate(specs):
+        if stage < i:
+            out.append({"id": sid, "title": title, "status": "waiting", "detail": [{"title": wait_msgs[i], "status": "waiting"}]})
+        elif stage == i:
+            out.append({"id": sid, "title": title, "status": "running", "detail": [{"title": run_det, "status": "running"}]})
+        else:
+            out.append({"id": sid, "title": title, "status": "done", "detail": [{"title": done_det, "status": "done"}]})
+    return out
+
+
+def _write_job_management_report(
+    *,
+    module_id: str,
+    case_cfg: dict[str, Any],
+    upload_name: str,
+    throughput: int,
+    quality: int,
+    risk: int,
+) -> str:
+    out_dir = get_skills_root() / module_id / "output"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_file = out_dir / case_cfg["report_file_name"]
+    health = max(0, min(100, round((throughput + quality + (100 - risk)) / 3)))
+    content = (
+        f"# {case_cfg['module_title']} · 闭环说明\n\n"
+        f"## 模块目标\n"
+        f"{case_cfg['module_goal']}\n\n"
+        f"## 本次执行摘要\n"
+        f"- 上传材料：{upload_name}\n"
+        f"- 阶段：文件上传 → 规划设计排期 → 工程安装排期 → 集群联调排期（均已确认）\n\n"
+        f"## 黄金指标\n"
+        f"- {case_cfg['metric_labels']['throughput']}：{throughput}\n"
+        f"- {case_cfg['metric_labels']['quality']}：{quality}\n"
+        f"- {case_cfg['metric_labels']['risk']}：{risk}\n"
+        f"- 综合健康度：{health}%\n\n"
+        f"## 给集成同事的提示\n"
+        f"1. 在 `confirm_*` 各步挂载真实排期 Skill 或外部系统回调。\n"
+        f"2. 保持 `stepper-main` 与 `chart-donut` / `chart-bar` 节点 id，便于 Patch 对齐。\n"
+        f"3. 项目层进度由 `taskProgress.actionMapping` 驱动，勿删 action 名除非同步前后端。\n"
     )
     out_file.write_text(content, encoding="utf-8")
     return f"workspace/skills/{module_id}/output/{out_file.name}"
@@ -2160,6 +2257,13 @@ async def _flow_intelligent_analysis_workbench(
     mc = MissionControlManager(thread_id=thread_id, docman=docman)
     sess = merge_module_session(thread_id, module_id, state)
     case_cfg = _boilerplate_case_config(cfg, module_id)
+    metrics_nodes_fn = (
+        _embedded_web_golden_metrics_nodes
+        if str(cfg.get("metricsPresentation") or "").strip() == "embedded_web"
+        else _boilerplate_metrics_nodes
+    )
+    _brand = str(case_cfg.get("module_title") or "智能分析工作台").strip() or "智能分析工作台"
+    _center_lbl = "仿真健康度" if metrics_nodes_fn is _embedded_web_golden_metrics_nodes else "分析健康度"
     progress_module_name = _task_progress_definition(case_cfg["module_title"], cfg)["module_name"]
 
     if action == "cancel":
@@ -2189,12 +2293,12 @@ async def _flow_intelligent_analysis_workbench(
                         ]
                     },
                 ),
-                *_boilerplate_metrics_nodes(
+                *metrics_nodes_fn(
                     case_cfg,
                     8,
                     5,
                     0,
-                    center_label="分析健康度",
+                    center_label=_center_lbl,
                     center_value="8%",
                     completed=0,
                     pending=5,
@@ -2203,7 +2307,7 @@ async def _flow_intelligent_analysis_workbench(
                     BoilerplateDashboardIds.SUMMARY_TEXT,
                     "Text",
                     {
-                        "content": "你已进入智能分析工作台。下一步请先选择本次分析目标，再上传资料并进入并行分析阶段。",
+                        "content": f"你已进入{_brand}。下一步请先选择本次分析目标，再上传资料并进入并行分析阶段。",
                         "variant": "body",
                         "color": "subtle",
                     },
@@ -2216,7 +2320,7 @@ async def _flow_intelligent_analysis_workbench(
             ]
         )
         await mc.emit_guidance(
-            context="智能分析工作台已就绪。先选择分析目标，再上传资料，随后系统会进入并行分析与结论汇总。",
+            context=f"{_brand}已就绪。先选择分析目标，再上传资料，随后系统会进入并行分析与结论汇总。",
             actions=[
                 {
                     "label": "选择分析目标",
@@ -2292,7 +2396,7 @@ async def _flow_intelligent_analysis_workbench(
                         ]
                     },
                 ),
-                *_boilerplate_metrics_nodes(
+                *metrics_nodes_fn(
                     case_cfg,
                     26,
                     18,
@@ -2368,7 +2472,7 @@ async def _flow_intelligent_analysis_workbench(
                         ]
                     },
                 ),
-                *_boilerplate_metrics_nodes(case_cfg, 41, 29, 4, center_value="36%", completed=2, pending=3),
+                *metrics_nodes_fn(case_cfg, 41, 29, 4, center_value="36%", completed=2, pending=3),
                 (
                     BoilerplateDashboardIds.UPLOADED_FILES,
                     "ArtifactGrid",
@@ -2502,7 +2606,7 @@ async def _flow_intelligent_analysis_workbench(
                             ]
                         },
                     ),
-                    *_boilerplate_metrics_nodes(case_cfg, 48, 32, 6, center_value="40%", completed=2, pending=3),
+                    *metrics_nodes_fn(case_cfg, 48, 32, 6, center_value="40%", completed=2, pending=3),
                     (
                         BoilerplateDashboardIds.UPLOADED_FILES,
                         "ArtifactGrid",
@@ -2524,7 +2628,7 @@ async def _flow_intelligent_analysis_workbench(
                             ]
                         },
                     ),
-                    *_boilerplate_metrics_nodes(case_cfg, 63, 49, 10, center_value="55%", completed=3, pending=2),
+                    *metrics_nodes_fn(case_cfg, 63, 49, 10, center_value="55%", completed=3, pending=2),
                     (
                         BoilerplateDashboardIds.UPLOADED_FILES,
                         "ArtifactGrid",
@@ -2546,7 +2650,7 @@ async def _flow_intelligent_analysis_workbench(
                             ]
                         },
                     ),
-                    *_boilerplate_metrics_nodes(case_cfg, 72, 58, 16, center_value="68%", completed=3, pending=2),
+                    *metrics_nodes_fn(case_cfg, 72, 58, 16, center_value="68%", completed=3, pending=2),
                     (
                         BoilerplateDashboardIds.UPLOADED_FILES,
                         "ArtifactGrid",
@@ -2568,7 +2672,7 @@ async def _flow_intelligent_analysis_workbench(
                             ]
                         },
                     ),
-                    *_boilerplate_metrics_nodes(case_cfg, 79, 66, 14, center_value="74%", completed=4, pending=1),
+                    *metrics_nodes_fn(case_cfg, 79, 66, 14, center_value="74%", completed=4, pending=1),
                     (
                         BoilerplateDashboardIds.UPLOADED_FILES,
                         "ArtifactGrid",
@@ -2606,7 +2710,7 @@ async def _flow_intelligent_analysis_workbench(
                         {"title": "已上传文件", "mode": "input", "artifacts": _uploads_as_artifacts(uploads)},
                     ),
                     (BoilerplateDashboardIds.SUMMARY_TEXT, "Text", {"content": "正在汇总资料盘点、质量扫描和风险信号识别结果。", "variant": "body", "color": "subtle"}),
-                    *_boilerplate_metrics_nodes(case_cfg, 82, 74, 12, center_value="82%", completed=4, pending=1),
+                    *metrics_nodes_fn(case_cfg, 82, 74, 12, center_value="82%", completed=4, pending=1),
                 ],
                 [
                     (
@@ -2615,7 +2719,7 @@ async def _flow_intelligent_analysis_workbench(
                         {"title": "已上传文件", "mode": "input", "artifacts": _uploads_as_artifacts(uploads)},
                     ),
                     (BoilerplateDashboardIds.SUMMARY_TEXT, "Text", {"content": f"已形成初步结论：目标={goal_label}，资料={upload_name}，建议进入最终产物生成。", "variant": "body", "color": "subtle"}),
-                    *_boilerplate_metrics_nodes(case_cfg, 86, 81, 9, center_value="88%", completed=4, pending=1),
+                    *metrics_nodes_fn(case_cfg, 86, 81, 9, center_value="88%", completed=4, pending=1),
                 ],
             ],
         )
@@ -2655,7 +2759,7 @@ async def _flow_intelligent_analysis_workbench(
                         ]
                     },
                 ),
-                *_boilerplate_metrics_nodes(case_cfg, throughput, quality, risk, center_value="100%", completed=5, pending=0),
+                *metrics_nodes_fn(case_cfg, throughput, quality, risk, center_value="100%", completed=5, pending=0),
                 (
                     BoilerplateDashboardIds.UPLOADED_FILES,
                     "ArtifactGrid",
@@ -2666,7 +2770,7 @@ async def _flow_intelligent_analysis_workbench(
                     "Text",
                     {
                         "content": (
-                            f"智能分析工作台已完成本轮演示：目标={goal_label}，资料={upload_name}。"
+                            f"{_brand}已完成本轮演示：目标={goal_label}，资料={upload_name}。"
                             " 已完整展示项目引导、HITL、上传预览、并行分析、串行汇总和产物结论。"
                         ),
                         "variant": "body",
@@ -2695,6 +2799,517 @@ async def _flow_intelligent_analysis_workbench(
         )
         clear_module_session(thread_id, module_id)
         return {"ok": True, "done": True, "summary": "intelligent_analysis_workbench 完成：标准案例已生成。"}
+
+    return {"ok": False, "error": f"unknown action: {action!r}"}
+
+
+async def _flow_job_management(
+    *,
+    module_id: str,
+    action: str,
+    state: dict[str, Any],
+    thread_id: str,
+    docman: Any,
+    cfg: dict[str, Any],
+) -> dict[str, Any]:
+    """作业管理大盘：上传 → 三段排期确认 → 闭环报告。"""
+    pusher = _pusher_for(cfg)
+    doc_id = str(cfg["docId"])
+    sp = synthetic_path_for_data_file(str(cfg["dataFile"]))
+    mc = MissionControlManager(thread_id=thread_id, docman=docman)
+    sess = merge_module_session(thread_id, module_id, state)
+    case_cfg = _boilerplate_case_config(cfg, module_id)
+    progress_module_name = _task_progress_definition(case_cfg["module_title"], cfg)["module_name"]
+    _brand = str(case_cfg.get("module_title") or "作业管理大盘").strip() or "作业管理大盘"
+
+    if action == "cancel":
+        clear_module_session(thread_id, module_id)
+        await _set_project_progress_and_emit(progress_module_name, set(), cfg)
+        return {"ok": True, "cancelled": True}
+
+    if action == "guide":
+        clear_module_session(thread_id, module_id)
+        await _set_project_progress_and_emit(
+            progress_module_name,
+            _configured_completed_tasks(cfg, "guide", {"作业待启动"}, module_name=progress_module_name),
+            cfg,
+        )
+        await pusher.update_nodes(
+            [
+                (
+                    SDUI_STEPPER_MAIN_ID,
+                    "Stepper",
+                    {"steps": _job_stepper_steps(0)},
+                ),
+                *_boilerplate_metrics_nodes(
+                    case_cfg,
+                    18,
+                    14,
+                    10,
+                    center_value="12%",
+                    center_label="作业健康度",
+                    completed=0,
+                    pending=4,
+                ),
+                (
+                    BoilerplateDashboardIds.SUMMARY_TEXT,
+                    "Text",
+                    {
+                        "content": f"已进入{_brand}。请先上传作业资料，再依次确认规划设计、工程安装与集群联调排期。",
+                        "variant": "body",
+                        "color": "subtle",
+                    },
+                ),
+                (
+                    BoilerplateDashboardIds.UPLOADED_FILES,
+                    "ArtifactGrid",
+                    {"title": "已上传文件", "mode": "input", "artifacts": []},
+                ),
+            ]
+        )
+        await mc.emit_guidance(
+            context=f"{_brand}已就绪。请先上传作业资料包，再按引导确认各阶段排期。",
+            actions=[
+                {
+                    "label": "上传作业资料",
+                    "verb": "module_action",
+                    "payload": {"moduleId": module_id, "action": "upload_bundle", "state": {}},
+                }
+            ],
+        )
+        return {"ok": True, "next": "upload_bundle"}
+
+    if action == "upload_bundle":
+        upload_cfg = _upload_config(cfg, "job_bundle")
+        await pusher.update_nodes(
+            [
+                (
+                    SDUI_STEPPER_MAIN_ID,
+                    "Stepper",
+                    {"steps": _job_stepper_steps(0)},
+                ),
+                *_boilerplate_metrics_nodes(
+                    case_cfg,
+                    20,
+                    16,
+                    10,
+                    center_value="14%",
+                    center_label="作业健康度",
+                    completed=0,
+                    pending=4,
+                ),
+                (
+                    BoilerplateDashboardIds.SUMMARY_TEXT,
+                    "Text",
+                    {
+                        "content": "请在会话卡片中选择文件并上传；上传完成后将自动进入「规划设计排期」确认。",
+                        "variant": "body",
+                        "color": "subtle",
+                    },
+                ),
+            ]
+        )
+        await mc.ask_for_file(
+            purpose="job_bundle",
+            title="请上传作业资料包（清单、依赖或排期输入）",
+            accept=str(upload_cfg.get("accept") or ".zip,.xlsx,.csv,.pdf,.doc,.docx,.png,.jpg,.json"),
+            multiple=bool(upload_cfg.get("multiple", True)),
+            module_id=module_id,
+            next_action="upload_bundle_complete",
+            save_relative_dir=str(upload_cfg.get("save_relative_dir") or f"skills/{module_id}/input"),
+        )
+        return {"ok": True, "next": "upload_bundle_complete"}
+
+    if action == "upload_bundle_complete":
+        merged = merge_module_session(thread_id, module_id, dict(state))
+        uploads = _merge_uploads(merged.get("uploads"), state.get("uploads"))
+        upload_meta = dict(_latest_upload_meta({"upload": merged.get("upload"), "uploads": uploads}))
+        if not uploads and upload_meta:
+            uploads = [upload_meta]
+        merged = merge_module_session(
+            thread_id,
+            module_id,
+            {"upload": upload_meta or None, "uploads": uploads},
+        )
+        upload_name = str(upload_meta.get("name") or "作业资料包")
+        upload_count = len(uploads)
+        await _set_project_progress_and_emit(
+            progress_module_name,
+            _configured_completed_tasks(
+                cfg,
+                "upload_bundle_complete",
+                {"作业待启动", "资料已上传"},
+                module_name=progress_module_name,
+            ),
+            cfg,
+        )
+        await pusher.update_nodes(
+            [
+                (
+                    SDUI_STEPPER_MAIN_ID,
+                    "Stepper",
+                    {"steps": _job_stepper_steps(1, upload_name)},
+                ),
+                *_boilerplate_metrics_nodes(
+                    case_cfg,
+                    38,
+                    30,
+                    12,
+                    center_value="28%",
+                    center_label="作业健康度",
+                    completed=1,
+                    pending=3,
+                ),
+                (
+                    BoilerplateDashboardIds.UPLOADED_FILES,
+                    "ArtifactGrid",
+                    {"title": "已上传文件", "mode": "input", "artifacts": _uploads_as_artifacts(uploads)},
+                ),
+                (
+                    BoilerplateDashboardIds.SUMMARY_TEXT,
+                    "Text",
+                    {
+                        "content": f"已接收 {upload_count} 份资料（最近：{upload_name}）。请确认规划设计排期。",
+                        "variant": "body",
+                        "color": "subtle",
+                    },
+                ),
+            ]
+        )
+        cid = str(merged.get("cardId") or state.get("cardId") or "").strip()
+        if cid:
+            await mc.replace_card(
+                card_id=cid,
+                title="资料已上传",
+                node={
+                    "type": "Stack",
+                    "gap": "sm",
+                    "children": [
+                        {
+                            "type": "Text",
+                            "variant": "body",
+                            "content": f"已接收 {upload_count} 份资料。下一步请确认规划设计排期。",
+                            "color": "subtle",
+                        },
+                        {
+                            "type": "ArtifactGrid",
+                            "title": "已上传文件",
+                            "mode": "input",
+                            "artifacts": _uploads_as_artifacts(uploads),
+                        },
+                        {
+                            "type": "GuidanceCard",
+                            "cardId": cid,
+                            "context": "资料已入库。请确认规划设计排期窗口。",
+                            "actions": [
+                                {
+                                    "label": "确认规划设计排期",
+                                    "verb": "module_action",
+                                    "payload": {
+                                        "moduleId": module_id,
+                                        "action": "confirm_planning_schedule",
+                                        "state": {"upload": upload_meta, "uploads": uploads},
+                                    },
+                                }
+                            ],
+                        },
+                    ],
+                },
+                doc_id=f"chat:{thread_id}",
+            )
+        else:
+            await mc.emit_guidance(
+                context="资料已入库。请确认规划设计排期。",
+                actions=[
+                    {
+                        "label": "确认规划设计排期",
+                        "verb": "module_action",
+                        "payload": {
+                            "moduleId": module_id,
+                            "action": "confirm_planning_schedule",
+                            "state": {"upload": upload_meta, "uploads": uploads},
+                        },
+                    }
+                ],
+            )
+        return {"ok": True, "next": "confirm_planning_schedule"}
+
+    if action == "confirm_planning_schedule":
+        merged = merge_module_session(thread_id, module_id, dict(state))
+        uploads = _merge_uploads(merged.get("uploads"), state.get("uploads"))
+        upload_meta = dict(_latest_upload_meta({"upload": merged.get("upload"), "uploads": uploads}))
+        if not uploads and upload_meta:
+            uploads = [upload_meta]
+        upload_name = str(upload_meta.get("name") or "作业资料包")
+        await _set_project_progress_and_emit(
+            progress_module_name,
+            _configured_completed_tasks(
+                cfg,
+                "confirm_planning_schedule",
+                {"作业待启动", "资料已上传", "规划设计排期已确认"},
+                module_name=progress_module_name,
+            ),
+            cfg,
+        )
+        await pusher.update_nodes(
+            [
+                (
+                    SDUI_STEPPER_MAIN_ID,
+                    "Stepper",
+                    {"steps": _job_stepper_steps(2, upload_name)},
+                ),
+                *_boilerplate_metrics_nodes(
+                    case_cfg,
+                    55,
+                    48,
+                    10,
+                    center_value="50%",
+                    center_label="作业健康度",
+                    completed=2,
+                    pending=2,
+                ),
+                (
+                    BoilerplateDashboardIds.UPLOADED_FILES,
+                    "ArtifactGrid",
+                    {"title": "已上传文件", "mode": "input", "artifacts": _uploads_as_artifacts(uploads)},
+                ),
+                (
+                    BoilerplateDashboardIds.SUMMARY_TEXT,
+                    "Text",
+                    {
+                        "content": "规划设计排期已确认。请继续确认工程安装排期窗口与依赖。",
+                        "variant": "body",
+                        "color": "subtle",
+                    },
+                ),
+            ]
+        )
+        await mc.emit_guidance(
+            context="规划设计排期已登记。请确认工程安装排期。",
+            actions=[
+                {
+                    "label": "确认工程安装排期",
+                    "verb": "module_action",
+                    "payload": {"moduleId": module_id, "action": "confirm_engineering_schedule", "state": {}},
+                }
+            ],
+        )
+        return {"ok": True, "next": "confirm_engineering_schedule"}
+
+    if action == "confirm_engineering_schedule":
+        merged = merge_module_session(thread_id, module_id, dict(state))
+        uploads = _merge_uploads(merged.get("uploads"), state.get("uploads"))
+        upload_meta = dict(_latest_upload_meta({"upload": merged.get("upload"), "uploads": uploads}))
+        if not uploads and upload_meta:
+            uploads = [upload_meta]
+        upload_name = str(upload_meta.get("name") or "作业资料包")
+        await _set_project_progress_and_emit(
+            progress_module_name,
+            _configured_completed_tasks(
+                cfg,
+                "confirm_engineering_schedule",
+                {
+                    "作业待启动",
+                    "资料已上传",
+                    "规划设计排期已确认",
+                    "工程安装排期已确认",
+                },
+                module_name=progress_module_name,
+            ),
+            cfg,
+        )
+        await pusher.update_nodes(
+            [
+                (
+                    SDUI_STEPPER_MAIN_ID,
+                    "Stepper",
+                    {"steps": _job_stepper_steps(3, upload_name)},
+                ),
+                *_boilerplate_metrics_nodes(
+                    case_cfg,
+                    72,
+                    65,
+                    8,
+                    center_value="72%",
+                    center_label="作业健康度",
+                    completed=3,
+                    pending=1,
+                ),
+                (
+                    BoilerplateDashboardIds.UPLOADED_FILES,
+                    "ArtifactGrid",
+                    {"title": "已上传文件", "mode": "input", "artifacts": _uploads_as_artifacts(uploads)},
+                ),
+                (
+                    BoilerplateDashboardIds.SUMMARY_TEXT,
+                    "Text",
+                    {
+                        "content": "工程安装排期已确认。请最后确认集群联调排期与准入条件。",
+                        "variant": "body",
+                        "color": "subtle",
+                    },
+                ),
+            ]
+        )
+        await mc.emit_guidance(
+            context="工程安装排期已登记。请确认集群联调排期。",
+            actions=[
+                {
+                    "label": "确认集群联调排期",
+                    "verb": "module_action",
+                    "payload": {"moduleId": module_id, "action": "confirm_cluster_schedule", "state": {}},
+                }
+            ],
+        )
+        return {"ok": True, "next": "confirm_cluster_schedule"}
+
+    if action == "confirm_cluster_schedule":
+        merged = merge_module_session(thread_id, module_id, dict(state))
+        uploads = _merge_uploads(merged.get("uploads"), state.get("uploads"))
+        upload_meta = dict(_latest_upload_meta({"upload": merged.get("upload"), "uploads": uploads}))
+        if not uploads and upload_meta:
+            uploads = [upload_meta]
+        upload_name = str(upload_meta.get("name") or "作业资料包")
+        await _set_project_progress_and_emit(
+            progress_module_name,
+            _configured_completed_tasks(
+                cfg,
+                "confirm_cluster_schedule",
+                {
+                    "作业待启动",
+                    "资料已上传",
+                    "规划设计排期已确认",
+                    "工程安装排期已确认",
+                    "集群联调排期已确认",
+                },
+                module_name=progress_module_name,
+            ),
+            cfg,
+        )
+        await pusher.update_nodes(
+            [
+                (
+                    SDUI_STEPPER_MAIN_ID,
+                    "Stepper",
+                    {"steps": _job_stepper_steps(4, upload_name)},
+                ),
+                *_boilerplate_metrics_nodes(
+                    case_cfg,
+                    88,
+                    84,
+                    6,
+                    center_value="92%",
+                    center_label="作业健康度",
+                    completed=4,
+                    pending=0,
+                ),
+                (
+                    BoilerplateDashboardIds.UPLOADED_FILES,
+                    "ArtifactGrid",
+                    {"title": "已上传文件", "mode": "input", "artifacts": _uploads_as_artifacts(uploads)},
+                ),
+                (
+                    BoilerplateDashboardIds.SUMMARY_TEXT,
+                    "Text",
+                    {
+                        "content": "四类主线已完成确认：上传资料与三段排期均已登记。可生成闭环说明并挂载产物区。",
+                        "variant": "body",
+                        "color": "subtle",
+                    },
+                ),
+            ]
+        )
+        await mc.emit_guidance(
+            context="集群联调排期已确认。可结束本模块并生成作业闭环说明。",
+            actions=[
+                {
+                    "label": "完成闭环",
+                    "verb": "module_action",
+                    "payload": {"moduleId": module_id, "action": "finish", "state": {}},
+                }
+            ],
+        )
+        return {"ok": True, "next": "finish"}
+
+    if action == "finish":
+        upload_meta = _latest_upload_meta(sess)
+        upload_name = str(upload_meta.get("name") or "作业资料包")
+        uploads = _merge_uploads(sess.get("uploads"), state.get("uploads"))
+        throughput = 92
+        quality = 90
+        risk = 5
+        await _set_project_progress_and_emit(
+            progress_module_name,
+            _configured_completed_tasks(
+                cfg,
+                "finish",
+                {
+                    "作业待启动",
+                    "资料已上传",
+                    "规划设计排期已确认",
+                    "工程安装排期已确认",
+                    "集群联调排期已确认",
+                    "作业闭环完成",
+                },
+                module_name=progress_module_name,
+            ),
+            cfg,
+        )
+        await pusher.update_nodes(
+            [
+                (
+                    SDUI_STEPPER_MAIN_ID,
+                    "Stepper",
+                    {"steps": _job_stepper_steps(4, upload_name)},
+                ),
+                *_boilerplate_metrics_nodes(
+                    case_cfg,
+                    throughput,
+                    quality,
+                    risk,
+                    center_value="100%",
+                    center_label="作业健康度",
+                    completed=4,
+                    pending=0,
+                ),
+                (
+                    BoilerplateDashboardIds.UPLOADED_FILES,
+                    "ArtifactGrid",
+                    {"title": "已上传文件", "mode": "input", "artifacts": _uploads_as_artifacts(uploads)},
+                ),
+                (
+                    BoilerplateDashboardIds.SUMMARY_TEXT,
+                    "Text",
+                    {
+                        "content": (
+                            f"{_brand}本轮已闭环：资料={upload_name}，规划设计/工程安装/集群联调排期均已确认。"
+                            " 产物说明已写入输出目录。"
+                        ),
+                        "variant": "body",
+                        "color": "subtle",
+                    },
+                ),
+            ]
+        )
+        out_path = _write_job_management_report(
+            module_id=module_id,
+            case_cfg=case_cfg,
+            upload_name=upload_name,
+            throughput=throughput,
+            quality=quality,
+            risk=risk,
+        )
+        await mc.add_artifact(
+            doc_id,
+            synthetic_path=sp,
+            artifact_id="job-management-handover-001",
+            label=case_cfg["report_label"],
+            path=out_path,
+            kind="md",
+            status="ready",
+        )
+        clear_module_session(thread_id, module_id)
+        return {"ok": True, "done": True, "summary": "job_management 完成：作业管理大盘已闭环。"}
 
     return {"ok": False, "error": f"unknown action: {action!r}"}
 
@@ -2753,6 +3368,15 @@ async def run_module_action(
             )
         elif flow == "intelligent_analysis_workbench":
             result = await _flow_intelligent_analysis_workbench(
+                module_id=mid,
+                action=act,
+                state=st,
+                thread_id=tid,
+                docman=docman,
+                cfg=cfg,
+            )
+        elif flow == "job_management":
+            result = await _flow_job_management(
                 module_id=mid,
                 action=act,
                 state=st,

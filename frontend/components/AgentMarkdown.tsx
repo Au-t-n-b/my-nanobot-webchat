@@ -348,11 +348,14 @@ export function AgentMarkdown({
   onFileLinkClick,
   searchQuery,
   className,
+  showStreamingCaret,
 }: {
   content: string;
   onFileLinkClick?: (path: string) => void;
   searchQuery?: string;
   className?: string;
+  /** 流式输出末尾：细游标，缓解「卡住」感 */
+  showStreamingCaret?: boolean;
 }) {
   const [inlineOpen, setInlineOpen] = useState<Set<string>>(new Set());
   const toggleInline = (path: string) => {
@@ -380,6 +383,12 @@ export function AgentMarkdown({
       {Array.from(inlineOpen).map((path) => (
         <InlinePreviewBlock key={path} path={path} onClose={() => toggleInline(path)} />
       ))}
+      {showStreamingCaret ? (
+        <span
+          className="ml-0.5 inline-block h-[1em] w-px align-[-0.12em] animate-pulse rounded-sm bg-[var(--accent)] opacity-90"
+          aria-hidden
+        />
+      ) : null}
     </div>
   );
 }

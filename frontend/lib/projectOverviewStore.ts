@@ -3,11 +3,13 @@
 import { useSyncExternalStore } from "react";
 
 import type { TaskStatusPayload } from "@/hooks/useAgentChat";
+import { composeProjectRegistryItems } from "@/lib/projectOverviewRegistry";
 
 export type ProjectModuleRegistryItem = {
   moduleId: string;
   label: string;
   description: string;
+  placeholder?: boolean;
   taskProgress: {
     moduleId: string;
     moduleName: string;
@@ -24,6 +26,7 @@ export type ProjectOverviewModuleView = {
   label: string;
   description: string;
   syntheticPath: string;
+  isPlaceholder: boolean;
   taskModuleId: string;
   taskModuleName: string;
   status: "idle" | "running" | "completed";
@@ -244,7 +247,7 @@ function matchTaskModule(
 }
 
 export function selectProjectOverviewModules(snapshot: ProjectOverviewState): ProjectOverviewModuleView[] {
-  return snapshot.registryItems.map((item) => {
+  return composeProjectRegistryItems(snapshot.registryItems).map((item) => {
     const taskModule = matchTaskModule(snapshot.taskStatus, item);
     const steps = taskModule?.steps ?? [];
     const doneCount = steps.filter((step) => step.done).length;
@@ -255,6 +258,7 @@ export function selectProjectOverviewModules(snapshot: ProjectOverviewState): Pr
       label: item.label,
       description: item.description,
       syntheticPath: moduleSyntheticPathFromDataFile(item.dashboard.dataFile, item.moduleId),
+      isPlaceholder: Boolean(item.placeholder),
       taskModuleId: item.taskProgress.moduleId,
       taskModuleName: item.taskProgress.moduleName,
       status:

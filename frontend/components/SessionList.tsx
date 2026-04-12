@@ -16,13 +16,14 @@ function formatUpdatedAt(ts: number): string {
   return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
+const sectionLabelClass =
+  "text-[10px] font-medium uppercase tracking-[0.22em] text-zinc-500 dark:text-white/40";
+
 export function SessionList({ currentThreadId, sessions, onCreate, onSelect, onDelete }: Props) {
   return (
-    <section className="flex flex-col gap-2 min-h-0">
+    <section className="flex flex-col gap-2 min-h-0 mt-6">
       <div className="flex items-center justify-between gap-2">
-        <span className="text-[10px] font-black text-zinc-600 uppercase tracking-[0.2em]">
-          Sessions
-        </span>
+        <span className={`${sectionLabelClass} whitespace-nowrap`}>Sessions</span>
         <button
           type="button"
           onClick={onCreate}

@@ -2,7 +2,7 @@
 
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { Bot, Check, Copy, FileText, Trash2, User } from "lucide-react";
-import type { AgentMessage, ChoiceItem } from "@/hooks/useAgentChat";
+import type { AgentMessage } from "@/hooks/useAgentChat";
 import { AgentMarkdown } from "@/components/AgentMarkdown";
 import { extractFilesFromContent } from "@/lib/fileIndex";
 import { SkillUiRuntimeProvider } from "@/components/sdui/SkillUiRuntimeProvider";
@@ -11,15 +11,13 @@ import { SduiNodeView } from "@/components/sdui/SduiNodeView";
 type Props = {
   messages: AgentMessage[];
   isLoading: boolean;
+  /** 最后一条助手消息在流式生成时显示 Markdown 尾游标 */
+  showStreamingCaret?: boolean;
   inlineStatusTag?: string;
   onFileLinkClick?: (path: string) => void;
   onDeleteMessage?: (id: string) => void;
   searchQuery?: string;
   chatCardPostToAgent?: (text: string) => void;
-  /** present_choices：作为助手侧气泡出现在消息流末尾（可滚动，非弹窗） */
-  pendingChoices?: ChoiceItem[] | null;
-  onSelectPendingChoice?: (choice: ChoiceItem) => void;
-  onDismissPendingChoices?: () => void;
 };
 
 /**
@@ -243,20 +241,18 @@ function ChatCardBubble({
 export const MessageList = memo(function MessageList({
   messages,
   isLoading,
+  showStreamingCaret = false,
   inlineStatusTag,
   onFileLinkClick,
   onDeleteMessage,
   searchQuery,
   chatCardPostToAgent,
-  pendingChoices,
-  onSelectPendingChoice,
-  onDismissPendingChoices,
 }: Props) {
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages.length, isLoading, pendingChoices?.length]);
+  }, [messages.length, isLoading]);
 
   // Pre-compute chip paths for all messages in one pass:
   // - bare filenames are upgraded to full paths via the global artifact map
@@ -308,7 +304,14 @@ export const MessageList = memo(function MessageList({
                         <span className="ui-text-muted text-base leading-relaxed">等待回复…</span>
                       ) : (
                         <>
-                          <AgentMarkdown content={m.content} onFileLinkClick={onFileLinkClick} searchQuery={searchQuery} />
+                          <AgentMarkdown
+                            content={m.content}
+                            onFileLinkClick={onFileLinkClick}
+                            searchQuery={searchQuery}
+                            showStreamingCaret={
+                              Boolean(showStreamingCaret && isLast && (m.content?.trim()?.length ?? 0) > 0)
+                            }
+                          />
                           <FileIndexChips paths={chipPathsPerMessage[i] ?? []} onFileLinkClick={onFileLinkClick} />
                         </>
                       )}
@@ -326,49 +329,6 @@ export const MessageList = memo(function MessageList({
               </li>
             );
           })}
-          {pendingChoices &&
-          pendingChoices.length > 0 &&
-          onSelectPendingChoice &&
-          onDismissPendingChoices ? (
-            <li className="flex flex-row items-start gap-3 list-none">
-              <Avatar role="assistant" />
-              <div className="group flex flex-col items-start max-w-[92%]">
-                <div
-                  data-testid="hitl-inline-choices"
-                  className="chatcard-slide-up w-full max-w-[min(100%,28rem)] rounded-xl rounded-tl-sm px-4 py-3 text-sm shadow-[var(--shadow-card)] ring-1 ring-black/[0.06] dark:ring-white/[0.08]"
-                  style={{
-                    background: "var(--paper-card)",
-                    border: "1px solid var(--border-subtle)",
-                    borderLeft: "3px solid var(--accent)",
-                  }}
-                >
-                  <div className="text-xs font-semibold ui-text-primary mb-2">请选择下一步</div>
-                  <p className="text-[11px] ui-text-secondary mb-3">
-                    选项来自助手工具调用，点击后作为你的下一条消息发送。
-                  </p>
-                  <div className="flex flex-col gap-2">
-                    {pendingChoices.map((c) => (
-                      <button
-                        key={`${c.value}:${c.label}`}
-                        type="button"
-                        onClick={() => onSelectPendingChoice(c)}
-                        className="w-full rounded-xl border border-[var(--border-subtle)] px-3 py-2.5 text-left text-sm ui-text-primary hover:bg-[var(--surface-3)] transition-colors"
-                      >
-                        {c.label}
-                      </button>
-                    ))}
-                  </div>
-                  <button
-                    type="button"
-                    onClick={onDismissPendingChoices}
-                    className="mt-3 w-full rounded-xl border border-[var(--border-subtle)] px-3 py-2 text-xs ui-text-secondary hover:bg-[var(--surface-3)]"
-                  >
-                    暂不选择
-                  </button>
-                </div>
-              </div>
-            </li>
-          ) : null}
         </ul>
         {inlineStatusTag ? (
           <div className="mt-3 flex justify-center">

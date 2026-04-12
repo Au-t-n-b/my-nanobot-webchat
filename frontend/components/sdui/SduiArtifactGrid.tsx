@@ -130,8 +130,9 @@ export function SduiArtifactGrid({ artifacts, mode = "output", title }: Props) {
               type="button"
               disabled={isError}
               onClick={() => {
-                if (!canPreview(a.path)) return;
-                runtime.openPreview(a.path);
+                const p = a.path?.trim();
+                if (!p || !canPreview(p)) return;
+                runtime.openPreview(p);
               }}
               className={[
                 "flex items-center gap-1.5 rounded-full px-3 py-1 text-xs border transition-all",

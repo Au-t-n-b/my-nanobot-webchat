@@ -1,0 +1,206 @@
+.frappe-gantt-shell {
+  position: relative;
+  min-height: 360px;
+  width: 100%;
+  overflow: hidden;
+  border: 1px solid var(--border-subtle);
+  border-radius: 1rem;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--surface-1) 96%, transparent), color-mix(in srgb, var(--surface-2) 96%, transparent));
+}
+
+.frappe-gantt-shell.is-panning {
+  cursor: grabbing;
+}
+
+.frappe-gantt-host {
+  transform-origin: top left;
+  width: 100%;
+}
+
+.frappe-gantt-shell .gantt-container {
+  --g-arrow-color: color-mix(in srgb, var(--text-muted) 80%, transparent);
+  --g-bar-color: color-mix(in srgb, var(--surface-2) 88%, transparent);
+  --g-bar-border: color-mix(in srgb, var(--border-subtle) 100%, transparent);
+  --g-tick-color-thick: color-mix(in srgb, var(--border-subtle) 48%, transparent);
+  --g-tick-color: color-mix(in srgb, var(--border-subtle) 24%, transparent);
+  --g-actions-background: color-mix(in srgb, var(--surface-2) 94%, transparent);
+  --g-border-color: color-mix(in srgb, var(--border-subtle) 100%, transparent);
+  --g-text-muted: var(--text-muted);
+  --g-text-light: #f3f4f6;
+  --g-text-dark: #d1d5db;
+  --g-progress-color: color-mix(in srgb, var(--accent) 82%, white 8%);
+  --g-handle-color: var(--accent);
+  --g-weekend-label-color: color-mix(in srgb, var(--surface-2) 94%, transparent);
+  --g-expected-progress: color-mix(in srgb, var(--accent) 24%, transparent);
+  --g-header-background: color-mix(in srgb, var(--surface-1) 98%, transparent);
+  --g-row-color: color-mix(in srgb, var(--surface-1) 82%, var(--surface-2));
+  --g-row-border-color: color-mix(in srgb, var(--border-subtle) 100%, transparent);
+  --g-today-highlight: color-mix(in srgb, var(--accent) 88%, white 10%);
+  --g-popup-actions: color-mix(in srgb, var(--surface-2) 96%, transparent);
+  --g-weekend-highlight-color: color-mix(in srgb, var(--surface-3) 62%, transparent);
+  border-radius: 1rem;
+}
+
+.frappe-gantt-shell .grid-header {
+  backdrop-filter: blur(8px);
+}
+
+.frappe-gantt-shell .popup-wrapper {
+  border: 1px solid var(--border-subtle);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.32);
+}
+
+.frappe-gantt-shell .gantt .bar-wrapper .bar,
+.frappe-gantt-shell .gantt .bar-progress,
+.frappe-gantt-shell .gantt .bar-label {
+  transition:
+    transform 0.32s ease,
+    fill 0.32s ease,
+    opacity 0.24s ease;
+}
+
+.frappe-gantt-shell .gantt .bar-wrapper:hover .bar {
+  transform: translateY(-1px);
+}
+
+.frappe-gantt-shell .gantt .bar-label.big,
+.frappe-gantt-shell .gantt .bar-label {
+  font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  fill: #e5e7eb;
+}
+
+.frappe-gantt-shell .gantt .bar-label.big {
+  fill: #cfd5dd;
+}
+
+.frappe-gantt-shell .gantt .bar-wrapper.gantt-hue-0 {
+  --task-fill: color-mix(in srgb, #f59e0b 36%, var(--surface-2));
+  --task-progress: #f59e0b;
+}
+
+.frappe-gantt-shell .gantt .bar-wrapper.gantt-hue-1 {
+  --task-fill: color-mix(in srgb, #34d399 30%, var(--surface-2));
+  --task-progress: #34d399;
+}
+
+.frappe-gantt-shell .gantt .bar-wrapper.gantt-hue-2 {
+  --task-fill: color-mix(in srgb, #38bdf8 26%, var(--surface-2));
+  --task-progress: #38bdf8;
+}
+
+.frappe-gantt-shell .gantt .bar-wrapper.gantt-hue-3 {
+  --task-fill: color-mix(in srgb, #f87171 28%, var(--surface-2));
+  --task-progress: #f87171;
+}
+
+.frappe-gantt-shell .gantt .bar-wrapper.gantt-hue-4 {
+  --task-fill: color-mix(in srgb, #a78bfa 26%, var(--surface-2));
+  --task-progress: #a78bfa;
+}
+
+.frappe-gantt-shell .gantt .bar-wrapper.gantt-hue-5 {
+  --task-fill: color-mix(in srgb, #22d3ee 24%, var(--surface-2));
+  --task-progress: #22d3ee;
+}
+
+.frappe-gantt-shell .gantt .bar-wrapper.gantt-hue-6 {
+  --task-fill: color-mix(in srgb, #84cc16 26%, var(--surface-2));
+  --task-progress: #84cc16;
+}
+
+.frappe-gantt-shell .gantt .bar-wrapper.gantt-hue-7 {
+  --task-fill: color-mix(in srgb, #fb7185 24%, var(--surface-2));
+  --task-progress: #fb7185;
+}
+
+.frappe-gantt-shell .gantt .bar-wrapper .bar {
+  fill: var(--task-fill, var(--g-bar-color));
+}
+
+.frappe-gantt-shell .gantt .bar-wrapper .bar-progress {
+  fill: var(--task-progress, var(--g-progress-color));
+  opacity: 0.95;
+}
+
+.frappe-gantt-shell .gantt .bar-wrapper.gantt-state-idle .bar-progress {
+  opacity: 0.45;
+}
+
+.frappe-gantt-shell .gantt .bar-wrapper.gantt-state-running .bar {
+  filter: saturate(1.1);
+}
+
+.frappe-gantt-shell .gantt .bar-wrapper[data-gantt-placeholder="true"] .bar {
+  stroke: color-mix(in srgb, white 14%, transparent);
+  stroke-width: 1;
+  stroke-dasharray: 4 3;
+}
+
+.frappe-gantt-shell .gantt .bar-wrapper[data-gantt-placeholder="true"] .bar-progress {
+  opacity: 0.22;
+}
+
+.frappe-gantt-shell .gantt .bar-wrapper.gantt-state-completed .bar-progress {
+  opacity: 1;
+}
+
+.frappe-gantt-shell .current-highlight {
+  width: 2px !important;
+  opacity: 0.95;
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent),
+    0 0 20px color-mix(in srgb, var(--accent) 42%, transparent);
+}
+
+.frappe-gantt-shell .current-ball-highlight {
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent),
+    0 0 18px color-mix(in srgb, var(--accent) 46%, transparent);
+}
+
+.frappe-gantt-shell .current-date-highlight {
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.frappe-gantt-shell .gantt-popup-title {
+  color: var(--text-primary);
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.frappe-gantt-shell .gantt-popup-subtitle {
+  margin-top: 0.15rem;
+  color: var(--accent);
+  font-size: 0.78rem;
+}
+
+.frappe-gantt-shell .gantt-popup-details {
+  margin-top: 0.2rem;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+}
+
+.frappe-gantt-shell .gantt-container::-webkit-scrollbar {
+  height: 10px;
+  width: 10px;
+}
+
+.frappe-gantt-shell .gantt-container::-webkit-scrollbar-track {
+  background: color-mix(in srgb, var(--surface-1) 88%, transparent);
+  border-radius: 999px;
+}
+
+.frappe-gantt-shell .gantt-container::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--surface-3) 92%, white 4%);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.frappe-gantt-shell .gantt-container::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--surface-3) 78%, white 10%);
+}

@@ -1,4 +1,6 @@
 @import "tailwindcss";
+@import "frappe-gantt";
+@import "../components/dashboard/frappe/frappe-gantt-theme.css";
 
 /* 与 html[data-theme] 同步：使 dark:* 在 data-theme="dark" 下生效（默认变体为 prefers-color-scheme） */
 @custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
@@ -408,6 +410,13 @@ body,
   letter-spacing: 0.08em;
 }
 
+.ui-elevated-card {
+  background: color-mix(in oklab, var(--surface-1) 88%, var(--surface-2));
+  border: 1px solid color-mix(in srgb, var(--border-subtle) 100%, transparent);
+  border-radius: 1rem;
+  box-shadow: var(--shadow-card);
+}
+
 .dashboard-container {
   container-type: inline-size;
   container-name: dashboard;
@@ -448,4 +457,54 @@ body,
   .module-cards-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
+}
+
+/* ── 状态胶囊：等待流式时的微弱扫光（替代纯转圈压迫感） ── */
+@keyframes nanobot-status-shimmer {
+  0% {
+    transform: translateX(-130%);
+    opacity: 0;
+  }
+  20% {
+    opacity: 0.45;
+  }
+  100% {
+    transform: translateX(130%);
+    opacity: 0;
+  }
+}
+
+.nanobot-status-pill-shimmer::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  background: linear-gradient(
+    105deg,
+    transparent 0%,
+    color-mix(in oklab, var(--accent) 28%, transparent) 45%,
+    transparent 100%
+  );
+  animation: nanobot-status-shimmer 2.35s ease-in-out infinite;
+  pointer-events: none;
+}
+
+/* 视口较窄时略收紧大盘正文字号与指标间距（信息密度） */
+@media (max-width: 1279px) {
+  .dashboard-density-viewport {
+    font-size: 0.8125rem;
+    line-height: 1.45;
+  }
+
+  .dashboard-density-viewport .metrics-grid {
+    gap: 0.35rem;
+  }
+}
+
+/*
+  SDUI Patch 后子树高度突变：完整 FLIP 需在 applySduiPatch 侧测量布局。
+  此处仅保留容器级过渡钩子，供后续接入 framer-motion layout 或 View Transitions。
+*/
+.sdui-layout-transition-hint {
+  transition: opacity 0.2s ease;
 }

@@ -34,7 +34,7 @@ export function ChatInput({ disabled, loading, onSubmit, onStop, focusSignal, pr
 
   return (
     <form
-      className="flex gap-2 items-center rounded-2xl p-1.5 transition-shadow focus-within:ring-1 focus-within:ring-gray-300 dark:focus-within:ring-white/20 focus-within:bg-gray-50/50 dark:focus-within:bg-white/5"
+      className="ui-elevated-card flex gap-2 items-center rounded-2xl p-2 transition-shadow focus-within:ring-1 focus-within:ring-[color-mix(in_srgb,var(--accent)_35%,transparent)]"
       onSubmit={(e) => {
         e.preventDefault();
         if (sendActive) {

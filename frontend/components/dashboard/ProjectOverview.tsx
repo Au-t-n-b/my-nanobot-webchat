@@ -3,8 +3,8 @@
 import { useMemo } from "react";
 
 import type { ModuleEntry } from "@/components/DashboardNavigator";
-import { SduiGanttLane } from "@/components/sdui/SduiGanttLane";
-import type { SduiGanttLaneRow } from "@/lib/sdui";
+import { ProjectGanttChart } from "@/components/dashboard/ProjectGanttChart";
+import { formatProjectGanttMetaLabel, getProjectGanttEstimatedDays } from "@/lib/projectGantt/presentation.js";
 
 type Props = {
   modules: ModuleEntry[];
@@ -46,35 +46,8 @@ export function ProjectOverview({ modules, onSelectModule }: Props) {
     [modules],
   );
 
-  const ganttLanes = useMemo<SduiGanttLaneRow[]>(
-    () =>
-      modules.map((module) => {
-        const steps = module.steps?.length
-          ? module.steps
-          : [{ id: `${module.moduleId}-idle`, name: "待开始", done: false }];
-        const total = Math.max(steps.length, 1);
-        const segmentWidth = 100 / total;
-        const firstPendingIndex = steps.findIndex((step) => !step.done);
-        const currentIndex = module.status === "running" ? Math.max(0, firstPendingIndex) : -1;
-        return {
-          label: module.label,
-          bars: steps.map((step, index) => ({
-            label: step.name,
-            startPct: Number((index * segmentWidth).toFixed(2)),
-            widthPct: Number((segmentWidth - 0.8).toFixed(2)),
-            color: step.done
-              ? "success"
-              : index === currentIndex
-                ? "accent"
-                : "subtle",
-          })),
-        };
-      }),
-    [modules],
-  );
-
   return (
-    <div className="h-full min-h-0 overflow-y-auto p-4 flex flex-col gap-4">
+    <div className="h-full min-h-0 overflow-y-auto p-5 flex flex-col gap-5">
       <div className="flex items-center justify-between">
         <h2 className="text-sm font-bold ui-text-primary tracking-wide">项目总览</h2>
         <span className="text-xs ui-text-muted">
@@ -82,15 +55,15 @@ export function ProjectOverview({ modules, onSelectModule }: Props) {
         </span>
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
-        <div className="rounded-xl border p-3" style={{ background: "var(--surface-1)", borderColor: "var(--border-subtle)" }}>
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <div className="ui-elevated-card p-5">
           <p className="text-[11px] ui-text-muted">项目完成度</p>
-          <p className="mt-1 text-lg font-semibold ui-text-primary">{completionPct}%</p>
+          <p className="mt-2 text-2xl font-semibold ui-text-primary">{completionPct}%</p>
           <p className="text-[11px] ui-text-muted">{completedCount} 个模块完成</p>
         </div>
-        <div className="rounded-xl border p-3" style={{ background: "var(--surface-1)", borderColor: "var(--border-subtle)" }}>
+        <div className="ui-elevated-card p-5">
           <p className="text-[11px] ui-text-muted">任务活跃态</p>
-          <p className="mt-1 text-lg font-semibold ui-text-primary">{runningCount}</p>
+          <p className="mt-2 text-2xl font-semibold ui-text-primary">{runningCount}</p>
           <p className="text-[11px] ui-text-muted">运行中 / {pendingCount} 待开始</p>
         </div>
       </div>
@@ -99,30 +72,31 @@ export function ProjectOverview({ modules, onSelectModule }: Props) {
         <button
           type="button"
           onClick={() => onSelectModule(workbenchModule.moduleId)}
-          className="rounded-xl border p-3 text-left transition-colors hover:bg-[var(--surface-2)]"
-          style={{ background: "var(--surface-1)", borderColor: "var(--border-subtle)" }}
+          className="ui-elevated-card p-5 text-left transition-colors hover:bg-[var(--surface-2)]"
         >
           <div className="flex items-center justify-between gap-2">
             <div>
-              <p className="text-sm font-semibold ui-text-primary">进入智能分析工作台</p>
-              <p className="mt-1 text-[11px] ui-text-muted">
+              <p className="text-base font-semibold ui-text-primary">进入智能分析工作台</p>
+              <p className="mt-2 text-[12px] ui-text-muted">
                 当前项目阶段：{workbenchModule.progressLabel ?? "待开始"}
               </p>
             </div>
-            <span className="text-xs text-[var(--accent)]">打开大盘</span>
+            <span className="rounded-full bg-[color-mix(in_srgb,var(--accent)_16%,transparent)] px-3 py-1 text-xs text-[var(--accent)]">
+              打开大盘
+            </span>
           </div>
         </button>
       ) : null}
 
       {modules.length > 0 ? (
-        <div className="rounded-xl border p-3" style={{ background: "var(--surface-1)", borderColor: "var(--border-subtle)" }}>
-          <div className="mb-2 flex items-center justify-between">
+        <div className="ui-elevated-card p-6">
+          <div className="mb-4 flex items-center justify-between">
             <h3 className="text-xs font-semibold ui-text-primary">项目阶段进展</h3>
             <span className="text-[11px] ui-text-muted">
               {completedCount}/{modules.length}
             </span>
           </div>
-          <div className="mb-3 flex flex-wrap items-center gap-3 text-[11px] ui-text-muted">
+          <div className="mb-4 flex flex-wrap items-center gap-3 text-[11px] ui-text-muted">
             <span className="inline-flex items-center gap-1.5">
               <span className="h-2.5 w-2.5 rounded-full bg-[var(--success)]" />
               已完成
@@ -137,20 +111,27 @@ export function ProjectOverview({ modules, onSelectModule }: Props) {
             </span>
           </div>
           <div className="space-y-3">
-            <SduiGanttLane
-              title="项目阶段甘特图"
-              caption="每条轨道代表一个模块，轨道中的分段表示该模块的阶段推进位置。"
-              lanes={ganttLanes}
-            />
-            <div className="space-y-2">
+            <ProjectGanttChart modules={modules} onSelectModule={onSelectModule} />
+            <div className="space-y-2.5">
               {modules.map((module) => {
                 const doneCount = module.steps?.filter((step) => step.done).length ?? 0;
                 const totalCount = module.steps?.length ?? 0;
+                const metaLabel = formatProjectGanttMetaLabel({
+                  estimatedDays: getProjectGanttEstimatedDays(totalCount),
+                  isPlaceholder: module.isPlaceholder,
+                });
                 return (
                   <div key={module.moduleId} className="flex items-center justify-between gap-3 text-[11px]">
-                    <span className="ui-text-primary truncate">{module.label}</span>
+                    <span className="min-w-0 flex items-center gap-2">
+                      <span className="ui-text-primary truncate">{module.label}</span>
+                      {module.isPlaceholder ? (
+                        <span className="shrink-0 rounded-full border border-dashed border-white/12 bg-white/[0.04] px-2 py-0.5 text-[10px] ui-text-muted">
+                          规划中
+                        </span>
+                      ) : null}
+                    </span>
                     <span className="shrink-0 ui-text-muted">
-                      {module.progressLabel ?? "待开始"} · {doneCount}/{totalCount}
+                      {[metaLabel, module.progressLabel ?? "待开始", `${doneCount}/${totalCount}`].filter(Boolean).join(" · ")}
                     </span>
                   </div>
                 );
@@ -178,22 +159,28 @@ export function ProjectOverview({ modules, onSelectModule }: Props) {
               <button
                 key={module.moduleId}
                 type="button"
-                onClick={() => onSelectModule(module.moduleId)}
-                className="text-left rounded-xl p-3 border transition-colors hover:bg-[var(--surface-2)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
-                style={{ background: "var(--surface-1)", borderColor: "var(--border-subtle)" }}
+                onClick={() => {
+                  if (module.isPlaceholder) return;
+                  onSelectModule(module.moduleId);
+                }}
+                className={[
+                  "ui-elevated-card text-left p-5 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]",
+                  module.isPlaceholder ? "opacity-80 cursor-default" : "hover:bg-[var(--surface-2)]",
+                ].join(" ")}
               >
-                <div className="flex items-start justify-between gap-2 mb-2">
+                <div className="mb-3 flex items-start justify-between gap-2">
                   <div className="min-w-0">
                     <span className="text-sm font-semibold ui-text-primary leading-tight">{module.label}</span>
                     {module.description ? (
-                      <p className="mt-1 text-[11px] ui-text-muted line-clamp-2">{module.description}</p>
+                      <p className="mt-2 text-[11px] ui-text-muted line-clamp-2">{module.description}</p>
                     ) : null}
                   </div>
                   <span className={`shrink-0 text-[10px] font-medium px-1.5 py-0.5 rounded-full border ${style.badge}`}>
+                    {module.isPlaceholder && module.status === "idle" ? "规划中" : null}
                     {module.status === "running" && (
                       <span className={`inline-block w-1.5 h-1.5 rounded-full mr-1 ${style.dot} animate-pulse`} />
                     )}
-                    {STATUS_LABEL[module.status]}
+                    {module.isPlaceholder && module.status === "idle" ? null : STATUS_LABEL[module.status]}
                   </span>
                 </div>
                 <div className="h-1 rounded-full overflow-hidden" style={{ background: "var(--surface-3)" }}>
@@ -202,7 +189,14 @@ export function ProjectOverview({ modules, onSelectModule }: Props) {
                     style={{ width: `${module.progressPct ?? (module.status === "completed" ? 100 : 0)}%` }}
                   />
                 </div>
-                <p className="text-[11px] ui-text-muted mt-1.5">{module.progressLabel ?? module.moduleId}</p>
+                <p className="mt-2 text-[11px] ui-text-muted">
+                  {[formatProjectGanttMetaLabel({
+                    estimatedDays: getProjectGanttEstimatedDays(module.steps?.length ?? 0),
+                    isPlaceholder: module.isPlaceholder,
+                  }), module.progressLabel ?? module.moduleId]
+                    .filter(Boolean)
+                    .join(" · ")}
+                </p>
               </button>
             );
           })}

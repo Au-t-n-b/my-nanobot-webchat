@@ -16,6 +16,7 @@ export type ModuleEntry = {
   syntheticPath: string;
   label: string;
   description?: string;
+  isPlaceholder?: boolean;
   progressPct?: number;
   progressLabel?: string;
   steps?: Array<{ id: string; name: string; done: boolean }>;
@@ -239,6 +240,7 @@ export function DashboardNavigator({
         syntheticPath: dynamic?.syntheticPath ?? item.syntheticPath,
         label: dynamic?.label ?? item.label,
         description: item.description,
+        isPlaceholder: item.isPlaceholder,
         progressPct: item.progressPct,
         progressLabel: item.currentStepLabel,
         steps: item.steps,
@@ -251,6 +253,7 @@ export function DashboardNavigator({
         moduleId,
         syntheticPath: row.syntheticPath,
         label: row.label,
+        isPlaceholder: true,
         status: activeModuleIds.has(moduleId) ? "running" : "idle",
       });
     }
@@ -263,7 +266,7 @@ export function DashboardNavigator({
 
   return (
     <div
-      className="h-full min-h-0 flex flex-col transition-opacity duration-300"
+      className="dashboard-density-viewport h-full min-h-0 flex flex-col transition-opacity duration-300"
       style={{ opacity: visible ? 1 : 0 }}
     >
       {view === "overview" ? (

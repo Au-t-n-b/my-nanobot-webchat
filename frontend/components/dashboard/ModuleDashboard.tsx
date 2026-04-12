@@ -105,7 +105,7 @@ export function ModuleDashboard({
         ) : null}
       </div>
 
-      <div className="flex-1 min-h-0 overflow-hidden">
+      <div className="dashboard-density-viewport flex-1 min-h-0 overflow-hidden">
         {entry ? (
           <SkillUiWrapper
             key={entry.syntheticPath}

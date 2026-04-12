@@ -8,16 +8,25 @@ import { SduiNodeView } from "@/components/sdui/SduiNodeView";
 export function SduiView({ data, loading, error, dataFilePath }: SkillUiComponentProps) {
   if (loading) {
     return (
-      <div className="flex flex-col gap-3 py-2">
-        <div className="flex items-center gap-2 text-sm ui-text-muted py-2">
-          <span className="inline-block w-4 h-4 rounded-full border-2 border-t-transparent animate-spin border-[var(--accent)]" />
-          加载 SDUI 数据中…
+      <div className="flex flex-col gap-3 py-2" aria-busy="true" aria-label="加载大盘布局">
+        <div className="flex items-center gap-2 text-xs ui-text-muted py-1">
+          <span className="inline-block h-3.5 w-3.5 rounded-full border-2 border-t-transparent animate-spin border-[var(--accent)]" />
+          正在拉取 SDUI 文档…
         </div>
-        {/* Skeleton: host-generated placeholders for dashboard-like layouts */}
         <div className="grid grid-cols-1 gap-3">
-          <div className="ui-skeleton h-[72px]" />
-          <div className="ui-skeleton h-[140px]" />
-          <div className="ui-skeleton h-[180px]" />
+          <div className="ui-skeleton h-10 w-2/3 max-w-md rounded-lg" />
+          <div className="flex gap-2">
+            <div className="ui-skeleton h-9 flex-1 rounded-full" />
+            <div className="ui-skeleton h-9 flex-1 rounded-full" />
+            <div className="ui-skeleton h-9 flex-1 rounded-full" />
+            <div className="ui-skeleton h-9 flex-1 rounded-full" />
+          </div>
+          <div className="grid grid-cols-2 gap-3 min-h-[120px]">
+            <div className="ui-skeleton min-h-[120px] rounded-xl" />
+            <div className="ui-skeleton min-h-[120px] rounded-xl" />
+          </div>
+          <div className="ui-skeleton h-24 rounded-xl" />
+          <div className="ui-skeleton h-32 rounded-xl" />
         </div>
       </div>
     );
@@ -88,7 +97,7 @@ export function SduiView({ data, loading, error, dataFilePath }: SkillUiComponen
           ) : null}
         </div>
       ) : null}
-      <div className="min-h-0 min-w-0 flex-1 overflow-auto">
+      <div className="sdui-layout-transition-hint min-h-0 min-w-0 flex-1 overflow-auto">
         <SduiNodeView node={parsed.doc.root} />
       </div>
     </div>

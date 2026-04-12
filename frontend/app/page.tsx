@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { FileText, Menu, PanelRightClose, PanelRightOpen, Plus, Settings, Sidebar as SidebarIcon, X, Zap } from "lucide-react";
+import { FileText, Focus, Menu, PanelRightClose, PanelRightOpen, Plus, Settings, Sidebar as SidebarIcon, Trash2, X, Zap } from "lucide-react";
 import { ChatArea } from "@/components/ChatArea";
 import { ErrorToast } from "@/components/ErrorToast";
 import { PreviewPanel } from "@/components/PreviewPanel";
@@ -9,10 +9,12 @@ import { RemoteAssetDetailPanel } from "@/components/RemoteAssetDetailPanel";
 import { RemoteAssetUploadPanel } from "@/components/RemoteAssetUploadPanel";
 import { SearchOverlay } from "@/components/SearchOverlay";
 import { SystemShellModal } from "@/components/SystemShellModal";
+import { CommandPalette, type CommandPaletteItem } from "@/components/CommandPalette";
 import { Sidebar } from "@/components/Sidebar";
 import { ModelSelector } from "@/components/ModelSelector";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { useAgentChat, type ChoiceItem } from "@/hooks/useAgentChat";
+import { useTheme } from "@/hooks/useTheme";
 import { DashboardNavigator } from "@/components/DashboardNavigator";
 import { ControlCenterPanel } from "@/components/ControlCenterPanel";
 import {
@@ -30,9 +32,9 @@ const RIGHT_PANEL_MAX = typeof window !== "undefined"
   ? Math.floor(window.innerWidth * 0.62)
   : 900;
 
-const CHAT_COLUMN_MIN_PX = 180;
+const CHAT_COLUMN_MIN_PX = 320;
 /** 导航 + 大盘最小宽 + 分隔条 + 预览条近似总宽；会话列最大 = 视口 − 该预留 */
-const CHAT_COLUMN_LAYOUT_RESERVE_PX = 480;
+const CHAT_COLUMN_LAYOUT_RESERVE_PX = 560;
 
 function getChatColumnMaxPx(): number {
   if (typeof window === "undefined") return 960;
@@ -74,11 +76,13 @@ export default function Home() {
     approveTool,
     clearPendingChoices,
     clearChat,
+    undoClearChat,
     deleteMessage,
     deleteSession,
     createSession,
     switchSession,
   } = useAgentChat();
+  const { setTheme } = useTheme();
   const [inputPrefill, setInputPrefill] = useState("");
   /** 右栏业务视窗：预览类 Tab + 强阻断 Action SDUI */
   const [blockingActionPath, setBlockingActionPath] = useState<string | null>(null);
@@ -99,8 +103,15 @@ export default function Home() {
   const [chatWidth, setChatWidth] = useState(240);
   const [previewWidth, setPreviewWidth] = useState(32);
   const [previewAnimating, setPreviewAnimating] = useState(false);
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const commandPaletteOpenRef = useRef(false);
+  const [zenMode, setZenMode] = useState(false);
+  const [clearUndoToast, setClearUndoToast] = useState(false);
   const CHAT_MIN = CHAT_COLUMN_MIN_PX;
   const PREVIEW_OPEN_DEFAULT = 460;
+  /** 预览抽屉开合时长（略带回弹感的 cubic-bezier，接近弹簧阻尼） */
+  const PREVIEW_ANIM_MS = 340;
+  const DASHBOARD_MIN = 400;
   const [selectedModel, setSelectedModel] = useState<string>("glm-4");
   const [modelOptions, setModelOptions] = useState<string[]>([]);
   const [selectedProvider, setSelectedProvider] = useState<string>("");
@@ -282,7 +293,7 @@ export default function Home() {
     if (previewWidth <= 32) {
       setPreviewAnimating(true);
       setPreviewWidth(PREVIEW_OPEN_DEFAULT);
-      setTimeout(() => setPreviewAnimating(false), 260);
+      setTimeout(() => setPreviewAnimating(false), PREVIEW_ANIM_MS);
     }
   }, [previewWidth, openFilePreview]);
 
@@ -399,7 +410,7 @@ export default function Home() {
     if (previewWidth > 32) return;
     setPreviewAnimating(true);
     setPreviewWidth(PREVIEW_OPEN_DEFAULT);
-    setTimeout(() => setPreviewAnimating(false), 260);
+    setTimeout(() => setPreviewAnimating(false), PREVIEW_ANIM_MS);
   }, [previewWidth]);
 
   const handleRetry = useCallback(() => {
@@ -467,14 +478,49 @@ export default function Home() {
     return () => ro.disconnect();
   }, []);
 
+  const closePreview = useCallback(() => {
+    setPreviewAnimating(true);
+    setPreviewWidth(32);
+    setTimeout(() => {
+      setPreviewAnimating(false);
+      setBlockingActionPath(null);
+      setPreviewTabs([]);
+      setActiveRightTabId(null);
+    }, PREVIEW_ANIM_MS);
+  }, []);
+
+  const openCommandPalette = useCallback(() => {
+    commandPaletteOpenRef.current = true;
+    setCommandPaletteOpen(true);
+  }, []);
+
+  const closeCommandPalette = useCallback(() => {
+    commandPaletteOpenRef.current = false;
+    setCommandPaletteOpen(false);
+  }, []);
+
+  const toggleZenMode = useCallback(() => {
+    setZenMode((z) => {
+      const next = !z;
+      if (next) closePreview();
+      return next;
+    });
+  }, [closePreview]);
+
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        openCommandPalette();
+        return;
+      }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "f") {
         e.preventDefault();
         setSearchOpen(true);
         return;
       }
       if (e.key === "Escape") {
+        if (commandPaletteOpenRef.current) return;
         if (blockingActionPath) {
           e.preventDefault();
           closeBlockingAction();
@@ -485,24 +531,18 @@ export default function Home() {
           closeSystemModal();
           return;
         }
+        if (zenMode) {
+          e.preventDefault();
+          setZenMode(false);
+          return;
+        }
         setSearchOpen(false);
         setSearchQuery("");
       }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [blockingActionPath, systemModal, closeBlockingAction, closeSystemModal]);
-
-  const closePreview = useCallback(() => {
-    setPreviewAnimating(true);
-    setPreviewWidth(32);
-    setTimeout(() => {
-      setPreviewAnimating(false);
-      setBlockingActionPath(null);
-      setPreviewTabs([]);
-      setActiveRightTabId(null);
-    }, 260);
-  }, []);
+  }, [blockingActionPath, systemModal, zenMode, closeBlockingAction, closeSystemModal, openCommandPalette]);
 
   const activePreviewTabPath = useMemo(() => {
     if (!activeRightTabId) return null;
@@ -513,7 +553,6 @@ export default function Home() {
   const sidebarProps = {
     threadId,
     apiBase,
-    onClear: clearChat,
     onPreviewPath: openFilePreview,
     currentPreviewPath: previewWidth > 32
       ? blockingActionPath ?? activePreviewTabPath
@@ -570,6 +609,139 @@ export default function Home() {
   const openSkillsHub = useCallback(() => {
     setNavExpanded(true);
   }, []);
+
+  const paletteCommands = useMemo<CommandPaletteItem[]>(() => {
+    return [
+      {
+        id: "new-session",
+        label: "新建会话",
+        hint: "空白对话线程",
+        keywords: ["session", "新对话"],
+        run: () => {
+          closeCommandPalette();
+          createSession();
+        },
+      },
+      {
+        id: "zen-toggle",
+        label: zenMode ? "退出专注模式" : "进入专注模式",
+        hint: "隐藏侧栏与大盘，仅保留会话区",
+        keywords: ["zen", "专注", "全屏"],
+        run: () => {
+          closeCommandPalette();
+          toggleZenMode();
+        },
+      },
+      {
+        id: "expand-nav",
+        label: "展开左侧导航",
+        keywords: ["sidebar", "侧栏", "会话", "技能"],
+        run: () => {
+          closeCommandPalette();
+          setNavExpanded(true);
+        },
+      },
+      {
+        id: "show-dashboard",
+        label: "显示大盘与工作台",
+        keywords: ["dashboard", "大盘", "sdui", "模块"],
+        run: () => {
+          closeCommandPalette();
+          setZenMode(false);
+          setNavExpanded(true);
+        },
+      },
+      {
+        id: "open-preview",
+        label: "打开右侧预览抽屉",
+        keywords: ["preview", "预览", "产物"],
+        run: () => {
+          closeCommandPalette();
+          expandPreviewPanel();
+        },
+      },
+      {
+        id: "artifacts-hub",
+        label: "打开产物预览",
+        keywords: ["artifacts", "产物", "文件"],
+        run: () => {
+          closeCommandPalette();
+          openArtifactsHub();
+        },
+      },
+      {
+        id: "skills-hub",
+        label: "展开技能侧栏",
+        keywords: ["skills", "技能"],
+        run: () => {
+          closeCommandPalette();
+          openSkillsHub();
+        },
+      },
+      {
+        id: "search-messages",
+        label: "搜索消息",
+        hint: "同 Ctrl/⌘+F",
+        keywords: ["search", "查找"],
+        run: () => {
+          closeCommandPalette();
+          setSearchOpen(true);
+        },
+      },
+      {
+        id: "control-center",
+        label: "打开控制中心",
+        keywords: ["config", "设置", "api"],
+        run: () => {
+          closeCommandPalette();
+          openControlCenter("config");
+        },
+      },
+      {
+        id: "theme-dark",
+        label: "切换为深色主题",
+        keywords: ["dark", "夜间"],
+        run: () => {
+          closeCommandPalette();
+          setTheme("dark");
+        },
+      },
+      {
+        id: "theme-light",
+        label: "切换为浅色主题",
+        keywords: ["light", "白日"],
+        run: () => {
+          closeCommandPalette();
+          setTheme("light");
+        },
+      },
+      {
+        id: "theme-soft",
+        label: "切换为护眼主题",
+        keywords: ["soft", "护眼"],
+        run: () => {
+          closeCommandPalette();
+          setTheme("soft");
+        },
+      },
+    ];
+  }, [
+    zenMode,
+    createSession,
+    toggleZenMode,
+    expandPreviewPanel,
+    openArtifactsHub,
+    openSkillsHub,
+    openControlCenter,
+    closeCommandPalette,
+    setTheme,
+  ]);
+
+  useEffect(() => {
+    if (!clearUndoToast) return;
+    const t = window.setTimeout(() => setClearUndoToast(false), 8000);
+    return () => window.clearTimeout(t);
+  }, [clearUndoToast]);
 
   return (
     <main className="h-dvh overflow-hidden p-4" style={{ background: "var(--surface-0)", color: "var(--text-primary)" }}>
@@ -629,6 +801,33 @@ export default function Home() {
         </SystemShellModal>
       )}
 
+      <CommandPalette open={commandPaletteOpen} onClose={closeCommandPalette} commands={paletteCommands} />
+
+      {clearUndoToast ? (
+        <div
+          className="fixed bottom-5 left-1/2 z-[95] flex max-w-[min(100%,24rem)] -translate-x-1/2 flex-wrap items-center gap-3 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-1)] px-4 py-3 text-sm shadow-[var(--shadow-panel)]"
+          role="status"
+        >
+          <span className="ui-text-secondary">已清空当前会话</span>
+          <button
+            type="button"
+            className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-3)] px-3 py-1 text-xs font-medium ui-text-primary hover:opacity-90"
+            onClick={() => {
+              if (undoClearChat()) setClearUndoToast(false);
+            }}
+          >
+            撤销
+          </button>
+          <button
+            type="button"
+            className="text-xs ui-text-muted hover:ui-text-primary"
+            onClick={() => setClearUndoToast(false)}
+          >
+            关闭
+          </button>
+        </div>
+      ) : null}
+
       {/* Mobile hamburger */}
       <button
         type="button"
@@ -649,7 +848,7 @@ export default function Home() {
         />
       )}
       {sidebarOpen && (
-        <div className="md:hidden fixed inset-y-0 left-0 z-40 w-[21rem] p-2 bg-zinc-950 rounded-r-2xl shadow-xl border-r border-white/5">
+        <div className="md:hidden fixed inset-y-0 left-0 z-40 w-[21rem] p-2 bg-zinc-100 dark:bg-[#121214] rounded-r-2xl shadow-xl border-r border-zinc-200/90 dark:border-white/5">
           <button
             type="button"
             onClick={() => setSidebarOpen(false)}
@@ -668,231 +867,259 @@ export default function Home() {
         </div>
       )}
 
-      {/* 预览收起时：会话区旁的胶囊入口，展开右侧分屏（不依赖是否已有预览 Tab） */}
-      {previewWidth <= 32 ? (
-        <button
-          type="button"
-          className="hidden md:flex fixed z-[35] items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium shadow-lg transition-colors hover:opacity-95"
-          style={{
-            right: "44px",
-            bottom: "calc(5rem + env(safe-area-inset-bottom, 0px))",
-            background: "var(--surface-2)",
-            borderColor: "var(--border-subtle)",
-            color: "var(--text-primary)",
-          }}
-          title="展开右侧预览分屏"
-          onClick={() => {
-            if (activePreviewTabPath) wakePreview(activePreviewTabPath);
-            else expandPreviewPanel();
-          }}
-        >
-          <PanelRightOpen size={14} className="shrink-0 opacity-80" />
-          预览分屏
-        </button>
-      ) : null}
+      {/* Desktop layout: navigation + chat + overview, preview uses overlay drawer */}
+      <div className="hidden md:block h-full min-h-0 overflow-x-auto">
+        <div className={`flex h-full min-h-0 gap-0 ${zenMode ? "min-w-0" : "min-w-max"}`}>
 
-      {/* Desktop layout: 4-column Mission Control */}
-      <div className="hidden md:flex h-full min-h-0 gap-0">
-
-        {/* Col 1: Nav strip (collapsed 44px) or full Sidebar */}
-        {navExpanded ? (
-          <div className="shrink-0 min-h-0 overflow-hidden" style={{ width: 260 }}>
-            <Sidebar
-              {...sidebarProps}
-              isCollapsed={false}
-              onToggleCollapse={() => setNavExpanded(false)}
-            />
-          </div>
-        ) : (
-          <div className="w-11 shrink-0 min-h-0 bg-zinc-950 rounded-l-2xl border-r border-white/5 flex flex-col items-center py-3 gap-2">
-            <button
-              type="button"
-              title="展开导航"
-              className="text-lg leading-none mb-1 hover:scale-110 transition-transform cursor-pointer bg-transparent border-0 p-0"
-              onClick={() => setNavExpanded(true)}
-              aria-label="展开侧边栏"
-            >
-              🦞
-            </button>
-            <span className="w-1.5 h-1.5 rounded-full mb-2" style={{ background: "var(--success)" }} />
-            <button type="button" onClick={createSession} title="新建会话" className="nav-icon-btn">
-              <Plus size={18} />
-            </button>
-            <div className="mt-auto" />
-          </div>
-        )}
-
-        {/* Col 2: Chat */}
-        <div
-          className="shrink-0 min-h-0 flex flex-col bg-[var(--paper-chat)] rounded-2xl shadow-[var(--shadow-card)] ring-1 ring-black/[0.05] dark:ring-white/10 overflow-hidden"
-          style={{ width: chatWidth }}
-        >
-          <div ref={headerRef} className="mb-2 flex shrink-0 items-start justify-between gap-2 px-2 pt-2 min-w-0">
-            <div className="flex items-center gap-1.5 shrink-0">
-              <button
-                type="button"
-                onClick={toggleDesktopSidebar}
-                aria-label={navExpanded ? "收起左侧栏" : "打开左侧栏"}
-                title={navExpanded ? "收起左侧栏" : "打开左侧栏"}
-                className={headerIconButtonClass}
-              >
-                <SidebarIcon size={17} />
-              </button>
-            </div>
-            <div className="flex items-center gap-1.5 shrink-0">
-              {providerOptions.length > 0 && (
-                <label className="inline-flex items-center gap-2 text-xs ui-text-secondary">
-                  <select
-                    value={selectedProvider}
-                    onChange={(e) => void applyProviderProfile(e.target.value)}
-                    className="rounded-lg border px-2 py-1 text-xs"
-                    style={{ borderColor: "var(--border-subtle)", background: "var(--surface-2)", color: "var(--text-primary)" }}
-                    aria-label="选择提供商"
-                  >
-                    {providerOptions.map((p) => (
-                      <option key={p} value={p}>{p}</option>
-                    ))}
-                  </select>
-                </label>
-              )}
-              <ModelSelector
-                value={selectedModel}
-                onChange={(m) => {
-                  setSelectedModel(m);
-                  void fetch(configUrl, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ agents: { defaults: { provider: selectedProvider || undefined, model: m } } }),
-                  }).catch(() => {});
-                }}
-                models={modelOptions}
-                compact={headerWidth < 760}
-              />
-              <button type="button" onClick={openConfig} aria-label="控制中心" title="控制中心"
-                className={headerIconButtonClass}>
-                <Settings size={17} />
-              </button>
-              <button
-                type="button"
-                onClick={togglePreviewPanel}
-                aria-label={previewWidth > 32 ? "收起右侧栏" : "打开右侧栏"}
-                title={previewWidth > 32 ? "收起右侧栏" : "打开右侧栏"}
-                className={headerIconButtonClass}
-              >
-                {previewWidth > 32 ? <PanelRightClose size={17} /> : <PanelRightOpen size={17} />}
-              </button>
-              <button
-                type="button"
-                onClick={openArtifactsHub}
-                aria-label="产物中心"
-                title={artifacts.length > 0 ? `产物中心（${artifacts.length}）` : "产物中心"}
-                className={`relative ${headerIconButtonClass}`}
-              >
-                <FileText size={17} />
-                {artifacts.length > 0 && (
-                  <span className="absolute right-1 top-1 flex h-3.5 min-w-3.5 items-center justify-center rounded-full px-1 text-[8px] font-bold text-white" style={{ background: "var(--accent)" }}>
-                    {artifacts.length > 9 ? "9+" : artifacts.length}
-                  </span>
-                )}
-              </button>
-              <button
-                type="button"
-                onClick={openSkillsHub}
-                aria-label="技能中心"
-                title="技能中心"
-                className={headerIconButtonClass}
-              >
-                <Zap size={17} />
-              </button>
-              <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-1)] px-1 py-1 transition-colors hover:bg-[var(--surface-3)]">
-                <ThemeToggle />
+          {/* Col 1: Nav strip (collapsed 44px) or full Sidebar */}
+          {!zenMode &&
+            (navExpanded ? (
+              <div className="shrink-0 min-h-0 overflow-hidden" style={{ width: 260 }}>
+                <Sidebar
+                  {...sidebarProps}
+                  isCollapsed={false}
+                  onToggleCollapse={() => setNavExpanded(false)}
+                />
               </div>
-            </div>
-          </div>
-          <div className="flex-1 min-h-0">
-            <ChatArea
-              messages={messages}
-              stepLogs={stepLogs}
-              isLoading={isLoading}
-              runStatus={runStatus}
-              statusMessage={statusMessage}
-              effectiveModel={effectiveModel}
-              pendingTool={pendingTool}
-              pendingChoices={pendingChoices}
-              onSend={handleSend}
-              onStop={stopGenerating}
-              onApproveTool={(approved) => { void approveTool(approved); }}
-              onFileLinkClick={wakePreview}
-              onDeleteMessage={deleteMessage}
-              searchQuery={searchQuery}
-              disabled={isLoading || !threadId}
-              focusSignal={inputFocusSignal}
-              prefillText={inputPrefill}
-              chatCardPostToAgent={(text) => void sendMessage(text, selectedModel)}
-              onSelectPendingChoice={handlePendingChoiceSelect}
-              onDismissPendingChoices={clearPendingChoices}
-            />
-          </div>
-        </div>
+            ) : (
+              <div className="w-11 shrink-0 min-h-0 rounded-l-2xl border-r border-white/5 bg-[var(--canvas-rail)] flex flex-col items-center py-3 gap-2">
+                <button
+                  type="button"
+                  title="展开导航"
+                  className="text-lg leading-none mb-1 hover:scale-110 transition-transform cursor-pointer bg-transparent border-0 p-0"
+                  onClick={() => setNavExpanded(true)}
+                  aria-label="展开侧边栏"
+                >
+                  🦞
+                </button>
+                <span className="w-1.5 h-1.5 rounded-full mb-2" style={{ background: "var(--success)" }} />
+                <button type="button" onClick={createSession} title="新建会话" className="nav-icon-btn">
+                  <Plus size={18} />
+                </button>
+                <div className="mt-auto" />
+              </div>
+            ))}
 
-        {/* Drag handle: chat ↔ dashboard */}
-        <div
-          className="w-3 shrink-0 cursor-col-resize flex items-center justify-center group select-none"
-          title="拖拽调整会话区宽度"
-          role="separator"
-          aria-orientation="vertical"
-          aria-label="调整会话与大盘宽度"
-          onMouseDown={(e) => startDrag("chat", e)}
-        >
-          <div className="w-0.5 h-12 rounded-full transition-colors group-hover:bg-[var(--accent)]" style={{ background: "var(--border-subtle)" }} />
-        </div>
-
-        {/* Col 3: DashboardNavigator */}
-        <div
-          className="flex-1 min-w-[280px] min-h-0 bg-[var(--surface-0)] rounded-2xl overflow-hidden dashboard-container"
-          style={{ containerType: "inline-size", containerName: "dashboard" } as React.CSSProperties}
-        >
-          <DashboardNavigator
-            threadId={threadId}
-            activeModuleIds={activeModuleIds}
-            skillUiPatchEvent={skillUiPatchEvent}
-            skillUiBootstrapEvent={skillUiBootstrapEvent}
-            onOpenPreview={wakePreview}
-            postToAgent={(text) => void sendMessage(text, selectedModel)}
-            postToAgentSilently={(text) => void sendSilentMessage(text, selectedModel)}
-            isAgentRunning={isAgentRunning}
-            activeSkillName={dashboardActiveSkillName}
-          />
-        </div>
-
-        {/* Drag handle: dashboard ↔ preview */}
-        {previewWidth > 32 && (
-          <div className="w-3 shrink-0 cursor-col-resize flex items-center justify-center group" onMouseDown={(e) => startDrag("preview", e)}>
-            <div className="w-0.5 h-12 rounded-full transition-colors group-hover:bg-[var(--accent)]" style={{ background: "var(--border-subtle)" }} />
-          </div>
-        )}
-
-        {/* Col 4: Preview smart wake */}
-        <div
-          className="shrink-0 min-h-0 overflow-hidden"
-          style={{ width: previewWidth, transition: previewAnimating ? "width 250ms ease-out" : "none" }}
-        >
-          {previewWidth <= 32 ? (
-            <div
-              className="h-full flex flex-col items-center justify-center gap-2 cursor-pointer bg-[var(--surface-0)] rounded-r-2xl border-l border-white/5"
-              onClick={() => activePreviewTabPath && wakePreview(activePreviewTabPath)}
-            >
-              <PanelRightOpen size={14} className="text-zinc-600" />
-              <span className="writing-vertical text-[9px] text-zinc-600 select-none">点击产物预览</span>
-            </div>
-          ) : (
-            <div className="h-full flex flex-col bg-[var(--canvas-rail)] rounded-r-2xl overflow-hidden p-2">
-              <div className="flex items-center justify-between px-1 py-1 shrink-0">
-                <span className="text-xs ui-text-muted font-semibold tracking-wide">预览</span>
-                <button type="button" onClick={closePreview} className="rounded p-1 ui-text-muted hover:ui-text-primary" title="收起预览">
-                  <PanelRightClose size={14} />
+          {/* Col 2: Chat */}
+          <div
+            className={
+              zenMode
+                ? "flex-1 min-w-0 min-h-0 flex flex-col bg-[var(--paper-chat)] rounded-2xl shadow-[var(--shadow-card)] ring-1 ring-black/[0.05] dark:ring-white/10 overflow-hidden"
+                : "shrink-0 min-h-0 flex flex-col bg-[var(--paper-chat)] rounded-2xl shadow-[var(--shadow-card)] ring-1 ring-black/[0.05] dark:ring-white/10 overflow-hidden"
+            }
+            style={zenMode ? { minWidth: CHAT_MIN } : { width: chatWidth, minWidth: CHAT_MIN }}
+          >
+            <div ref={headerRef} className="mb-2 flex shrink-0 items-start justify-between gap-2 px-2 pt-2 min-w-0">
+              <div className="flex items-center gap-1.5 shrink-0">
+                <button
+                  type="button"
+                  onClick={toggleDesktopSidebar}
+                  aria-label={navExpanded ? "收起左侧栏" : "打开左侧栏"}
+                  title={navExpanded ? "收起左侧栏" : "打开左侧栏"}
+                  className={headerIconButtonClass}
+                >
+                  <SidebarIcon size={17} />
+                </button>
+                <button
+                  type="button"
+                  onClick={openCommandPalette}
+                  aria-label="命令面板"
+                  title="命令面板（Ctrl+K 或 ⌘+K）"
+                  className={headerIconButtonClass}
+                >
+                  <span className="text-[10px] font-semibold tabular-nums opacity-80">⌘K</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={toggleZenMode}
+                  aria-label={zenMode ? "退出专注模式" : "专注模式"}
+                  title={zenMode ? "退出专注模式（Esc）" : "专注模式：隐藏侧栏与大盘"}
+                  className={`${headerIconButtonClass}${zenMode ? " ring-1 ring-[color-mix(in_oklab,var(--accent)_45%,transparent)]" : ""}`}
+                >
+                  <Focus size={17} className={zenMode ? "text-[var(--accent)]" : undefined} />
                 </button>
               </div>
+              <div className="flex min-w-0 flex-1 items-center justify-end gap-2">
+                <div
+                  className={
+                    "flex min-w-0 max-w-full flex-wrap items-center justify-end gap-1.5 shrink rounded-2xl border px-1.5 py-1 shadow-sm " +
+                    "border-black/[0.07] bg-white/55 backdrop-blur-md dark:border-white/10 dark:bg-white/[0.05]"
+                  }
+                >
+                  {providerOptions.length > 0 && (
+                    <label className="inline-flex items-center gap-1.5 text-xs ui-text-secondary">
+                      <select
+                        value={selectedProvider}
+                        onChange={(e) => void applyProviderProfile(e.target.value)}
+                        className="rounded-lg border px-2 py-1 text-xs bg-white/70 dark:bg-black/25"
+                        style={{
+                          borderColor: "color-mix(in oklab, var(--border-subtle) 80%, transparent)",
+                          color: "var(--text-primary)",
+                        }}
+                        aria-label="选择提供商"
+                      >
+                        {providerOptions.map((p) => (
+                          <option key={p} value={p}>{p}</option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
+                  <ModelSelector
+                    value={selectedModel}
+                    onChange={(m) => {
+                      setSelectedModel(m);
+                      void fetch(configUrl, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ agents: { defaults: { provider: selectedProvider || undefined, model: m } } }),
+                      }).catch(() => {});
+                    }}
+                    models={modelOptions}
+                    compact={headerWidth < 760}
+                    selectClassName="border-[color-mix(in_oklab,var(--border-subtle)_80%,transparent)] bg-white/70 dark:bg-black/25"
+                  />
+                  <button type="button" onClick={openConfig} aria-label="控制中心" title="控制中心"
+                    className={headerIconButtonClass}>
+                    <Settings size={17} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      clearChat({ saveUndoSnapshot: true });
+                      setClearUndoToast(true);
+                    }}
+                    aria-label="清空当前会话"
+                    title="清空当前会话（可在底部通知中撤销）"
+                    className={`${headerIconButtonClass} hover:text-red-500`}
+                  >
+                    <Trash2 size={17} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={openArtifactsHub}
+                    aria-label="产物中心"
+                    title={artifacts.length > 0 ? `产物中心（${artifacts.length}）` : "产物中心"}
+                    className={`relative ${headerIconButtonClass}`}
+                  >
+                    <FileText size={17} />
+                    {artifacts.length > 0 && (
+                      <span className="absolute right-1 top-1 flex h-3.5 min-w-3.5 items-center justify-center rounded-full px-1 text-[8px] font-bold text-white" style={{ background: "var(--accent)" }}>
+                        {artifacts.length > 9 ? "9+" : artifacts.length}
+                      </span>
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={openSkillsHub}
+                    aria-label="技能中心"
+                    title="技能中心"
+                    className={headerIconButtonClass}
+                  >
+                    <Zap size={17} />
+                  </button>
+                  <div className="rounded-xl border border-[color-mix(in_oklab,var(--border-subtle)_70%,transparent)] bg-white/40 px-1 py-0.5 transition-colors hover:bg-white/70 dark:border-white/10 dark:bg-black/20 dark:hover:bg-black/35">
+                    <ThemeToggle />
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={togglePreviewPanel}
+                  aria-label={previewWidth > 32 ? "收起右侧预览栏" : "打开右侧预览栏"}
+                  title={previewWidth > 32 ? "收起右侧预览栏" : "打开右侧预览栏"}
+                  className={headerIconButtonClass}
+                >
+                  {previewWidth > 32 ? <PanelRightClose size={17} /> : <PanelRightOpen size={17} />}
+                </button>
+              </div>
+            </div>
+            <div className="flex-1 min-h-0">
+              <ChatArea
+                messages={messages}
+                stepLogs={stepLogs}
+                isLoading={isLoading}
+                runStatus={runStatus}
+                statusMessage={statusMessage}
+                effectiveModel={effectiveModel}
+                pendingTool={pendingTool}
+                pendingChoices={pendingChoices}
+                onSend={handleSend}
+                onStop={stopGenerating}
+                onApproveTool={(approved) => { void approveTool(approved); }}
+                onFileLinkClick={wakePreview}
+                onDeleteMessage={deleteMessage}
+                searchQuery={searchQuery}
+                disabled={isLoading || !threadId}
+                focusSignal={inputFocusSignal}
+                prefillText={inputPrefill}
+                chatCardPostToAgent={(text) => void sendMessage(text, selectedModel)}
+                onSelectPendingChoice={handlePendingChoiceSelect}
+                onDismissPendingChoices={clearPendingChoices}
+              />
+            </div>
+          </div>
+
+          {!zenMode ? (
+            <>
+              {/* Drag handle: chat ↔ dashboard */}
+              <div
+                className="w-3 shrink-0 cursor-col-resize flex items-center justify-center group select-none"
+                title="拖拽调整会话区宽度"
+                role="separator"
+                aria-orientation="vertical"
+                aria-label="调整会话与大盘宽度"
+                onMouseDown={(e) => startDrag("chat", e)}
+              >
+                <div className="w-0.5 h-12 rounded-full transition-colors group-hover:bg-[var(--accent)]" style={{ background: "var(--border-subtle)" }} />
+              </div>
+
+              {/* Col 3: DashboardNavigator */}
+              <div
+                className="min-h-0 flex-1 rounded-2xl bg-[var(--surface-0)] overflow-hidden dashboard-container"
+                style={{ containerType: "inline-size", containerName: "dashboard", minWidth: DASHBOARD_MIN } as React.CSSProperties}
+              >
+                <DashboardNavigator
+                  threadId={threadId}
+                  activeModuleIds={activeModuleIds}
+                  skillUiPatchEvent={skillUiPatchEvent}
+                  skillUiBootstrapEvent={skillUiBootstrapEvent}
+                  onOpenPreview={wakePreview}
+                  postToAgent={(text) => void sendMessage(text, selectedModel)}
+                  postToAgentSilently={(text) => void sendSilentMessage(text, selectedModel)}
+                  isAgentRunning={isAgentRunning}
+                  activeSkillName={dashboardActiveSkillName}
+                />
+              </div>
+            </>
+          ) : null}
+        </div>
+      </div>
+
+      {previewWidth > 32 && (
+        <>
+          <button
+            type="button"
+            className="hidden md:block fixed inset-0 z-30 bg-black/42 backdrop-blur-[2px]"
+            aria-label="关闭预览遮罩"
+            onClick={closePreview}
+          />
+          <div
+            className="hidden md:flex fixed right-3 top-3 bottom-3 z-40 min-h-0 overflow-hidden rounded-[1.4rem] border border-white/10 bg-[var(--canvas-rail)] p-2 shadow-2xl"
+            style={{
+              width: Math.max(400, previewWidth),
+              maxWidth: RIGHT_PANEL_MAX,
+              transition: previewAnimating
+                ? `width ${PREVIEW_ANIM_MS}ms cubic-bezier(0.34, 1.18, 0.64, 1), opacity ${Math.round(PREVIEW_ANIM_MS * 0.75)}ms ease-out`
+                : "none",
+            }}
+          >
+            <div
+              className="mr-2 flex w-3 shrink-0 cursor-col-resize items-center justify-center group"
+              onMouseDown={(e) => startDrag("preview", e)}
+              title="拖拽调整预览宽度"
+            >
+              <div className="h-14 w-0.5 rounded-full transition-colors group-hover:bg-[var(--accent)]" style={{ background: "var(--border-subtle)" }} />
+            </div>
+            <div className="min-h-0 flex-1 overflow-hidden">
               <PreviewPanel
                 onClose={closePreview}
                 baseDashboardUrl={null}
@@ -910,9 +1137,9 @@ export default function Home() {
                 skillUiPatchEvent={skillUiPatchEvent}
               />
             </div>
-          )}
-        </div>
-      </div>
+          </div>
+        </>
+      )}
 
       {/* Mobile layout — single Paper column */}
       <div className="md:hidden h-full min-h-0 flex flex-col rounded-2xl overflow-hidden bg-[var(--paper-chat)] shadow-[var(--shadow-card)] ring-1 ring-black/[0.05] dark:ring-white/10">

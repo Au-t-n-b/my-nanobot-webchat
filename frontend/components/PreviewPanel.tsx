@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
-import { Check, Copy, FileQuestion, FolderOpen, Loader2, Play, Sparkles, X as XIcon } from "lucide-react";
+import { Check, Copy, FileQuestion, FileSearch, FolderOpen, Loader2, Play, Sparkles, X as XIcon } from "lucide-react";
 import * as XLSX from "xlsx";
 import mammoth from "mammoth/mammoth.browser.js";
 import mermaid from "mermaid";
@@ -740,7 +740,7 @@ export function PreviewPanel({
         </div>
       )}
 
-      <div className="flex flex-col flex-1 min-h-0 overflow-hidden rounded-xl bg-[var(--paper-card)] border border-black/[0.06] dark:border-white/10 text-[var(--text-primary)] shadow-sm">
+      <div className="flex flex-col flex-1 min-h-0 overflow-hidden rounded-2xl bg-[var(--paper-card)] border border-[var(--border-subtle)] text-[var(--text-primary)] shadow-[var(--shadow-panel)]">
         <div
           className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-[var(--border-subtle)] dark:border-white/10 bg-[var(--surface-3)]/80 dark:bg-black/25 px-1 py-1"
           role="tablist"
@@ -787,7 +787,7 @@ export function PreviewPanel({
           })}
         </div>
 
-        <div className="flex-1 min-h-0 overflow-auto p-4 bg-[var(--paper-card)]">
+        <div className="flex-1 min-h-0 overflow-auto p-5 bg-[var(--paper-card)]">
           {activeTab?.kind === "blocking" && activeTab.path ? (
             <SkillUiWrapper
               key={activeTab.path}
@@ -818,8 +818,16 @@ export function PreviewPanel({
               skillUiPatchEvent={skillUiPatchEvent ?? null}
             />
           ) : (
-            <div className="flex h-full items-center justify-center text-sm ui-text-muted">
-              暂无可预览内容
+            <div className="flex h-full items-center justify-center">
+              <div className="flex w-full max-w-md flex-col items-center justify-center rounded-2xl border-2 border-dashed border-white/10 bg-[color-mix(in_srgb,var(--surface-1)_85%,transparent)] px-8 py-10 text-center">
+                <div className="mb-4 rounded-2xl bg-[color-mix(in_srgb,var(--surface-3)_72%,transparent)] p-4 text-[var(--accent)]">
+                  <FileSearch size={30} strokeWidth={1.8} className="opacity-85" />
+                </div>
+                <p className="text-base font-semibold ui-text-primary">暂无预览内容</p>
+                <p className="mt-2 text-sm leading-6 ui-text-muted">
+                  请在左侧会话中生成产物，或点击文件胶囊按钮在右侧分栏中预览。
+                </p>
+              </div>
             </div>
           )}
         </div>

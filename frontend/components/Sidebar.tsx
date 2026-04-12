@@ -1,9 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Building2, Check, ChevronLeft, ChevronRight, Copy, FileText, FolderOpen, Globe, Plus, RefreshCw, Settings, Trash2, Zap } from "lucide-react";
+import { Building2, Check, ChevronRight, Copy, FileText, FolderOpen, Globe, Plus, RefreshCw, Settings, Trash2, Zap } from "lucide-react";
 import { SessionList } from "@/components/SessionList";
-import { ThemeToggle } from "@/components/ThemeToggle";
 import type { AgentMessage, SessionSummary } from "@/hooks/useAgentChat";
 import { extractIndexedFiles } from "@/lib/fileIndex";
 import { openLocation } from "@/lib/apiFile";
@@ -11,7 +10,6 @@ import { openLocation } from "@/lib/apiFile";
 type Props = {
   threadId: string;
   apiBase: string;
-  onClear: () => void;
   onPreviewPath: (path: string) => void;
   /** Currently open preview path (null if panel is closed). Used for toggle logic. */
   currentPreviewPath?: string | null;
@@ -73,7 +71,6 @@ function apiPath(path: string, apiBase: string): string {
 export function Sidebar({
   threadId,
   apiBase,
-  onClear,
   onPreviewPath,
   currentPreviewPath,
   onClosePreview,
@@ -299,7 +296,7 @@ export function Sidebar({
   if (isCollapsed) {
     const iconBtn = "rounded-lg p-2 text-zinc-500 hover:bg-zinc-900/40 hover:text-zinc-200 transition-colors w-10 h-10 flex items-center justify-center";
     return (
-      <aside className="h-full min-h-0 rounded-none flex flex-col items-center py-3 gap-1 overflow-hidden bg-zinc-950 border-0 shadow-none">
+      <aside className="h-full min-h-0 rounded-none flex flex-col items-center py-3 gap-1 overflow-hidden bg-zinc-100 dark:bg-[#121214] border-r border-zinc-200/90 dark:border-white/[0.06] shadow-none">
         {/* Logo */}
         <span className="text-lg leading-none mb-0.5" aria-hidden="true">🦞</span>
         <span className="w-1.5 h-1.5 rounded-full mb-2" style={{ background: "var(--success)" }} title="已连接" />
@@ -331,12 +328,8 @@ export function Sidebar({
           <Building2 size={18} />
         </button>
 
-        {/* Bottom */}
+        {/* Bottom：仅保留展开（设置/主题/预览等与会话顶栏一致） */}
         <div className="mt-auto flex flex-col items-center gap-1">
-          <button type="button" onClick={onOpenSettings} title="设置" className={iconBtn}>
-            <Settings size={18} />
-          </button>
-          <ThemeToggle vertical />
           <button
             type="button"
             onClick={onToggleCollapse}
@@ -351,8 +344,11 @@ export function Sidebar({
     );
   }
 
+  const sectionLabelClass =
+    "text-[10px] font-medium uppercase tracking-[0.22em] text-zinc-500 dark:text-white/40";
+
   return (
-    <aside className="h-full min-h-0 overflow-y-auto rounded-none p-4 flex flex-col gap-0 bg-zinc-950 border-0 shadow-none">
+    <aside className="h-full min-h-0 overflow-y-auto rounded-none p-4 flex flex-col gap-0 bg-zinc-100 dark:bg-[#121214] border-r border-zinc-200/90 dark:border-white/[0.06] shadow-none">
       <div className="flex items-center gap-2">
         <span className="text-base leading-none shrink-0" aria-hidden="true">🦞</span>
         <span className="font-semibold text-sm ui-text-primary leading-tight">
@@ -372,11 +368,9 @@ export function Sidebar({
         onDelete={onDeleteSession}
       />
 
-      <section className="mt-6 flex flex-col gap-2 min-h-0">
+      <section className="mt-8 flex flex-col gap-2 min-h-0">
         <div className="flex items-center justify-between gap-2">
-          <span className="text-[10px] font-black text-zinc-600 uppercase tracking-[0.2em] whitespace-nowrap">
-            Artifacts
-          </span>
+          <span className={`${sectionLabelClass} whitespace-nowrap`}>Artifacts</span>
           <button
             type="button"
             disabled={artifacts.length === 0}
@@ -463,11 +457,9 @@ export function Sidebar({
         </div>
       </section>
 
-      <section className="mt-6 flex flex-col gap-2 min-h-0">
+      <section className="mt-8 flex flex-col gap-2 min-h-0">
         <div className="flex items-center justify-between gap-2">
-          <span className="text-[10px] font-black text-zinc-600 uppercase tracking-[0.2em] whitespace-nowrap">
-            Skills
-          </span>
+          <span className={`${sectionLabelClass} whitespace-nowrap`}>Skills</span>
           <div className="flex items-center gap-1">
             <button
               type="button"
@@ -623,12 +615,10 @@ export function Sidebar({
 
       </section>
 
-      {/* ── 组织资产 Organization Assets ── */}
-      <section className="mt-6 flex flex-col gap-2 min-h-0 rounded-xl bg-zinc-900/30 border border-white/5 p-3">
+      {/* ── 组织资产 Organization Assets（幽灵卡片，降低视觉重量）── */}
+      <section className="mt-8 flex flex-col gap-2 min-h-0 rounded-xl border border-dashed border-zinc-400/55 dark:border-white/15 bg-white/[0.04] dark:bg-white/[0.03] p-3">
         <div className="flex items-center justify-between gap-2">
-          <span className="text-[10px] font-black text-zinc-600 uppercase tracking-[0.2em] whitespace-nowrap">
-            Org Assets
-          </span>
+          <span className={`${sectionLabelClass} whitespace-nowrap`}>Org Assets</span>
           <button
             type="button"
             onClick={() => void loadOrgAssets()}
@@ -641,16 +631,20 @@ export function Sidebar({
           </button>
         </div>
         {!orgAssetsConnected ? (
-          <div
-            className="flex flex-col items-center justify-center gap-2 py-4 rounded-lg border border-dashed border-[var(--border-subtle)] bg-[var(--surface-3)]/50 dark:bg-black/20"
-          >
-            <span className="text-xl" aria-hidden="true">🏛️</span>
-            <p className="text-[11px] ui-text-muted text-center leading-relaxed px-2">
+          <div className="flex flex-col items-center justify-center gap-2 py-3 rounded-lg border border-zinc-300/60 dark:border-white/12 bg-zinc-50/30 dark:bg-transparent">
+            <span className="text-lg opacity-70" aria-hidden="true">
+              🏛️
+            </span>
+            <p className="text-[11px] text-zinc-600 dark:text-zinc-300 text-center leading-relaxed px-2">
               远端组织资产未连接
               <br />
-              <span className="text-[10px]">请先在设置中登录组织中心</span>
+              <span className="text-[10px] text-zinc-400 dark:text-zinc-500">请先在设置中登录组织中心</span>
             </p>
-            <button type="button" onClick={onOpenSettings} className="ui-btn-ghost rounded-lg px-3 py-1.5 text-xs">
+            <button
+              type="button"
+              onClick={onOpenSettings}
+              className="text-[11px] font-medium text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200 underline-offset-4 hover:underline transition-colors py-1"
+            >
               去连接
             </button>
           </div>
@@ -661,11 +655,13 @@ export function Sidebar({
         ) : (
           <div className="max-h-44 overflow-y-auto overflow-x-hidden space-y-2">
             {!orgAssetsLoading && orgAssets.length === 0 ? (
-              <div
-                className="flex flex-col items-center justify-center gap-1.5 py-4 rounded-lg border border-dashed border-[var(--border-subtle)] bg-[var(--surface-3)]/50 dark:bg-black/20"
-              >
-                <span className="text-xl" aria-hidden="true">🏛️</span>
-                <p className="text-[11px] ui-text-muted text-center leading-relaxed px-2">当前没有可展示的组织资产。</p>
+              <div className="flex flex-col items-center justify-center gap-1.5 py-3 rounded-lg border border-dashed border-zinc-200/40 dark:border-white/[0.08] bg-transparent">
+                <span className="text-lg opacity-60" aria-hidden="true">
+                  🏛️
+                </span>
+                <p className="text-[11px] text-zinc-500 dark:text-zinc-400 text-center leading-relaxed px-2">
+                  当前没有可展示的组织资产。
+                </p>
               </div>
             ) : (
               orgAssets.map((asset) => (
@@ -784,51 +780,6 @@ export function Sidebar({
         </div>
       )}
 
-      {/* ── Bottom control bar ── */}
-      <div
-        className="mt-6 -mx-4 px-3 pt-4 pb-1 flex items-center gap-1 border-t border-[var(--border-subtle)]"
-      >
-        {/* Clear session — ghost, destructive on hover */}
-        <button
-          type="button"
-          onClick={onClear}
-          className="flex-1 flex flex-row items-center justify-center gap-1.5 rounded-lg px-2 py-1.5 text-xs ui-text-muted transition-colors hover:bg-[var(--surface-3)] hover:text-red-500"
-          title="清空当前会话"
-        >
-          <Trash2 size={12} className="shrink-0" />
-          <span className="whitespace-nowrap">清空会话</span>
-        </button>
-
-        {/* Settings */}
-        <button
-          type="button"
-          onClick={onOpenSettings}
-          className="
-            rounded-lg p-2 ui-text-muted transition-colors shrink-0
-            hover:bg-[var(--surface-3)] hover:ui-text-primary
-          "
-          aria-label="打开设置"
-          title="设置"
-        >
-          <Settings size={13} />
-        </button>
-
-        {/* Theme toggle */}
-        <ThemeToggle />
-
-        {/* Collapse sidebar */}
-        {onToggleCollapse && (
-          <button
-            type="button"
-            onClick={onToggleCollapse}
-            className="rounded-lg p-2 ui-text-muted transition-colors shrink-0 hover:bg-[var(--surface-3)] hover:ui-text-primary"
-            aria-label="收起左侧栏"
-            title="收起左侧栏"
-          >
-            <ChevronLeft size={13} />
-          </button>
-        )}
-      </div>
       {/* Fixed-position skill description tooltip — unaffected by overflow clipping */}
       {hoveredSkill?.description && tooltipPos && (
         <div

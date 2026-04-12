@@ -300,6 +300,16 @@ export function useAgentChat() {
   const abortRef = useRef<AbortController | null>(null);
   const hydratedRef = useRef(false);
   const runStatusRef = useRef<RunStatus>("idle");
+  /** 清空会话前快照，供 Toast「撤销」恢复（仅内存 + localStorage 会话条） */
+  const clearChatUndoRef = useRef<{
+    messages: AgentMessage[];
+    stepLogs: StepLog[];
+    pendingTool: ToolPendingPayload | null;
+    pendingChoices: ChoiceItem[] | null;
+    runStatus: RunStatus;
+    statusMessage: string;
+    effectiveModel: string | null;
+  } | null>(null);
   /** Latest messages for sendMessage body — avoids putting `messages` in sendMessage deps (streaming updates would recreate the callback every token and can amplify nested re-renders). */
   const messagesRef = useRef<AgentMessage[]>([]);
 
@@ -366,23 +376,68 @@ export function useAgentChat() {
     [threadId],
   );
 
-  const clearChat = useCallback(() => {
-    if (typeof window !== "undefined" && threadId) {
+  const clearChat = useCallback(
+    (opts?: { saveUndoSnapshot?: boolean }) => {
+      if (opts?.saveUndoSnapshot && typeof structuredClone === "function") {
+        try {
+          clearChatUndoRef.current = {
+            messages: structuredClone(messagesRef.current),
+            stepLogs: structuredClone(stepLogs),
+            pendingTool: pendingTool ? structuredClone(pendingTool) : null,
+            pendingChoices: pendingChoices ? structuredClone(pendingChoices) : null,
+            runStatus,
+            statusMessage,
+            effectiveModel,
+          };
+        } catch {
+          clearChatUndoRef.current = null;
+        }
+      } else {
+        clearChatUndoRef.current = null;
+      }
+      if (typeof window !== "undefined" && threadId) {
+        const messageMap = loadMessageMap();
+        messageMap[threadId] = [];
+        saveMessageMap(messageMap);
+        const nextSessions = upsertSessionSummary(loadSessionSummaries(), deriveSessionSummary(threadId, []));
+        saveSessionSummaries(nextSessions);
+        setSessions(nextSessions);
+      }
+      setMessages([]);
+      setStepLogs([]);
+      setError(null);
+      setPendingTool(null);
+      setPendingChoices(null);
+      setRunStatus("idle");
+      setStatusMessage("当前会话已清空");
+      setEffectiveModel(null);
+    },
+    [threadId, stepLogs, pendingTool, pendingChoices, runStatus, statusMessage, effectiveModel],
+  );
+
+  const undoClearChat = useCallback(() => {
+    const snap = clearChatUndoRef.current;
+    if (!snap || !threadId) return false;
+    clearChatUndoRef.current = null;
+    setMessages(snap.messages);
+    setStepLogs(snap.stepLogs);
+    setPendingTool(snap.pendingTool);
+    setPendingChoices(snap.pendingChoices);
+    setRunStatus(snap.runStatus);
+    setStatusMessage(snap.statusMessage);
+    setEffectiveModel(snap.effectiveModel);
+    if (typeof window !== "undefined") {
       const messageMap = loadMessageMap();
-      messageMap[threadId] = [];
+      messageMap[threadId] = sanitizeMessages(snap.messages);
       saveMessageMap(messageMap);
-      const nextSessions = upsertSessionSummary(loadSessionSummaries(), deriveSessionSummary(threadId, []));
+      const nextSessions = upsertSessionSummary(
+        loadSessionSummaries(),
+        deriveSessionSummary(threadId, snap.messages),
+      );
       saveSessionSummaries(nextSessions);
       setSessions(nextSessions);
     }
-    setMessages([]);
-    setStepLogs([]);
-    setError(null);
-    setPendingTool(null);
-    setPendingChoices(null);
-    setRunStatus("idle");
-    setStatusMessage("当前会话已清空");
-    setEffectiveModel(null);
+    return true;
   }, [threadId]);
 
   const clearPendingChoices = useCallback(() => {
@@ -905,6 +960,7 @@ export function useAgentChat() {
     approveTool,
     clearPendingChoices,
     clearChat,
+    undoClearChat,
     deleteMessage,
     deleteSession,
     createSession,

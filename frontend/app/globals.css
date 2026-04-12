@@ -1,5 +1,5 @@
 @import "tailwindcss";
-@import "frappe-gantt";
+/* frappe-gantt 基础样式在 layout.tsx 中 import，避免 Tailwind 从 app/ 解析裸包名失败 */
 @import "../components/dashboard/frappe/frappe-gantt-theme.css";
 
 /* 与 html[data-theme] 同步：使 dark:* 在 data-theme="dark" 下生效（默认变体为 prefers-color-scheme） */

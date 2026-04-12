@@ -262,19 +262,15 @@ body {
    ───────────────────────────────────────────── */
 .sdui-patch-target {
   transition:
-    opacity 0.24s ease,
     color 0.28s ease,
     background-color 0.28s ease,
     border-color 0.28s ease,
-    box-shadow 0.28s ease,
-    filter 0.28s ease,
-    transform 0.28s ease;
-  will-change: opacity, filter;
+    box-shadow 0.28s ease;
 }
 
 .sdui-partial {
   opacity: 1;
-  filter: saturate(1.03) brightness(1.02);
+  filter: none;
 }
 
 .sdui-transition-fill {
@@ -288,6 +284,10 @@ body {
     fill 0.3s ease,
     stroke 0.3s ease,
     opacity 0.3s ease;
+}
+
+.sdui-stepper-bar-fill {
+  transition: width 0.5s linear;
 }
 
 /* ── ChatCard enter: slide-up 10px + fade-in (250ms) ── */

@@ -110,9 +110,9 @@ class MissionControlManager:
             "multiple": bool(multiple),
             "label": "上传文件",
             "helpText": (
-                f"将文件拖到下方区域或点击选择；保存目录（workspace 相对）：{save_dir}/<文件名>"
+                f"将文件拖到下方区域或点击选择；支持多文件与补充追加上传；保存目录（workspace 相对）：{save_dir}/<文件名>"
                 if save_dir
-                else "将文件拖到下方区域或点击选择；上传成功后会同步会话并触发下一步。"
+                else "将文件拖到下方区域或点击选择；支持多文件与补充追加上传；上传成功后会同步会话、大盘并触发下一步。"
             ),
         }
         mid = (module_id or "").strip()
@@ -270,4 +270,3 @@ class MissionControlManager:
         }
         await self._emit_chat_card(payload)
         return ChatCardHandle(card_id=cid, doc_id=did)
-

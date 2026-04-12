@@ -104,7 +104,7 @@ export function SduiArtifactGrid({ artifacts, mode = "output", title }: Props) {
           const Icon = cfg.icon;
           const isGenerating = a.status === "generating";
           const isError = a.status === "error";
-          const key = `${a.id}:${a.path}:${a.status ?? "ready"}:${index}`;
+          const key = a.id?.trim() ? `${a.id.trim()}:${index}` : `${a.path}:${index}`;
           const chipClass = isInput
             ? "border-amber-400/30 bg-amber-400/10 hover:border-amber-300/45"
             : `${cfg.bg} ${cfg.border}`;

@@ -2323,9 +2323,118 @@ async def _flow_intelligent_analysis_workbench(
             accept=str(upload_cfg.get("accept") or ".zip,.xlsx,.csv,.pdf,.doc,.docx,.png,.jpg"),
             multiple=bool(upload_cfg.get("multiple", True)),
             module_id=module_id,
-            next_action="run_parallel_skills",
+            next_action="upload_bundle_complete",
             save_relative_dir=str(upload_cfg.get("save_relative_dir") or f"skills/{module_id}/input"),
         )
+        return {"ok": True, "next": "upload_bundle_complete"}
+
+    if action == "upload_bundle_complete":
+        merged = merge_module_session(thread_id, module_id, dict(state))
+        uploads = _merge_uploads(merged.get("uploads"), state.get("uploads"))
+        upload_meta = dict(_latest_upload_meta({"upload": merged.get("upload"), "uploads": uploads}))
+        if not uploads and upload_meta:
+            uploads = [upload_meta]
+        merged = merge_module_session(
+            thread_id,
+            module_id,
+            {"upload": upload_meta or None, "uploads": uploads},
+        )
+        upload_name = str(upload_meta.get("name") or "分析资料包")
+        goal = str(merged.get("standard") or state.get("standard") or "comprehensive")
+        goal_label = _boilerplate_strategy_label(case_cfg, goal)
+        upload_count = len(uploads)
+        await _set_project_progress_and_emit(
+            progress_module_name,
+            _configured_completed_tasks(
+                cfg,
+                "upload_bundle_complete",
+                {"模块待启动", "分析目标已确认", "资料已上传"},
+                module_name=progress_module_name,
+            ),
+            cfg,
+        )
+        await pusher.update_nodes(
+            [
+                (
+                    SDUI_STEPPER_MAIN_ID,
+                    "Stepper",
+                    {
+                        "steps": [
+                            {"id": "s1", "title": "项目引导与进入模块", "status": "done", "detail": [{"title": "模块已打开", "status": "done"}]},
+                            {"id": "s2", "title": "目标选择 (HITL)", "status": "done", "detail": [{"title": f"目标：{goal_label}", "status": "done"}]},
+                            {"id": "s3", "title": "资料上传与预览", "status": "done", "detail": [{"title": f"已上传：{upload_name}", "status": "done"}]},
+                            {"id": "s4", "title": "并行分析执行", "status": "waiting", "detail": [{"title": "等待启动分析", "status": "waiting"}]},
+                            {"id": "s5", "title": "结论汇总与产物", "status": "waiting", "detail": [{"title": "等待结论阶段", "status": "waiting"}]},
+                        ]
+                    },
+                ),
+                *_boilerplate_metrics_nodes(case_cfg, 41, 29, 4, center_value="36%", completed=2, pending=3),
+                (
+                    BoilerplateDashboardIds.UPLOADED_FILES,
+                    "ArtifactGrid",
+                    {"title": "已上传文件", "mode": "input", "artifacts": _uploads_as_artifacts(uploads)},
+                ),
+                (
+                    BoilerplateDashboardIds.SUMMARY_TEXT,
+                    "Text",
+                    {
+                        "content": f"已接收 {upload_count} 份资料，最近上传：{upload_name}。你可以继续补传，或直接开始并行分析。",
+                        "variant": "body",
+                        "color": "subtle",
+                    },
+                ),
+            ]
+        )
+        cid = str(merged.get("cardId") or state.get("cardId") or "").strip()
+        if cid:
+            await mc.replace_card(
+                card_id=cid,
+                title="资料已上传",
+                node={
+                    "type": "Stack",
+                    "gap": "sm",
+                    "children": [
+                        {
+                            "type": "Text",
+                            "variant": "body",
+                            "content": f"已接收 {upload_count} 份资料，目标为 {goal_label}。可继续补传资料，或直接进入并行分析。",
+                            "color": "subtle",
+                        },
+                        {
+                            "type": "ArtifactGrid",
+                            "title": "已上传文件",
+                            "mode": "input",
+                            "artifacts": _uploads_as_artifacts(uploads),
+                        },
+                        {
+                            "type": "GuidanceCard",
+                            "cardId": cid,
+                            "context": "资料已入库。可以继续上传更多文件，也可以开始并行分析。",
+                            "actions": [
+                                {
+                                    "label": "继续上传",
+                                    "verb": "module_action",
+                                    "payload": {
+                                        "moduleId": module_id,
+                                        "action": "upload_bundle",
+                                        "state": {"standard": goal, "upload": upload_meta, "uploads": uploads},
+                                    },
+                                },
+                                {
+                                    "label": "开始分析",
+                                    "verb": "module_action",
+                                    "payload": {
+                                        "moduleId": module_id,
+                                        "action": "run_parallel_skills",
+                                        "state": {"standard": goal, "upload": upload_meta, "uploads": uploads},
+                                    },
+                                },
+                            ],
+                        },
+                    ],
+                },
+                doc_id=f"chat:{thread_id}",
+            )
         return {"ok": True, "next": "run_parallel_skills"}
 
     if action == "run_parallel_skills":
@@ -2357,12 +2466,21 @@ async def _flow_intelligent_analysis_workbench(
                 card_id=cid,
                 title="资料已上传",
                 node={
-                    "type": "Card",
-                    "title": f"已上传：{upload_name}",
-                    "density": "compact",
+                    "type": "Stack",
+                    "gap": "sm",
                     "children": [
-                        {"type": "Badge", "label": goal_label, "color": "accent"},
-                        {"type": "Text", "content": "资料已接收，正在进入并行分析阶段。", "variant": "body", "color": "subtle"},
+                        {
+                            "type": "Text",
+                            "content": f"已上传：{upload_name}，当前目标：{goal_label}。资料已接收，正在进入并行分析阶段。",
+                            "variant": "body",
+                            "color": "subtle",
+                        },
+                        {
+                            "type": "ArtifactGrid",
+                            "title": "已上传文件",
+                            "mode": "input",
+                            "artifacts": _uploads_as_artifacts(uploads),
+                        },
                     ],
                 },
                 doc_id=f"chat:{thread_id}",

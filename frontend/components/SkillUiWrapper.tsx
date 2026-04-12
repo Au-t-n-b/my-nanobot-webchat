@@ -326,14 +326,22 @@ export function SkillUiWrapper({
   }
 
   const injected: SkillUiComponentProps = {
-    data,
+    data: baseDoc ?? data,
     loading,
     error,
     dataFilePath: dataFile,
   };
 
+  const resolvedDocId =
+    baseDoc?.meta && typeof baseDoc.meta.docId === "string" ? baseDoc.meta.docId : undefined;
+
   return (
-    <SkillUiRuntimeProvider postToAgentRaw={postToAgentRaw} onOpenPreview={onOpenPreview}>
+    <SkillUiRuntimeProvider
+      postToAgentRaw={postToAgentRaw}
+      onOpenPreview={onOpenPreview}
+      docId={resolvedDocId}
+      enableInternalSync
+    >
       <div className="h-full min-h-0">
         <Inner {...injected} />
       </div>

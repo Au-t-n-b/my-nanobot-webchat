@@ -804,6 +804,74 @@ async def test_intelligent_analysis_workbench_parallel_phase_syncs_uploaded_file
 
 
 @pytest.mark.asyncio
+async def test_intelligent_analysis_workbench_parallel_phase_replaces_chat_card_with_uploaded_capsules(
+    skills_intelligent_analysis_workbench: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import nanobot.web.module_skill_runtime as module_skill_runtime
+
+    captured: dict[str, object] = {}
+
+    async def fake_replace_card(self, *, card_id: str, title: str, node: dict, doc_id: str | None = None):
+        captured["card_id"] = card_id
+        captured["title"] = title
+        captured["node"] = node
+        captured["doc_id"] = doc_id
+        return ChatCardHandle(card_id=card_id, doc_id=str(doc_id or ""))
+
+    monkeypatch.setattr(
+        module_skill_runtime.MissionControlManager,
+        "replace_card",
+        fake_replace_card,
+        raising=True,
+    )
+
+    r = await module_skill_runtime.run_module_action(
+        module_id="intelligent_analysis_workbench",
+        action="run_parallel_skills",
+        state={
+            "cardId": "upload-card-001",
+            "standard": "comprehensive",
+            "upload": {
+                "fileId": "file-002",
+                "name": "项目分析资料包.zip",
+                "logicalPath": "workspace/skills/intelligent_analysis_workbench/input/项目分析资料包.zip",
+            },
+            "uploads": [
+                {
+                    "fileId": "file-002",
+                    "name": "项目分析资料包.zip",
+                    "logicalPath": "workspace/skills/intelligent_analysis_workbench/input/项目分析资料包.zip",
+                    "savedDir": "skills/intelligent_analysis_workbench/input",
+                },
+                {
+                    "fileId": "file-003",
+                    "name": "补充材料.pdf",
+                    "logicalPath": "workspace/skills/intelligent_analysis_workbench/input/补充材料.pdf",
+                    "savedDir": "skills/intelligent_analysis_workbench/input",
+                },
+            ],
+        },
+        thread_id="thread-workbench-upload-card",
+        docman=None,
+    )
+
+    assert r.get("ok") is True
+    assert captured.get("card_id") == "upload-card-001"
+    assert captured.get("title") == "资料已上传"
+    node = captured.get("node")
+    assert isinstance(node, dict)
+    children = node.get("children")
+    assert isinstance(children, list)
+    artifact_grid = next((child for child in children if isinstance(child, dict) and child.get("type") == "ArtifactGrid"), None)
+    assert artifact_grid is not None, "聊天卡片应展示已上传文件胶囊区"
+    artifacts = artifact_grid.get("artifacts")
+    assert isinstance(artifacts, list)
+    assert len(artifacts) == 2
+    assert any(item.get("label") == "补充材料.pdf" for item in artifacts if isinstance(item, dict))
+
+
+@pytest.mark.asyncio
 async def test_intelligent_analysis_workbench_task_progress_uses_module_config(
     skills_intelligent_analysis_workbench: Path,
     capture_task_status_updates: list[dict],

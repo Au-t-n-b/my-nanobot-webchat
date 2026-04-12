@@ -98,6 +98,13 @@ function Connector({ prevStatus }: { prevStatus: SduiStepperStatus | undefined }
   );
 }
 
+function stepperProgressPercent(steps: SduiStepperStep[]): number {
+  if (!steps.length) return 0;
+  const completed = steps.filter((step) => normalizeStatus(step.status) === "done").length;
+  const running = steps.some((step) => normalizeStatus(step.status) === "running") ? 0.5 : 0;
+  return Math.max(0, Math.min(100, ((completed + running) / steps.length) * 100));
+}
+
 /** 悬停/聚焦时展示细分步骤；键盘可聚焦 */
 function StepDetailPopover({
   step,
@@ -167,6 +174,8 @@ export function SduiStepper({ steps, orientation = "horizontal" }: Props) {
     );
   }
 
+  const progressPct = stepperProgressPercent(steps);
+
   if (orientation === "vertical") {
     return (
       <div
@@ -174,6 +183,9 @@ export function SduiStepper({ steps, orientation = "horizontal" }: Props) {
         role="list"
         aria-label="流程步骤"
       >
+        <div className="mb-4 h-1.5 overflow-hidden rounded-full bg-[var(--surface-3)]">
+          <div className="sdui-stepper-bar-fill h-full rounded-full bg-[var(--accent)]" style={{ width: `${progressPct}%` }} />
+        </div>
         <div className="flex flex-col gap-0">
           {steps.map((step, i) => (
             <div key={step.id} className="flex gap-3" role="listitem">
@@ -228,6 +240,9 @@ export function SduiStepper({ steps, orientation = "horizontal" }: Props) {
       role="list"
       aria-label="流程步骤"
     >
+      <div className="mb-4 h-1.5 overflow-hidden rounded-full bg-[var(--surface-3)]">
+        <div className="sdui-stepper-bar-fill h-full rounded-full bg-[var(--accent)]" style={{ width: `${progressPct}%` }} />
+      </div>
       <div className="flex w-full min-w-0 items-center">
         {steps.map((step, i) => (
           <Fragment key={step.id}>

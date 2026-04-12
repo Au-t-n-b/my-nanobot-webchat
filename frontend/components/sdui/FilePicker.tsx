@@ -4,14 +4,22 @@ import { useCallback, useRef, useState } from "react";
 import { Upload, CheckCircle2, AlertTriangle, Check } from "lucide-react";
 import type { SduiFilePickerNode } from "@/lib/sdui";
 import { useSkillUiRuntime } from "@/components/sdui/SkillUiRuntimeProvider";
+import { SduiArtifactGrid } from "@/components/sdui/SduiArtifactGrid";
 
 type Props = SduiFilePickerNode & { cardId?: string };
+
+type UploadedFileRecord = {
+  fileId: string;
+  name: string;
+  logicalPath?: string;
+  savedDir?: string;
+  uploadedAt: number;
+};
 
 type UploadState =
   | { status: "idle" }
   | { status: "uploading"; progress: number; filename: string }
-  | { status: "success_anim"; filename: string; fileId: string; logicalPath?: string }
-  | { status: "success"; filename: string; fileId: string; logicalPath?: string }
+  | { status: "success"; filename: string; count: number }
   | { status: "error"; filename?: string; message: string };
 
 function clamp01(n: number): number {
@@ -42,6 +50,7 @@ export function SduiFilePicker({
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [state, setState] = useState<UploadState>({ status: "idle" });
   const [dragOver, setDragOver] = useState(false);
+  const [uploadedFiles, setUploadedFiles] = useState<UploadedFileRecord[]>([]);
 
   const uploadOne = useCallback(
     (file: File) =>
@@ -82,74 +91,84 @@ export function SduiFilePicker({
   );
 
   const finishUpload = useCallback(
-    async (file: File) => {
+    async (files: File[]) => {
       try {
-        setState({ status: "uploading", progress: 0, filename: file.name });
-        const { fileId, logicalPath } = await uploadOne(file);
-        setState({ status: "success_anim", filename: file.name, fileId, logicalPath });
-        window.setTimeout(() => {
-          const uploadRecord = {
+        const chosen = multiple ? files : files.slice(0, 1);
+        if (!chosen.length) return;
+        const baseUploads = multiple ? uploadedFiles : [];
+        const nextUploads: UploadedFileRecord[] = [...baseUploads];
+
+        for (const file of chosen) {
+          setState({ status: "uploading", progress: 0, filename: file.name });
+          const { fileId, logicalPath } = await uploadOne(file);
+          nextUploads.push({
             fileId,
             name: file.name,
             logicalPath,
             savedDir: saveRelativeDir,
             uploadedAt: Date.now(),
-          };
-          setState({ status: "success", filename: file.name, fileId, logicalPath });
-          syncState({
-            key: `uploads.${purpose}`,
-            value: uploadRecord,
-            behavior: "immediate",
           });
-          const mid = (moduleId ?? "").trim();
-          const na = (nextAction ?? "").trim();
-          const cid = (cardId ?? "").trim();
-          if (mid && na && cid) {
-            postToAgent(
-              JSON.stringify({
-                type: "chat_card_intent",
-                verb: "module_action",
-                cardId: cid,
-                payload: {
-                  moduleId: mid,
-                  action: na,
-                  state: {
-                    upload: uploadRecord,
-                    uploads: [uploadRecord],
-                  },
+        }
+
+        setUploadedFiles(nextUploads);
+        const latest = nextUploads[nextUploads.length - 1];
+        setState({
+          status: "success",
+          filename: latest?.name ?? chosen[chosen.length - 1]!.name,
+          count: nextUploads.length,
+        });
+        syncState({
+          key: `uploads.${purpose}`,
+          value: nextUploads,
+          behavior: "immediate",
+        });
+        const mid = (moduleId ?? "").trim();
+        const na = (nextAction ?? "").trim();
+        const cid = (cardId ?? "").trim();
+        if (mid && na && cid && latest) {
+          postToAgent(
+            JSON.stringify({
+              type: "chat_card_intent",
+              verb: "module_action",
+              cardId: cid,
+              payload: {
+                moduleId: mid,
+                action: na,
+                state: {
+                  upload: latest,
+                  uploads: nextUploads,
                 },
-              }),
-            );
-          }
-        }, 300);
+              },
+            }),
+          );
+        }
       } catch (err) {
         setState({
           status: "error",
-          filename: file?.name,
+          filename: files[0]?.name,
           message: err instanceof Error ? err.message : String(err),
         });
       }
     },
-    [uploadOne, syncState, purpose, moduleId, nextAction, cardId, postToAgent],
+    [uploadOne, syncState, purpose, moduleId, nextAction, cardId, postToAgent, multiple, saveRelativeDir, uploadedFiles],
   );
 
   const onPick = () => {
-    if (state.status === "success" || state.status === "success_anim") return;
+    if (state.status === "uploading") return;
     inputRef.current?.click();
   };
 
   const onChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files ? Array.from(e.target.files) : [];
     if (!files.length) return;
-    const first = files[0]!;
-    await finishUpload(first);
+    await finishUpload(files);
     e.target.value = "";
   };
 
   const onDragOver = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    if (state.status === "success" || state.status === "success_anim") return;
+    if (state.status === "uploading") return;
     setDragOver(true);
   };
 
@@ -163,10 +182,10 @@ export function SduiFilePicker({
     e.preventDefault();
     e.stopPropagation();
     setDragOver(false);
-    if (state.status === "success" || state.status === "success_anim") return;
+    if (state.status === "uploading") return;
     const files = e.dataTransfer.files ? Array.from(e.dataTransfer.files) : [];
     if (!files.length) return;
-    await finishUpload(files[0]!);
+    await finishUpload(files);
   };
 
   return (
@@ -201,13 +220,14 @@ export function SduiFilePicker({
               dragOver
                 ? "border-[var(--accent)] bg-[color-mix(in_oklab,var(--accent)_12%,var(--surface-2))]"
                 : "border-[var(--border-subtle)] bg-[var(--surface-3)]/40 hover:border-[var(--accent)]/50",
-              state.status === "success" || state.status === "success_anim" ? "pointer-events-none opacity-70" : "",
+              state.status === "uploading" ? "pointer-events-none opacity-80" : "",
             ].join(" ")}
           >
             <Upload className="h-8 w-8 ui-text-muted opacity-60" aria-hidden />
             <p className="text-sm font-medium ui-text-primary">将文件拖入此窗口</p>
             <p className="text-xs ui-text-secondary max-w-[18rem]">
               松开即上传到工作区；亦可点击此区域从磁盘选择
+              {multiple ? <span className="block mt-1">支持多文件与补充追加上传</span> : null}
               {saveRelativeDir ? (
                 <span className="block mt-2 font-mono text-[10px] opacity-80">{saveRelativeDir}/</span>
               ) : null}
@@ -221,16 +241,22 @@ export function SduiFilePicker({
                 e.stopPropagation();
                 onPick();
               }}
-              disabled={state.status === "success" || state.status === "success_anim"}
+              disabled={state.status === "uploading"}
               className={[
                 "rounded-lg px-3 py-1.5 text-sm font-medium ui-btn-accent inline-flex items-center gap-1.5",
-                state.status === "success" || state.status === "success_anim" ? "opacity-70 cursor-not-allowed" : "",
+                state.status === "uploading" ? "opacity-70 cursor-not-allowed" : "",
               ].join(" ").trim()}
             >
-              {state.status === "success" || state.status === "success_anim" ? (
+              {uploadedFiles.length > 0 ? (
                 <Check className="h-4 w-4" aria-hidden />
               ) : null}
-              {state.status === "success" || state.status === "success_anim" ? "已锁定" : "选择文件"}
+              {state.status === "uploading"
+                ? "上传中…"
+                : uploadedFiles.length > 0
+                  ? multiple
+                    ? "继续添加文件"
+                    : "重新选择文件"
+                  : "选择文件"}
             </button>
             <input
               ref={inputRef}
@@ -240,10 +266,10 @@ export function SduiFilePicker({
               multiple={Boolean(multiple)}
               onChange={onChange}
             />
-            {state.status === "success" || state.status === "success_anim" ? (
+            {state.status === "success" ? (
               <span className="inline-flex items-center gap-1 text-xs" style={{ color: "var(--success)" }}>
                 <CheckCircle2 className="h-4 w-4" aria-hidden />
-                已上传：{state.filename}
+                已上传 {state.count} 个文件，最近一个：{state.filename}
               </span>
             ) : state.status === "error" ? (
               <span className="inline-flex items-center gap-1 text-xs" style={{ color: "var(--danger)" }}>
@@ -263,6 +289,22 @@ export function SduiFilePicker({
                   width: `${Math.round(state.progress * 100)}%`,
                   background: "var(--accent)",
                 }}
+              />
+            </div>
+          ) : null}
+
+          {uploadedFiles.length > 0 ? (
+            <div className="mt-4">
+              <SduiArtifactGrid
+                title="已选择文件"
+                mode="input"
+                artifacts={uploadedFiles.map((item) => ({
+                  id: item.fileId,
+                  label: item.name,
+                  path: item.logicalPath ?? "",
+                  kind: "other",
+                  status: "ready",
+                }))}
               />
             </div>
           ) : null}

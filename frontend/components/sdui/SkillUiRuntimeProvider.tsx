@@ -209,9 +209,9 @@ export function SkillUiRuntimeProvider({
   const inputsRef = useRef<Record<string, string>>({});
   const [, force] = useState(0);
   const canInternal = Boolean(docId && (enableInternalSync ?? true) && !syncStateRaw);
-  const { syncState: syncStateInternal } = useSyncState({
-    getDocId: () => docId ?? "",
-  });
+  // Keep hook arguments stable to avoid recreating syncState every render.
+  const getDocId = useCallback(() => docId ?? "", [docId]);
+  const { syncState: syncStateInternal } = useSyncState({ getDocId });
 
   const getInputValue = useCallback((id: string) => inputsRef.current[id] ?? "", []);
 

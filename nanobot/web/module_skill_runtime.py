@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import json
 import os
 import shutil
@@ -277,6 +278,10 @@ def load_module_config(module_id: str) -> dict[str, Any]:
     dashboard = json.loads(dashboard_path.read_text(encoding="utf-8"))
     if not isinstance(dashboard, dict):
         raise ValueError("dashboard.json must be a JSON object")
+    normalized_dashboard = _normalize_legacy_dashboard_document(module_id.strip(), dashboard)
+    if normalized_dashboard is not dashboard:
+        dashboard = normalized_dashboard
+        dashboard_path.write_text(json.dumps(dashboard, ensure_ascii=False, indent=2), encoding="utf-8")
     validate_dashboard_contract(dashboard)
     return cfg
 
@@ -713,6 +718,67 @@ def _workspace_path_to_local(path_or_logical: str | Path) -> Path:
     if raw.startswith("workspace/"):
         return (_workspace_root() / raw.removeprefix("workspace/")).resolve()
     return Path(raw).expanduser().resolve()
+
+
+def _repo_root() -> Path:
+    return Path(__file__).resolve().parents[2]
+
+
+def _template_dashboard_path(module_id: str) -> Path:
+    return _repo_root() / "templates" / module_id / "data" / "dashboard.json"
+
+
+def _node_matches_legacy_smart_survey_shape(node: Any) -> bool:
+    if isinstance(node, dict):
+        node_type = str(node.get("type") or "").strip()
+        if node_type == "BarChart" and isinstance(node.get("bars"), list):
+            return True
+        if node_type == "ArtifactGrid":
+            artifacts = node.get("artifacts")
+            if isinstance(artifacts, list):
+                for item in artifacts:
+                    if not isinstance(item, dict):
+                        continue
+                    if str(item.get("name") or "").strip() and not str(item.get("path") or "").strip():
+                        return True
+        if node_type == "Stepper":
+            steps = node.get("steps")
+            if isinstance(steps, list):
+                for step in steps:
+                    if not isinstance(step, dict):
+                        continue
+                    if str(step.get("status") or "").strip().lower() == "active":
+                        return True
+                    detail = step.get("detail")
+                    if isinstance(detail, list):
+                        for item in detail:
+                            if isinstance(item, dict) and str(item.get("status") or "").strip().lower() == "active":
+                                return True
+        for value in node.values():
+            if _node_matches_legacy_smart_survey_shape(value):
+                return True
+        return False
+    if isinstance(node, list):
+        return any(_node_matches_legacy_smart_survey_shape(item) for item in node)
+    return False
+
+
+def _normalize_legacy_dashboard_document(module_id: str, dashboard: dict[str, Any]) -> dict[str, Any]:
+    mid = (module_id or "").strip()
+    if mid != "smart_survey_workbench":
+        return dashboard
+    if not _node_matches_legacy_smart_survey_shape(dashboard):
+        return dashboard
+    template_path = _template_dashboard_path(mid)
+    if not template_path.is_file():
+        return dashboard
+    try:
+        template = json.loads(template_path.read_text(encoding="utf-8"))
+    except Exception:
+        return dashboard
+    if not isinstance(template, dict):
+        return dashboard
+    return copy.deepcopy(template)
 
 
 def _plan_progress_root() -> Path:
@@ -3665,10 +3731,14 @@ async def _flow_smart_survey_workflow(
 
     if action == "cancel":
         clear_module_session(thread_id, module_id)
+        definition = _task_progress_definition("智慧工勘模块", cfg)
+        await _set_project_progress_and_emit(definition["module_name"], set(), cfg)
         return {"ok": True, "cancelled": True}
 
     if action == "guide":
         clear_module_session(thread_id, module_id)
+        definition = _task_progress_definition("智慧工勘模块", cfg)
+        await _set_project_progress_and_emit(definition["module_name"], set(), cfg)
         await pusher.update_nodes(
             [
                 (SDUI_STEPPER_MAIN_ID, "Stepper", {"steps": _smart_survey_stepper_steps(0)}),

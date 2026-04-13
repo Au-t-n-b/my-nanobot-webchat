@@ -6,10 +6,10 @@ const CANONICAL_STAGE_MODULES = [
     aliases: ["作业管理"],
   },
   {
-    moduleId: "zhgk_module_case",
+    moduleId: "smart_survey_workbench",
     label: "智慧工勘",
     description: "负责工勘场景选择、资料上传与工勘报告联动分析。",
-    aliases: ["智慧工勘", "智慧工勘模块案例"],
+    aliases: ["智慧工勘", "智慧工勘模块", "smart_survey_workbench"],
   },
   {
     moduleId: "modeling_simulation_workbench",

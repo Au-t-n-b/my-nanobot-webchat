@@ -36,6 +36,17 @@ function coerceLayoutGapOnly(n: Record<string, unknown>): void {
 function canonicalizeNodeTypeInPlace(n: Record<string, unknown>): void {
   const t = n.type;
   if (typeof t !== "string" || !t.length) return;
+  // Legacy aliases (pre-v3 / experimental nodes)
+  // - KpiCards / KPIGroup: old golden metrics container
+  if (
+    t === "KpiCards" ||
+    t.toLowerCase() === "kpicards" ||
+    t === "KPIGroup" ||
+    t.toLowerCase() === "kpigroup"
+  ) {
+    n.type = "GoldenMetrics";
+    return;
+  }
   if ((SDUI_NODE_TYPE_VALUES as readonly string[]).includes(t)) return;
   const lower = t.toLowerCase();
   const found = SDUI_NODE_TYPE_VALUES.find((k) => k.toLowerCase() === lower);
@@ -74,6 +85,23 @@ export function normalizeSduiNode(raw: unknown): unknown {
 
   const n: Record<string, unknown> = { ...(raw as Record<string, unknown>) };
   canonicalizeNodeTypeInPlace(n);
+  // Legacy field shapes: keep runtime resilient to older dashboards on disk.
+  // - GoldenMetrics: { cards: [...] } -> { metrics: [...] }
+  if (n.type === "GoldenMetrics") {
+    const cards = n.cards;
+    if (Array.isArray(cards) && !Array.isArray(n.metrics)) {
+      n.metrics = cards;
+      delete n.cards;
+    }
+  }
+  // - BarChart: { bars: [...] } -> { data: [...] }
+  if (n.type === "BarChart") {
+    const bars = n.bars;
+    if (Array.isArray(bars) && !Array.isArray(n.data)) {
+      n.data = bars;
+      delete n.bars;
+    }
+  }
   const props = n.props;
 
   if (isRecord(props)) {

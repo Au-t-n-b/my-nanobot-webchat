@@ -61,13 +61,30 @@ def _merge_values_for_node(payloads: list[dict], node_id: str) -> list[dict]:
     return values
 
 
+def _find_node_by_id(document: dict, node_id: str) -> dict | None:
+    found: dict | None = None
+
+    def walk(node: object) -> None:
+        nonlocal found
+        if found is not None:
+            return
+        if isinstance(node, dict):
+            if str(node.get("id") or "").strip() == node_id:
+                found = node
+                return
+            for value in node.values():
+                walk(value)
+            return
+        if isinstance(node, list):
+            for item in node:
+                walk(item)
+
+    walk(document)
+    return found
+
+
 def _expected_boilerplate_synthetic_path() -> str:
     return "skill-ui://SduiView?dataFile=workspace/skills/module_boilerplate/data/dashboard.json"
-
-
-def _expected_zhgk_synthetic_path() -> str:
-    return "skill-ui://SduiView?dataFile=skills/zhgk_module_case/data/dashboard.json"
-
 
 def _expected_workbench_synthetic_path() -> str:
     return "skill-ui://SduiView?dataFile=skills/intelligent_analysis_workbench/data/dashboard.json"
@@ -465,138 +482,6 @@ async def test_boilerplate_uses_case_template_config(
     assert r.get("ok") is True
     report = skills_module_boilerplate / "output" / "site_delivery_handover.md"
     assert report.is_file()
-
-
-@pytest.fixture()
-def skills_zhgk_module_case(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    repo_root = Path(__file__).resolve().parents[1]
-    src = repo_root / "templates" / "zhgk_module_case"
-    dst_root = tmp_path / "skills"
-    shutil.copytree(src, dst_root / "zhgk_module_case")
-    monkeypatch.setenv("NANOBOT_AGUI_SKILLS_ROOT", str(dst_root))
-    return dst_root / "zhgk_module_case"
-
-
-@pytest.mark.asyncio
-async def test_load_module_config_zhgk_module_case(skills_zhgk_module_case: Path) -> None:
-    from nanobot.web.module_skill_runtime import load_module_config
-
-    cfg = load_module_config("zhgk_module_case")
-    assert cfg.get("flow") == "zhgk_module_case"
-    assert cfg.get("docId") == "dashboard:zhgk-module-case"
-
-
-@pytest.mark.asyncio
-async def test_zhgk_module_case_choose_strategy_emits_scene_choices(
-    skills_zhgk_module_case: Path,
-    capture_skill_ui_patches: list[dict],
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from nanobot.web.module_skill_runtime import run_module_action
-
-    mock_choices = AsyncMock()
-    monkeypatch.setattr(
-        "nanobot.web.mission_control.MissionControlManager.emit_choices",
-        mock_choices,
-    )
-
-    r = await run_module_action(
-        module_id="zhgk_module_case",
-        action="choose_strategy",
-        state={},
-        thread_id="thread-zhgk-case-choice",
-        docman=None,
-    )
-    assert r.get("ok") is True
-    assert r.get("next") == "upload_evidence"
-    mock_choices.assert_awaited_once()
-    kwargs = mock_choices.await_args.kwargs
-    assert kwargs.get("title") == "请选择本次智慧工勘的勘测场景："
-    assert kwargs.get("options") == [
-        {"id": "new_site", "label": "新址新建"},
-        {"id": "site_expand", "label": "原址扩容"},
-        {"id": "site_rebuild", "label": "原址新建"},
-    ]
-    for payload in capture_skill_ui_patches:
-        assert payload.get("syntheticPath") == _expected_zhgk_synthetic_path()
-    merged = _merge_node_ids_from_patch_payloads(capture_skill_ui_patches)
-    assert {"stepper-main", "chart-donut", "chart-bar", "summary-text"}.issubset(merged)
-
-
-@pytest.mark.asyncio
-async def test_zhgk_module_case_finish_generates_handover_artifact(
-    skills_zhgk_module_case: Path,
-    capture_skill_ui_patches: list[dict],
-) -> None:
-    from nanobot.web.module_skill_runtime import run_module_action
-
-    r = await run_module_action(
-        module_id="zhgk_module_case",
-        action="finish",
-        state={
-            "standard": "site_expand",
-            "upload": {"name": "深圳A03站点_BOQ与勘测包.zip"},
-        },
-        thread_id="thread-zhgk-case-finish",
-        docman=None,
-    )
-    assert r.get("ok") is True
-    assert r.get("done") is True
-    appends = _append_ops_from_patch_payloads(capture_skill_ui_patches)
-    assert appends
-    art_ops = [
-        op
-        for op in appends
-        if str((op.get("target") or {}).get("nodeId") or "") == "artifacts"
-        and str((op.get("target") or {}).get("field") or "") == "artifacts"
-    ]
-    assert art_ops
-    value = art_ops[-1].get("value")
-    assert isinstance(value, dict)
-    assert value.get("id") == "zhgk-module-case-report-001"
-    assert value.get("kind") == "md"
-    assert value.get("label") == "智慧工勘模块迁移说明.md"
-    report = skills_zhgk_module_case / "output" / "zhgk_module_case_handover.md"
-    assert report.is_file()
-    content = report.read_text(encoding="utf-8")
-    assert "场景过滤" in content
-    assert "勘测汇总" in content
-    assert "报告生成" in content
-
-
-@pytest.mark.asyncio
-async def test_zhgk_module_case_after_upload_emits_partial_stream_updates(
-    skills_zhgk_module_case: Path,
-    capture_skill_ui_patches: list[dict],
-) -> None:
-    from nanobot.web.module_skill_runtime import run_module_action
-
-    r = await run_module_action(
-        module_id="zhgk_module_case",
-        action="after_upload",
-        state={
-            "standard": "site_expand",
-            "upload": {"name": "深圳A03站点_BOQ与勘测包.zip"},
-        },
-        thread_id="thread-zhgk-case-after-upload",
-        docman=None,
-    )
-    assert r.get("ok") is True
-    assert r.get("next") == "finish"
-    assert len(capture_skill_ui_patches) >= 2, "after_upload 应分阶段推送而不是单次跳变"
-    assert any((p.get("patch") or {}).get("isPartial") is True for p in capture_skill_ui_patches)
-    assert any((p.get("patch") or {}).get("isPartial") is not True for p in capture_skill_ui_patches)
-
-    stepper_updates = _merge_values_for_node(capture_skill_ui_patches, "stepper-main")
-    assert stepper_updates, "应持续更新 stepper-main"
-    latest_steps = stepper_updates[-1].get("steps")
-    assert isinstance(latest_steps, list)
-    assert latest_steps[-1]["status"] == "running"
-
-    summary_updates = _merge_values_for_node(capture_skill_ui_patches, "summary-text")
-    assert summary_updates, "应持续更新 summary-text"
-    assert any("深圳A03站点_BOQ与勘测包.zip" in str(v.get("content") or "") for v in summary_updates)
-
 
 @pytest.fixture()
 def skills_intelligent_analysis_workbench(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
@@ -1041,6 +926,78 @@ async def test_load_module_config_smart_survey_workbench(
     cfg = load_module_config("smart_survey_workbench")
     assert cfg.get("flow") == "smart_survey_workflow"
     assert cfg.get("docId") == "dashboard:smart-survey-workbench"
+
+
+def test_load_module_config_normalizes_legacy_smart_survey_dashboard(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from nanobot.web.module_skill_runtime import load_module_config
+
+    repo_root = Path(__file__).resolve().parents[1]
+    src = repo_root / "templates" / "smart_survey_workbench"
+    skills_root = tmp_path / "skills"
+    module_dir = skills_root / "smart_survey_workbench"
+    shutil.copytree(src, module_dir)
+    monkeypatch.setenv("NANOBOT_AGUI_SKILLS_ROOT", str(skills_root))
+
+    legacy_dashboard = {
+        "schemaVersion": 1,
+        "type": "SduiDocument",
+        "meta": {"docId": "dashboard:smart-survey-workbench", "provenance": "smart_survey_workbench"},
+        "root": {
+            "type": "Stack",
+            "children": [
+                {
+                    "type": "Stepper",
+                    "id": "stepper-main",
+                    "steps": [
+                        {"id": "s1", "title": "场景筛选与底表过滤", "status": "completed"},
+                        {"id": "s4", "title": "审批分发", "status": "active"},
+                    ],
+                },
+                {
+                    "type": "Row",
+                    "children": [
+                        {"type": "DonutChart", "id": "chart-donut", "segments": []},
+                        {
+                            "type": "BarChart",
+                            "id": "chart-bar",
+                            "bars": [
+                                {"label": "勘测完成度", "value": 75, "color": "#2196F3"},
+                                {"label": "数据完整率", "value": 88, "color": "#FF9800"},
+                            ],
+                        },
+                    ],
+                },
+                {"type": "Text", "id": "summary-text", "content": "legacy"},
+                {
+                    "type": "ArtifactGrid",
+                    "id": "uploaded-files",
+                    "artifacts": [{"name": "BOQ.xlsx", "status": "ready"}],
+                },
+                {
+                    "type": "ArtifactGrid",
+                    "id": "artifacts",
+                    "artifacts": [{"name": "工勘报告.docx", "status": "ready"}],
+                },
+            ],
+        },
+    }
+    dashboard_path = module_dir / "data" / "dashboard.json"
+    dashboard_path.write_text(json.dumps(legacy_dashboard, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    cfg = load_module_config("smart_survey_workbench")
+
+    assert cfg.get("flow") == "smart_survey_workflow"
+    normalized = json.loads(dashboard_path.read_text(encoding="utf-8"))
+    chart_bar = _find_node_by_id(normalized, "chart-bar")
+    assert isinstance(chart_bar, dict)
+    assert isinstance(chart_bar.get("data"), list)
+    assert "bars" not in chart_bar
+    uploaded = _find_node_by_id(normalized, "uploaded-files")
+    assert isinstance(uploaded, dict)
+    assert uploaded.get("artifacts") == []
 
 
 @pytest.mark.asyncio

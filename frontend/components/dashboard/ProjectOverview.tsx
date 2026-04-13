@@ -1,7 +1,5 @@
 "use client";
 
-import { useMemo } from "react";
-
 import type { ModuleEntry } from "@/components/DashboardNavigator";
 import { ProjectGanttChart } from "@/components/dashboard/ProjectGanttChart";
 import { formatProjectGanttMetaLabel, getProjectGanttEstimatedDays } from "@/lib/projectGantt/presentation.js";
@@ -41,22 +39,6 @@ export function ProjectOverview({ modules, onSelectModule }: Props) {
   const pendingCount = Math.max(0, modules.length - runningCount - completedCount);
   const completionPct = modules.length ? Math.round((completedCount / modules.length) * 100) : 0;
 
-  const workbenchModule = useMemo(
-    () => modules.find((item) => item.label === "智能分析工作台") ?? null,
-    [modules],
-  );
-
-  const modelingSimModule = useMemo(
-    () =>
-      modules.find((item) => item.label === "建模仿真模块" || item.label === "建模仿真") ?? null,
-    [modules],
-  );
-
-  const jobManagementModule = useMemo(
-    () => modules.find((item) => item.label === "作业管理" || item.moduleId === "job_management") ?? null,
-    [modules],
-  );
-
   return (
     <div className="h-full min-h-0 overflow-y-auto p-5 flex flex-col gap-5">
       <div className="flex items-center justify-between">
@@ -78,66 +60,6 @@ export function ProjectOverview({ modules, onSelectModule }: Props) {
           <p className="text-[11px] ui-text-muted">运行中 / {pendingCount} 待开始</p>
         </div>
       </div>
-
-      {jobManagementModule ? (
-        <button
-          type="button"
-          onClick={() => onSelectModule(jobManagementModule.moduleId)}
-          className="ui-elevated-card p-5 text-left transition-colors hover:bg-[var(--surface-2)]"
-        >
-          <div className="flex items-center justify-between gap-2">
-            <div>
-              <p className="text-base font-semibold ui-text-primary">进入作业管理大盘</p>
-              <p className="mt-2 text-[12px] ui-text-muted">
-                当前项目阶段：{jobManagementModule.progressLabel ?? "待开始"}
-              </p>
-            </div>
-            <span className="rounded-full bg-[color-mix(in_srgb,var(--accent)_16%,transparent)] px-3 py-1 text-xs text-[var(--accent)]">
-              打开大盘
-            </span>
-          </div>
-        </button>
-      ) : null}
-
-      {workbenchModule ? (
-        <button
-          type="button"
-          onClick={() => onSelectModule(workbenchModule.moduleId)}
-          className="ui-elevated-card p-5 text-left transition-colors hover:bg-[var(--surface-2)]"
-        >
-          <div className="flex items-center justify-between gap-2">
-            <div>
-              <p className="text-base font-semibold ui-text-primary">进入智能分析工作台</p>
-              <p className="mt-2 text-[12px] ui-text-muted">
-                当前项目阶段：{workbenchModule.progressLabel ?? "待开始"}
-              </p>
-            </div>
-            <span className="rounded-full bg-[color-mix(in_srgb,var(--accent)_16%,transparent)] px-3 py-1 text-xs text-[var(--accent)]">
-              打开大盘
-            </span>
-          </div>
-        </button>
-      ) : null}
-
-      {modelingSimModule ? (
-        <button
-          type="button"
-          onClick={() => onSelectModule(modelingSimModule.moduleId)}
-          className="ui-elevated-card p-5 text-left transition-colors hover:bg-[var(--surface-2)]"
-        >
-          <div className="flex items-center justify-between gap-2">
-            <div>
-              <p className="text-base font-semibold ui-text-primary">进入建模仿真模块</p>
-              <p className="mt-2 text-[12px] ui-text-muted">
-                当前项目阶段：{modelingSimModule.progressLabel ?? "待开始"}
-              </p>
-            </div>
-            <span className="rounded-full bg-[color-mix(in_srgb,var(--accent)_16%,transparent)] px-3 py-1 text-xs text-[var(--accent)]">
-              打开大盘
-            </span>
-          </div>
-        </button>
-      ) : null}
 
       {modules.length > 0 ? (
         <div className="ui-elevated-card p-6">
@@ -226,13 +148,20 @@ export function ProjectOverview({ modules, onSelectModule }: Props) {
                       <p className="mt-2 text-[11px] ui-text-muted line-clamp-2">{module.description}</p>
                     ) : null}
                   </div>
-                  <span className={`shrink-0 text-[10px] font-medium px-1.5 py-0.5 rounded-full border ${style.badge}`}>
-                    {module.isPlaceholder && module.status === "idle" ? "规划中" : null}
-                    {module.status === "running" && (
-                      <span className={`inline-block w-1.5 h-1.5 rounded-full mr-1 ${style.dot} animate-pulse`} />
-                    )}
-                    {module.isPlaceholder && module.status === "idle" ? null : STATUS_LABEL[module.status]}
-                  </span>
+                  <div className="shrink-0 flex flex-col items-end gap-2">
+                    <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full border ${style.badge}`}>
+                      {module.isPlaceholder && module.status === "idle" ? "规划中" : null}
+                      {module.status === "running" && (
+                        <span className={`inline-block w-1.5 h-1.5 rounded-full mr-1 ${style.dot} animate-pulse`} />
+                      )}
+                      {module.isPlaceholder && module.status === "idle" ? null : STATUS_LABEL[module.status]}
+                    </span>
+                    {!module.isPlaceholder ? (
+                      <span className="rounded-full bg-[color-mix(in_srgb,var(--accent)_16%,transparent)] px-3 py-1 text-[10px] font-medium text-[var(--accent)]">
+                        打开大盘
+                      </span>
+                    ) : null}
+                  </div>
                 </div>
                 <div className="h-1 rounded-full overflow-hidden" style={{ background: "var(--surface-3)" }}>
                   <div

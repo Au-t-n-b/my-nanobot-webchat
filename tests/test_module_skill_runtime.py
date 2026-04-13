@@ -615,6 +615,16 @@ def skills_modeling_simulation_workbench(tmp_path: Path, monkeypatch: pytest.Mon
 
 
 @pytest.fixture()
+def skills_smart_survey_workbench(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    repo_root = Path(__file__).resolve().parents[1]
+    src = repo_root / "templates" / "smart_survey_workbench"
+    dst_root = tmp_path / "skills"
+    shutil.copytree(src, dst_root / "smart_survey_workbench")
+    monkeypatch.setenv("NANOBOT_AGUI_SKILLS_ROOT", str(dst_root))
+    return dst_root / "smart_survey_workbench"
+
+
+@pytest.fixture()
 def skills_job_management_with_plan_progress(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -997,6 +1007,17 @@ async def test_load_module_config_modeling_simulation_workbench(
     cfg = load_module_config("modeling_simulation_workbench")
     assert cfg.get("flow") == "simulation_workflow"
     assert cfg.get("docId") == "dashboard:modeling-simulation-workbench"
+
+
+@pytest.mark.asyncio
+async def test_load_module_config_smart_survey_workbench(
+    skills_smart_survey_workbench: Path,
+) -> None:
+    from nanobot.web.module_skill_runtime import load_module_config
+
+    cfg = load_module_config("smart_survey_workbench")
+    assert cfg.get("flow") == "smart_survey_workflow"
+    assert cfg.get("docId") == "dashboard:smart-survey-workbench"
 
 
 @pytest.mark.asyncio

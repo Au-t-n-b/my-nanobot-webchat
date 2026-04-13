@@ -3141,6 +3141,113 @@ async def _flow_intelligent_analysis_workbench(
     return {"ok": False, "error": f"unknown action: {action!r}"}
 
 
+def _smart_survey_skill_root() -> Path:
+    return get_skills_root() / "gongkan_skill"
+
+
+def _smart_survey_stepper_steps(active_index: int) -> list[dict[str, Any]]:
+    titles = [
+        "场景筛选与底表过滤",
+        "勘测数据汇总",
+        "报告生成",
+        "审批分发",
+    ]
+    steps: list[dict[str, Any]] = []
+    for idx, title in enumerate(titles):
+        if idx < active_index:
+            status = "completed"
+        elif idx == active_index:
+            status = "running"
+        else:
+            status = "waiting"
+        steps.append(
+            {
+                "id": f"s{idx + 1}",
+                "title": title,
+                "status": status,
+                "detail": [],
+            }
+        )
+    return steps
+
+
+def _smart_survey_missing_step1_inputs(skill_root: Path) -> list[str]:
+    start_dir = skill_root / "ProjectData" / "Start"
+    input_dir = skill_root / "ProjectData" / "Input"
+    missing: list[str] = []
+    for name in ["勘测问题底表.xlsx", "评估项底表.xlsx", "工勘常见高风险库.xlsx"]:
+        if not (start_dir / name).exists():
+            missing.append(name)
+    if not list(input_dir.glob("*BOQ*.xlsx")):
+        missing.append("BOQ*.xlsx")
+    if not (input_dir / "勘测信息预置集.docx").exists():
+        missing.append("勘测信息预置集.docx")
+    return missing
+
+
+async def _flow_smart_survey_workflow(
+    *,
+    module_id: str,
+    action: str,
+    state: dict[str, Any],
+    thread_id: str,
+    docman: Any,
+    cfg: dict[str, Any],
+) -> dict[str, Any]:
+    pusher = _pusher_for(cfg)
+    mc = MissionControlManager(thread_id=thread_id, docman=docman)
+    skill_root = _smart_survey_skill_root()
+    upload_cfg = _upload_config(cfg, "smart_survey_inputs")
+
+    if action == "cancel":
+        clear_module_session(thread_id, module_id)
+        return {"ok": True, "cancelled": True}
+
+    if action == "guide":
+        clear_module_session(thread_id, module_id)
+        await pusher.update_nodes(
+            [
+                (SDUI_STEPPER_MAIN_ID, "Stepper", {"steps": _smart_survey_stepper_steps(0)}),
+                (
+                    BoilerplateDashboardIds.SUMMARY_TEXT,
+                    "Text",
+                    {
+                        "content": "智慧工勘模块已就绪，请先检查并补齐 Step 1 输入件。",
+                        "variant": "body",
+                        "color": "subtle",
+                    },
+                ),
+                (
+                    BoilerplateDashboardIds.UPLOADED_FILES,
+                    "ArtifactGrid",
+                    {"title": "已上传文件", "mode": "input", "artifacts": []},
+                ),
+                (
+                    BoilerplateDashboardIds.ARTIFACTS,
+                    "ArtifactGrid",
+                    {"title": "作业结果", "mode": "output", "artifacts": []},
+                ),
+            ]
+        )
+        return {"ok": True, "next": "prepare_step1"}
+
+    if action == "prepare_step1":
+        missing = _smart_survey_missing_step1_inputs(skill_root)
+        if missing:
+            await mc.ask_for_file(
+                purpose="smart_survey_inputs",
+                title="请补齐工勘 Step 1 输入件",
+                accept=str(upload_cfg.get("accept") or ".xlsx,.docx"),
+                multiple=bool(upload_cfg.get("multiple", True)),
+                module_id=module_id,
+                next_action="run_step1",
+                save_relative_dir=str(upload_cfg.get("save_relative_dir") or "skills/gongkan_skill/ProjectData/Input"),
+            )
+        return {"ok": True, "next": "run_step1"}
+
+    return {"ok": False, "error": f"unknown action: {action!r}"}
+
+
 async def _flow_simulation_workflow(
     *,
     module_id: str,
@@ -4819,6 +4926,15 @@ async def run_module_action(
             )
         elif flow == "simulation_workflow":
             result = await _flow_simulation_workflow(
+                module_id=mid,
+                action=act,
+                state=st,
+                thread_id=tid,
+                docman=docman,
+                cfg=cfg,
+            )
+        elif flow == "smart_survey_workflow":
+            result = await _flow_smart_survey_workflow(
                 module_id=mid,
                 action=act,
                 state=st,

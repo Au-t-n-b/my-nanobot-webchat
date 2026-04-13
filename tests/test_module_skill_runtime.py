@@ -81,6 +81,10 @@ def _expected_job_management_synthetic_path() -> str:
     return "skill-ui://SduiView?dataFile=skills/job_management/data/dashboard.json"
 
 
+def _expected_smart_survey_synthetic_path() -> str:
+    return "skill-ui://SduiView?dataFile=skills/smart_survey_workbench/data/dashboard.json"
+
+
 @pytest.fixture()
 def capture_skill_ui_patches(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
     """收集 run_module_action 期间发出的 SkillUiDataPatch payload（绕过无 SSE 时的 no-op）。"""
@@ -644,6 +648,25 @@ def skills_job_management_with_plan_progress(
     return dst_root
 
 
+@pytest.fixture()
+def skills_smart_survey_with_gongkan(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    repo_root = Path(__file__).resolve().parents[1]
+    dst_root = tmp_path / "skills"
+    shutil.copytree(repo_root / "templates" / "smart_survey_workbench", dst_root / "smart_survey_workbench")
+    gongkan = dst_root / "gongkan_skill"
+    (gongkan / "ProjectData" / "Start").mkdir(parents=True)
+    (gongkan / "ProjectData" / "Input").mkdir(parents=True)
+    (gongkan / "ProjectData" / "Images").mkdir(parents=True)
+    (gongkan / "ProjectData" / "Output").mkdir(parents=True)
+    (gongkan / "ProjectData" / "RunTime").mkdir(parents=True)
+    (gongkan / "ProjectData" / "RunTime" / "progress.json").write_text(
+        json.dumps({"modules": [{"moduleId": "smart_survey", "tasks": []}]}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("NANOBOT_AGUI_SKILLS_ROOT", str(dst_root))
+    return dst_root
+
+
 def test_load_module_config_rejects_missing_save_relative_dir(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1018,6 +1041,55 @@ async def test_load_module_config_smart_survey_workbench(
     cfg = load_module_config("smart_survey_workbench")
     assert cfg.get("flow") == "smart_survey_workflow"
     assert cfg.get("docId") == "dashboard:smart-survey-workbench"
+
+
+@pytest.mark.asyncio
+async def test_smart_survey_workbench_guide_emits_dashboard_nodes(
+    skills_smart_survey_with_gongkan: Path,
+    capture_skill_ui_patches: list[dict],
+) -> None:
+    from nanobot.web.module_skill_runtime import run_module_action
+
+    r = await run_module_action(
+        module_id="smart_survey_workbench",
+        action="guide",
+        state={},
+        thread_id="thread-smart-guide",
+        docman=None,
+    )
+    assert r.get("ok") is True
+    assert r.get("next") == "prepare_step1"
+    for payload in capture_skill_ui_patches:
+        assert payload.get("syntheticPath") == _expected_smart_survey_synthetic_path()
+    merged = _merge_node_ids_from_patch_payloads(capture_skill_ui_patches)
+    assert {"stepper-main", "summary-text", "uploaded-files", "artifacts"}.issubset(merged)
+
+
+@pytest.mark.asyncio
+async def test_smart_survey_prepare_step1_requests_missing_inputs(
+    skills_smart_survey_with_gongkan: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import nanobot.web.module_skill_runtime as module_skill_runtime
+
+    mock_af = AsyncMock(
+        return_value=ChatCardHandle(card_id="upload:smart:step1", doc_id="chat:thread-smart-step1")
+    )
+    monkeypatch.setattr(
+        "nanobot.web.mission_control.MissionControlManager.ask_for_file",
+        mock_af,
+    )
+
+    r = await module_skill_runtime.run_module_action(
+        module_id="smart_survey_workbench",
+        action="prepare_step1",
+        state={},
+        thread_id="thread-smart-step1",
+        docman=None,
+    )
+    assert r.get("ok") is True
+    assert r.get("next") == "run_step1"
+    mock_af.assert_awaited_once()
 
 
 @pytest.mark.asyncio

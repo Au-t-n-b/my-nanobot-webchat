@@ -77,6 +77,10 @@ def _expected_modeling_simulation_synthetic_path() -> str:
     return "skill-ui://SduiView?dataFile=skills/modeling_simulation_workbench/data/dashboard.json"
 
 
+def _expected_job_management_synthetic_path() -> str:
+    return "skill-ui://SduiView?dataFile=skills/job_management/data/dashboard.json"
+
+
 @pytest.fixture()
 def capture_skill_ui_patches(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
     """收集 run_module_action 期间发出的 SkillUiDataPatch payload（绕过无 SSE 时的 no-op）。"""
@@ -610,6 +614,26 @@ def skills_modeling_simulation_workbench(tmp_path: Path, monkeypatch: pytest.Mon
     return dst_root / "modeling_simulation_workbench"
 
 
+@pytest.fixture()
+def skills_job_management_with_plan_progress(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> Path:
+    repo_root = Path(__file__).resolve().parents[1]
+    dst_root = tmp_path / "skills"
+    shutil.copytree(repo_root / "templates" / "job_management", dst_root / "job_management")
+    plan_root = dst_root / "plan_progress"
+    (plan_root / "input").mkdir(parents=True)
+    (plan_root / "ProjectData" / "RunTime").mkdir(parents=True)
+    (plan_root / "stage1_extracted").mkdir(parents=True)
+    (plan_root / "stage2_decoupled" / "scripts").mkdir(parents=True)
+    (plan_root / "stage3_extracted" / "milestone").mkdir(parents=True)
+    (plan_root / "stage3_extracted" / "schedule").mkdir(parents=True)
+    (plan_root / "stage3_extracted" / "reflection").mkdir(parents=True)
+    monkeypatch.setenv("NANOBOT_AGUI_SKILLS_ROOT", str(dst_root))
+    return dst_root
+
+
 def test_load_module_config_rejects_missing_save_relative_dir(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1077,3 +1101,172 @@ async def test_modeling_simulation_workbench_finish_emits_completed_task_status(
     assert modeling is not None
     assert modeling.get("status") == "completed"
     assert all(bool(step.get("done")) for step in modeling.get("steps") or [])
+
+
+@pytest.mark.asyncio
+async def test_job_management_upload_bundle_requests_missing_required_files(
+    skills_job_management_with_plan_progress: Path,
+    capture_skill_ui_patches: list[dict],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import nanobot.web.module_skill_runtime as module_skill_runtime
+
+    mock_af = AsyncMock(
+        return_value=ChatCardHandle(card_id="upload:job:required", doc_id="chat:thread-job-missing")
+    )
+    monkeypatch.setattr(
+        "nanobot.web.mission_control.MissionControlManager.ask_for_file",
+        mock_af,
+    )
+
+    r = await module_skill_runtime.run_module_action(
+        module_id="job_management",
+        action="upload_bundle",
+        state={},
+        thread_id="thread-job-missing",
+        docman=None,
+    )
+
+    assert r.get("ok") is True
+    assert r.get("next") == "upload_bundle_complete"
+    mock_af.assert_awaited_once()
+    kwargs = mock_af.await_args.kwargs
+    assert kwargs.get("save_relative_dir") == "skills/plan_progress/input"
+    assert kwargs.get("multiple") is True
+    assert kwargs.get("accept") == ".xlsx"
+    for payload in capture_skill_ui_patches:
+        assert payload.get("syntheticPath") == _expected_job_management_synthetic_path()
+    summary_updates = _merge_values_for_node(capture_skill_ui_patches, "summary-text")
+    assert summary_updates
+    assert "到货表.xlsx" in str(summary_updates[-1].get("content") or "")
+    assert "人员信息表.xlsx" in str(summary_updates[-1].get("content") or "")
+
+
+@pytest.mark.asyncio
+async def test_job_management_upload_bundle_complete_advances_when_required_inputs_present(
+    skills_job_management_with_plan_progress: Path,
+    capture_skill_ui_patches: list[dict],
+) -> None:
+    import nanobot.web.module_skill_runtime as module_skill_runtime
+
+    input_dir = skills_job_management_with_plan_progress / "plan_progress" / "input"
+    (input_dir / "到货表.xlsx").write_text("arrival", encoding="utf-8")
+    (input_dir / "人员信息表.xlsx").write_text("people", encoding="utf-8")
+
+    r = await module_skill_runtime.run_module_action(
+        module_id="job_management",
+        action="upload_bundle_complete",
+        state={},
+        thread_id="thread-job-upload-complete",
+        docman=None,
+    )
+
+    assert r.get("ok") is True
+    assert r.get("next") == "confirm_planning_schedule"
+    uploaded_updates = _merge_values_for_node(capture_skill_ui_patches, "uploaded-files")
+    assert uploaded_updates
+    artifacts = uploaded_updates[-1].get("artifacts")
+    assert isinstance(artifacts, list)
+    labels = {str(item.get("label") or "") for item in artifacts if isinstance(item, dict)}
+    assert {"到货表.xlsx", "人员信息表.xlsx"}.issubset(labels)
+
+
+@pytest.mark.asyncio
+async def test_job_management_confirm_planning_schedule_runs_plan_progress_planning_phase(
+    skills_job_management_with_plan_progress: Path,
+    capture_skill_ui_patches: list[dict],
+    capture_task_status_updates: list[dict],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import nanobot.web.module_skill_runtime as module_skill_runtime
+
+    input_dir = skills_job_management_with_plan_progress / "plan_progress" / "input"
+    (input_dir / "到货表.xlsx").write_text("arrival", encoding="utf-8")
+    (input_dir / "人员信息表.xlsx").write_text("people", encoding="utf-8")
+
+    mock_runner = AsyncMock(
+        return_value={
+            "ok": True,
+            "bundle_path": "workspace/skills/plan_progress/ProjectData/RunTime/job_management_bundle.json",
+            "summary": "Stage1 与 Stage2 已完成",
+        }
+    )
+    monkeypatch.setattr(module_skill_runtime, "_run_plan_progress_planning_phase", mock_runner)
+
+    r = await module_skill_runtime.run_module_action(
+        module_id="job_management",
+        action="confirm_planning_schedule",
+        state={},
+        thread_id="thread-job-planning",
+        docman=None,
+    )
+
+    assert r.get("ok") is True
+    assert r.get("next") == "confirm_engineering_schedule"
+    mock_runner.assert_awaited_once()
+    summary_updates = _merge_values_for_node(capture_skill_ui_patches, "summary-text")
+    assert summary_updates
+    assert "Stage1 与 Stage2 已完成" in str(summary_updates[-1].get("content") or "")
+    assert capture_task_status_updates
+    latest = capture_task_status_updates[-1]
+    modules = latest.get("modules")
+    assert isinstance(modules, list)
+    job = next((item for item in modules if item.get("name") == "作业管理"), None)
+    assert job is not None
+    steps = job.get("steps")
+    assert isinstance(steps, list)
+    assert any(step.get("name") == "规划设计排期已确认" and step.get("done") is True for step in steps)
+
+
+@pytest.mark.asyncio
+async def test_job_management_confirm_engineering_schedule_runs_plan_progress_engineering_phase(
+    skills_job_management_with_plan_progress: Path,
+    capture_skill_ui_patches: list[dict],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import nanobot.web.module_skill_runtime as module_skill_runtime
+
+    mock_runner = AsyncMock(return_value={"ok": True, "summary": "里程碑与排期已完成"})
+    monkeypatch.setattr(module_skill_runtime, "_run_plan_progress_engineering_phase", mock_runner)
+
+    r = await module_skill_runtime.run_module_action(
+        module_id="job_management",
+        action="confirm_engineering_schedule",
+        state={"bundlePath": "workspace/skills/plan_progress/ProjectData/RunTime/job_management_bundle.json"},
+        thread_id="thread-job-engineering",
+        docman=None,
+    )
+
+    assert r.get("ok") is True
+    assert r.get("next") == "confirm_cluster_schedule"
+    mock_runner.assert_awaited_once()
+    summary_updates = _merge_values_for_node(capture_skill_ui_patches, "summary-text")
+    assert summary_updates
+    assert "里程碑与排期已完成" in str(summary_updates[-1].get("content") or "")
+
+
+@pytest.mark.asyncio
+async def test_job_management_confirm_cluster_schedule_runs_plan_progress_cluster_phase(
+    skills_job_management_with_plan_progress: Path,
+    capture_skill_ui_patches: list[dict],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import nanobot.web.module_skill_runtime as module_skill_runtime
+
+    mock_runner = AsyncMock(return_value={"ok": True, "summary": "反思与收尾已完成"})
+    monkeypatch.setattr(module_skill_runtime, "_run_plan_progress_cluster_phase", mock_runner)
+
+    r = await module_skill_runtime.run_module_action(
+        module_id="job_management",
+        action="confirm_cluster_schedule",
+        state={"bundlePath": "workspace/skills/plan_progress/ProjectData/RunTime/job_management_bundle.json"},
+        thread_id="thread-job-cluster",
+        docman=None,
+    )
+
+    assert r.get("ok") is True
+    assert r.get("next") == "finish"
+    mock_runner.assert_awaited_once()
+    summary_updates = _merge_values_for_node(capture_skill_ui_patches, "summary-text")
+    assert summary_updates
+    assert "反思与收尾已完成" in str(summary_updates[-1].get("content") or "")

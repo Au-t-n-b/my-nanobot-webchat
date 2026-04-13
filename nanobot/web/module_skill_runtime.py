@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
+import sys
 import time
 from pathlib import Path
 from typing import Any
@@ -20,7 +22,7 @@ from nanobot.web.module_contract_schema import (
     validate_module_contract,
 )
 from nanobot.web.mission_control import MissionControlManager
-from nanobot.web.task_progress import load_task_status_payload, task_progress_file_path
+from nanobot.web.task_progress import load_task_status_payload, normalize_task_progress_payload, task_progress_file_path
 
 # 执行结束后发 idle。guide/start 不发 idle，让前端保持「模块进行中」并停在模块大盘，直到 finish/cancel。
 _ACTIONS_EMIT_IDLE_AFTER: frozenset[str] = frozenset({"cancel", "finish"})
@@ -194,7 +196,7 @@ def _set_project_progress(
     module_name: str,
     completed_names: set[str],
     module_cfg: dict[str, Any] | None = None,
-) -> None:
+) -> dict[str, Any]:
     definition = _task_progress_definition(module_name, module_cfg)
     path = task_progress_file_path()
     try:
@@ -243,7 +245,11 @@ def _set_project_progress(
     now = int(time.time())
     payload["updatedAt"] = now
     target["updatedAt"] = now
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    try:
+        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    except OSError as exc:
+        logger.warning("task_progress write skipped | path={} | {}", path, exc)
+    return payload
 
 
 async def _emit_task_status_update() -> None:
@@ -257,8 +263,10 @@ async def _set_project_progress_and_emit(
     completed_names: set[str],
     module_cfg: dict[str, Any] | None = None,
 ) -> None:
-    _set_project_progress(module_name, completed_names, module_cfg)
-    await _emit_task_status_update()
+    payload = _set_project_progress(module_name, completed_names, module_cfg)
+    from nanobot.agent.loop import emit_task_status_event
+
+    await emit_task_status_event(normalize_task_progress_payload(payload))
 
 
 def load_module_config(module_id: str) -> dict[str, Any]:
@@ -662,14 +670,15 @@ def _write_job_management_report(
         f"{case_cfg['module_goal']}\n\n"
         f"## 本次执行摘要\n"
         f"- 上传材料：{upload_name}\n"
-        f"- 阶段：文件上传 → 规划设计排期 → 工程安装排期 → 集群联调排期（均已确认）\n\n"
+        f"- 阶段：文件上传 → 规划设计排期 → 工程安装排期 → 集群联调排期（均已完成）\n"
+        f"- 实际执行引擎：plan_progress（Stage1 + Stage2 + Stage3）\n\n"
         f"## 黄金指标\n"
         f"- {case_cfg['metric_labels']['throughput']}：{throughput}\n"
         f"- {case_cfg['metric_labels']['quality']}：{quality}\n"
         f"- {case_cfg['metric_labels']['risk']}：{risk}\n"
         f"- 综合健康度：{health}%\n\n"
         f"## 给集成同事的提示\n"
-        f"1. 在 `confirm_*` 各步挂载真实排期 Skill 或外部系统回调。\n"
+        f"1. 当前大盘只保留四步展示，后台实际映射到 plan_progress 的三段执行链路。\n"
         f"2. 保持 `stepper-main` 与 `chart-donut` / `chart-bar` 节点 id，便于 Patch 对齐。\n"
         f"3. 项目层进度由 `taskProgress.actionMapping` 驱动，勿删 action 名除非同步前后端。\n"
     )
@@ -689,6 +698,277 @@ def _skill_input_dir_has_files(module_id: str) -> bool:
         return any(p.is_file() for p in d.iterdir())
     except OSError:
         return False
+
+
+_PLAN_PROGRESS_REQUIRED_INPUTS: tuple[str, str] = ("到货表.xlsx", "人员信息表.xlsx")
+
+
+def _workspace_root() -> Path:
+    return get_skills_root().parent
+
+
+def _workspace_relative_path(path: Path) -> str:
+    try:
+        relative = path.resolve().relative_to(_workspace_root().resolve())
+        return f"workspace/{relative.as_posix()}"
+    except Exception:
+        return str(path)
+
+
+def _workspace_path_to_local(path_or_logical: str | Path) -> Path:
+    raw = str(path_or_logical or "").strip()
+    if not raw:
+        return Path("")
+    if raw.startswith("workspace/"):
+        return (_workspace_root() / raw.removeprefix("workspace/")).resolve()
+    return Path(raw).expanduser().resolve()
+
+
+def _plan_progress_root() -> Path:
+    return get_skills_root() / "plan_progress"
+
+
+def _plan_progress_input_dir() -> Path:
+    return _plan_progress_root() / "input"
+
+
+def _plan_progress_runtime_dir() -> Path:
+    path = _plan_progress_root() / "ProjectData" / "RunTime"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _plan_progress_env_file() -> Path | None:
+    env_file = _plan_progress_root() / ".env"
+    return env_file if env_file.is_file() else None
+
+
+def _plan_progress_bundle_path() -> Path:
+    return _plan_progress_runtime_dir() / "job_management_bundle.json"
+
+
+def _plan_progress_required_uploads() -> tuple[list[dict[str, Any]], list[str]]:
+    input_dir = _plan_progress_input_dir()
+    uploads: list[dict[str, Any]] = []
+    missing: list[str] = []
+    for name in _PLAN_PROGRESS_REQUIRED_INPUTS:
+        file_path = input_dir / name
+        if file_path.is_file():
+            uploads.append(
+                {
+                    "fileId": _workspace_relative_path(file_path),
+                    "name": name,
+                    "logicalPath": _workspace_relative_path(file_path),
+                    "savedDir": "skills/plan_progress/input",
+                }
+            )
+        else:
+            missing.append(name)
+    return uploads, missing
+
+
+def _plan_progress_prompt_xlsx() -> Path:
+    return _plan_progress_input_dir() / "人员信息表.xlsx"
+
+
+def _plan_progress_arrival_xlsx() -> Path:
+    return _plan_progress_input_dir() / "到货表.xlsx"
+
+
+def _parse_json_output(raw: str) -> dict[str, Any]:
+    text = (raw or "").strip()
+    if not text:
+        return {}
+    try:
+        parsed = json.loads(text)
+        return parsed if isinstance(parsed, dict) else {"value": parsed}
+    except Exception:
+        pass
+    lines = [line for line in text.splitlines() if line.strip()]
+    for index, line in enumerate(lines):
+        if not line.lstrip().startswith("{"):
+            continue
+        candidate = "\n".join(lines[index:])
+        try:
+            parsed = json.loads(candidate)
+            return parsed if isinstance(parsed, dict) else {"value": parsed}
+        except Exception:
+            continue
+    for line in reversed(lines):
+        try:
+            parsed = json.loads(line)
+            return parsed if isinstance(parsed, dict) else {"value": parsed}
+        except Exception:
+            continue
+    return {"raw_stdout": text}
+
+
+async def _run_plan_progress_command(
+    command: list[str],
+    *,
+    cwd: Path,
+    extra_env: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    env = os.environ.copy()
+    env["NANOBOT_WORKSPACE"] = str(_workspace_root())
+    env["PLAN_FLOW_SKILL_ROOT"] = "plan_progress"
+    if extra_env:
+        env.update({str(k): str(v) for k, v in extra_env.items() if v is not None})
+    proc = await asyncio.create_subprocess_exec(
+        *command,
+        cwd=str(cwd),
+        env=env,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout_bytes, stderr_bytes = await proc.communicate()
+    stdout = stdout_bytes.decode("utf-8", errors="replace").strip()
+    stderr = stderr_bytes.decode("utf-8", errors="replace").strip()
+    parsed = _parse_json_output(stdout)
+    result = {
+        "ok": proc.returncode == 0,
+        "returncode": int(proc.returncode or 0),
+        "stdout": stdout,
+        "stderr": stderr,
+        "json": parsed,
+    }
+    if proc.returncode != 0:
+        result["error"] = str(parsed.get("error") or stderr or stdout or f"command failed: {command[0]}")
+    return result
+
+
+async def _run_plan_progress_planning_phase() -> dict[str, Any]:
+    uploads, missing = _plan_progress_required_uploads()
+    if missing:
+        return {"ok": False, "error": f"missing required files: {', '.join(missing)}"}
+    root = _plan_progress_root()
+    bundle_path = _plan_progress_bundle_path()
+    prompt_xlsx = _plan_progress_prompt_xlsx()
+    arrival_xlsx = _plan_progress_arrival_xlsx()
+    env_file = _plan_progress_env_file()
+    common_env = {
+        "PROMPT_XLSX_PATH": str(prompt_xlsx),
+        "ARRIVAL_XLSX_PATH": str(arrival_xlsx),
+        "BUNDLE_PATH": str(bundle_path),
+    }
+
+    stage1_cmd = [
+        sys.executable,
+        str(root / "stage1_extracted" / "run_stage1_extracted.py"),
+        "--bundle-out",
+        str(bundle_path),
+        "--prompt-xlsx",
+        str(prompt_xlsx),
+        "--arrival",
+        str(arrival_xlsx),
+        "--flow-task-name",
+        "job-management-stage1",
+    ]
+    if env_file is not None:
+        stage1_cmd.extend(["--env-file", str(env_file)])
+    stage1 = await _run_plan_progress_command(stage1_cmd, cwd=root, extra_env=common_env)
+    if not stage1["ok"]:
+        return {"ok": False, "error": f"Stage1 failed: {stage1['error']}", "stage1": stage1}
+
+    stage2_cmd = [
+        sys.executable,
+        str(root / "stage2_decoupled" / "scripts" / "run_stage2_decoupled.py"),
+        "--bundle-in",
+        str(bundle_path),
+        "--bundle-out",
+        str(bundle_path),
+        "--user-text",
+        "请生成规划设计排期。",
+        "--flow-task-name",
+        "job-management-stage2",
+    ]
+    if env_file is not None:
+        stage2_cmd.extend(["--env-file", str(env_file)])
+    stage2 = await _run_plan_progress_command(stage2_cmd, cwd=root, extra_env=common_env)
+    if not stage2["ok"]:
+        return {"ok": False, "error": f"Stage2 failed: {stage2['error']}", "stage1": stage1, "stage2": stage2}
+
+    return {
+        "ok": True,
+        "bundle_path": _workspace_relative_path(bundle_path),
+        "summary": "Stage1 与 Stage2 已完成，已生成规划设计排期输入。",
+        "uploads": uploads,
+        "stage1": stage1,
+        "stage2": stage2,
+    }
+
+
+async def _run_plan_progress_engineering_phase(bundle_path: str) -> dict[str, Any]:
+    bundle = _workspace_path_to_local(bundle_path)
+    if not bundle.is_file():
+        return {"ok": False, "error": f"bundle not found: {bundle_path}"}
+    root = _plan_progress_root()
+    prompt_xlsx = _plan_progress_prompt_xlsx()
+    milestone = await _run_plan_progress_command(
+        [
+            sys.executable,
+            str(root / "stage3_extracted" / "milestone" / "run_milestone.py"),
+            "--bundle",
+            str(bundle),
+            "--prompt-xlsx",
+            str(prompt_xlsx),
+        ],
+        cwd=root,
+    )
+    if not milestone["ok"]:
+        return {"ok": False, "error": f"milestone failed: {milestone['error']}", "milestone": milestone}
+    schedule = await _run_plan_progress_command(
+        [
+            sys.executable,
+            str(root / "stage3_extracted" / "schedule" / "run_schedule.py"),
+            "--bundle",
+            str(bundle),
+            "--prompt-xlsx",
+            str(prompt_xlsx),
+        ],
+        cwd=root,
+    )
+    if not schedule["ok"]:
+        return {
+            "ok": False,
+            "error": f"schedule failed: {schedule['error']}",
+            "milestone": milestone,
+            "schedule": schedule,
+        }
+    return {
+        "ok": True,
+        "bundle_path": _workspace_relative_path(bundle),
+        "summary": "里程碑与排期已完成，工程安装排期结果已就绪。",
+        "milestone": milestone,
+        "schedule": schedule,
+    }
+
+
+async def _run_plan_progress_cluster_phase(bundle_path: str) -> dict[str, Any]:
+    bundle = _workspace_path_to_local(bundle_path)
+    if not bundle.is_file():
+        return {"ok": False, "error": f"bundle not found: {bundle_path}"}
+    root = _plan_progress_root()
+    prompt_xlsx = _plan_progress_prompt_xlsx()
+    reflection = await _run_plan_progress_command(
+        [
+            sys.executable,
+            str(root / "stage3_extracted" / "reflection" / "run_reflection.py"),
+            "--bundle",
+            str(bundle),
+            "--prompt-xlsx",
+            str(prompt_xlsx),
+        ],
+        cwd=root,
+    )
+    if not reflection["ok"]:
+        return {"ok": False, "error": f"reflection failed: {reflection['error']}", "reflection": reflection}
+    return {
+        "ok": True,
+        "bundle_path": _workspace_relative_path(bundle),
+        "summary": "反思与收尾已完成，集群联调排期结果已闭环。",
+        "reflection": reflection,
+    }
 
 
 def _pusher_for(cfg: dict[str, Any]) -> SkillUiPatchPusher:
@@ -3354,7 +3634,7 @@ async def _flow_simulation_workflow(
     return {"ok": False, "error": f"unknown action: {action!r}"}
 
 
-async def _flow_job_management(
+async def _flow_job_management_legacy(
     *,
     module_id: str,
     action: str,
@@ -3863,6 +4143,617 @@ async def _flow_job_management(
         return {"ok": True, "done": True, "summary": "job_management 完成：作业管理大盘已闭环。"}
 
     return {"ok": False, "error": f"unknown action: {action!r}"}
+
+
+async def _flow_job_management(
+    *,
+    module_id: str,
+    action: str,
+    state: dict[str, Any],
+    thread_id: str,
+    docman: Any,
+    cfg: dict[str, Any],
+) -> dict[str, Any]:
+    """作业管理大盘：沿用四步 UI，但实际执行 plan_progress Skill。"""
+    pusher = _pusher_for(cfg)
+    mc = MissionControlManager(thread_id=thread_id, docman=docman)
+    sess = merge_module_session(thread_id, module_id, state)
+    case_cfg = _boilerplate_case_config(cfg, module_id)
+    progress_module_name = _task_progress_definition(case_cfg["module_title"], cfg)["module_name"]
+    brand = str(case_cfg.get("module_title") or "作业管理大盘").strip() or "作业管理大盘"
+
+    if action == "cancel":
+        clear_module_session(thread_id, module_id)
+        await _set_project_progress_and_emit(progress_module_name, set(), cfg)
+        return {"ok": True, "cancelled": True}
+
+    if action == "guide":
+        clear_module_session(thread_id, module_id)
+        await _set_project_progress_and_emit(
+            progress_module_name,
+            _configured_completed_tasks(cfg, "guide", {"作业待启动"}, module_name=progress_module_name),
+            cfg,
+        )
+        await pusher.update_nodes(
+            [
+                (SDUI_STEPPER_MAIN_ID, "Stepper", {"steps": _job_stepper_steps(0)}),
+                *_boilerplate_metrics_nodes(
+                    case_cfg,
+                    18,
+                    14,
+                    10,
+                    center_value="12%",
+                    center_label="作业健康度",
+                    completed=0,
+                    pending=4,
+                ),
+                (
+                    BoilerplateDashboardIds.SUMMARY_TEXT,
+                    "Text",
+                    {
+                        "content": (
+                            f"已进入{brand}。请先校验并上传《到货表.xlsx》《人员信息表.xlsx》，"
+                            "随后系统会依次执行规划设计、工程安装、集群联调三段排期。"
+                        ),
+                        "variant": "body",
+                        "color": "subtle",
+                    },
+                ),
+                (
+                    BoilerplateDashboardIds.UPLOADED_FILES,
+                    "ArtifactGrid",
+                    {"title": "已上传文件", "mode": "input", "artifacts": []},
+                ),
+            ]
+        )
+        await mc.emit_guidance(
+            context=f"{brand}已就绪。请先准备《到货表.xlsx》《人员信息表.xlsx》。",
+            actions=[
+                {
+                    "label": "校验并上传资料",
+                    "verb": "module_action",
+                    "payload": {"moduleId": module_id, "action": "upload_bundle", "state": {}},
+                }
+            ],
+        )
+        return {"ok": True, "next": "upload_bundle"}
+
+    if action == "upload_bundle":
+        discovered_uploads, missing = _plan_progress_required_uploads()
+        if not missing:
+            return await _flow_job_management(
+                module_id=module_id,
+                action="upload_bundle_complete",
+                state={"uploads": discovered_uploads, "upload": discovered_uploads[-1]},
+                thread_id=thread_id,
+                docman=docman,
+                cfg=cfg,
+            )
+        await pusher.update_nodes(
+            [
+                (SDUI_STEPPER_MAIN_ID, "Stepper", {"steps": _job_stepper_steps(0)}),
+                *_boilerplate_metrics_nodes(
+                    case_cfg,
+                    20,
+                    16,
+                    10,
+                    center_value="14%",
+                    center_label="作业健康度",
+                    completed=0,
+                    pending=4,
+                ),
+                (
+                    BoilerplateDashboardIds.SUMMARY_TEXT,
+                    "Text",
+                    {
+                        "content": (
+                            "当前缺少严格匹配的输入文件：到货表.xlsx、人员信息表.xlsx。"
+                            " 请通过会话卡片上传这两个 Excel，文件名需完全一致。"
+                        ),
+                        "variant": "body",
+                        "color": "subtle",
+                    },
+                ),
+            ]
+        )
+        handle = await mc.ask_for_file(
+            purpose="job_bundle",
+            title="请上传到货表.xlsx 与 人员信息表.xlsx",
+            accept=".xlsx",
+            multiple=True,
+            module_id=module_id,
+            next_action="upload_bundle_complete",
+            save_relative_dir="skills/plan_progress/input",
+        )
+        merge_module_session(thread_id, module_id, {"cardId": getattr(handle, "card_id", None)})
+        return {"ok": True, "next": "upload_bundle_complete"}
+
+    if action == "upload_bundle_complete":
+        merged = merge_module_session(thread_id, module_id, dict(state))
+        discovered_uploads, missing = _plan_progress_required_uploads()
+        if missing:
+            await pusher.update_nodes(
+                [
+                    (SDUI_STEPPER_MAIN_ID, "Stepper", {"steps": _job_stepper_steps(0)}),
+                    (
+                        BoilerplateDashboardIds.SUMMARY_TEXT,
+                        "Text",
+                        {
+                            "content": f"仍缺少：{', '.join(missing)}。请补充上传后重试。",
+                            "variant": "body",
+                            "color": "subtle",
+                        },
+                    ),
+                ]
+            )
+            handle = await mc.ask_for_file(
+                purpose="job_bundle",
+                title="请补充上传缺失的 Excel 文件",
+                accept=".xlsx",
+                multiple=True,
+                module_id=module_id,
+                next_action="upload_bundle_complete",
+                save_relative_dir="skills/plan_progress/input",
+            )
+            merge_module_session(thread_id, module_id, {"cardId": getattr(handle, "card_id", None)})
+            return {"ok": True, "next": "upload_bundle_complete"}
+
+        uploads = _merge_uploads(_merge_uploads(merged.get("uploads"), state.get("uploads")), discovered_uploads)
+        upload_meta = dict(_latest_upload_meta({"upload": merged.get("upload"), "uploads": uploads}))
+        if not upload_meta and uploads:
+            upload_meta = dict(uploads[-1])
+        merged = merge_module_session(
+            thread_id,
+            module_id,
+            {"upload": upload_meta or None, "uploads": uploads},
+        )
+        upload_name = str(upload_meta.get("name") or "人员信息表.xlsx")
+        await _set_project_progress_and_emit(
+            progress_module_name,
+            _configured_completed_tasks(
+                cfg,
+                "upload_bundle_complete",
+                {"作业待启动", "资料已上传"},
+                module_name=progress_module_name,
+            ),
+            cfg,
+        )
+        await pusher.update_nodes(
+            [
+                (SDUI_STEPPER_MAIN_ID, "Stepper", {"steps": _job_stepper_steps(1, upload_name)}),
+                *_boilerplate_metrics_nodes(
+                    case_cfg,
+                    38,
+                    30,
+                    12,
+                    center_value="28%",
+                    center_label="作业健康度",
+                    completed=1,
+                    pending=3,
+                ),
+                (
+                    BoilerplateDashboardIds.UPLOADED_FILES,
+                    "ArtifactGrid",
+                    {"title": "已上传文件", "mode": "input", "artifacts": _uploads_as_artifacts(uploads)},
+                ),
+                (
+                    BoilerplateDashboardIds.SUMMARY_TEXT,
+                    "Text",
+                    {
+                        "content": "必需资料已齐备：到货表.xlsx、人员信息表.xlsx。下一步开始执行规划设计排期。",
+                        "variant": "body",
+                        "color": "subtle",
+                    },
+                ),
+            ]
+        )
+        cid = str(merged.get("cardId") or state.get("cardId") or "").strip()
+        if cid:
+            await mc.replace_card(
+                card_id=cid,
+                title="资料已校验",
+                node={
+                    "type": "Stack",
+                    "gap": "sm",
+                    "children": [
+                        {
+                            "type": "Text",
+                            "variant": "body",
+                            "content": "必需资料已齐备。下一步请启动规划设计排期。",
+                            "color": "subtle",
+                        },
+                        {
+                            "type": "ArtifactGrid",
+                            "title": "已上传文件",
+                            "mode": "input",
+                            "artifacts": _uploads_as_artifacts(uploads),
+                        },
+                        {
+                            "type": "GuidanceCard",
+                            "cardId": cid,
+                            "context": "资料已入库。可开始规划设计排期。",
+                            "actions": [
+                                {
+                                    "label": "开始规划设计排期",
+                                    "verb": "module_action",
+                                    "payload": {
+                                        "moduleId": module_id,
+                                        "action": "confirm_planning_schedule",
+                                        "state": {"upload": upload_meta, "uploads": uploads},
+                                    },
+                                }
+                            ],
+                        },
+                    ],
+                },
+                doc_id=f"chat:{thread_id}",
+            )
+        else:
+            await mc.emit_guidance(
+                context="资料已入库。请开始规划设计排期。",
+                actions=[
+                    {
+                        "label": "开始规划设计排期",
+                        "verb": "module_action",
+                        "payload": {
+                            "moduleId": module_id,
+                            "action": "confirm_planning_schedule",
+                            "state": {"upload": upload_meta, "uploads": uploads},
+                        },
+                    }
+                ],
+            )
+        return {"ok": True, "next": "confirm_planning_schedule"}
+
+    if action == "confirm_planning_schedule":
+        merged = merge_module_session(thread_id, module_id, dict(state))
+        discovered_uploads, missing = _plan_progress_required_uploads()
+        if missing:
+            return await _flow_job_management(
+                module_id=module_id,
+                action="upload_bundle",
+                state={},
+                thread_id=thread_id,
+                docman=docman,
+                cfg=cfg,
+            )
+        uploads = _merge_uploads(_merge_uploads(merged.get("uploads"), state.get("uploads")), discovered_uploads)
+        upload_meta = dict(_latest_upload_meta({"upload": merged.get("upload"), "uploads": uploads}))
+        if not upload_meta and uploads:
+            upload_meta = dict(uploads[-1])
+        upload_name = str(upload_meta.get("name") or "人员信息表.xlsx")
+        await pusher.update_nodes(
+            [
+                (SDUI_STEPPER_MAIN_ID, "Stepper", {"steps": _job_stepper_steps(1, upload_name)}),
+                *_boilerplate_metrics_nodes(
+                    case_cfg,
+                    44,
+                    36,
+                    11,
+                    center_value="36%",
+                    center_label="作业健康度",
+                    completed=1,
+                    pending=3,
+                ),
+                (
+                    BoilerplateDashboardIds.UPLOADED_FILES,
+                    "ArtifactGrid",
+                    {"title": "已上传文件", "mode": "input", "artifacts": _uploads_as_artifacts(uploads)},
+                ),
+                (
+                    BoilerplateDashboardIds.SUMMARY_TEXT,
+                    "Text",
+                    {
+                        "content": "正在执行规划设计排期：先运行 plan_progress Stage1 与 Stage2。",
+                        "variant": "body",
+                        "color": "subtle",
+                    },
+                ),
+            ]
+        )
+        planning = await _run_plan_progress_planning_phase()
+        if not planning.get("ok"):
+            await pusher.update_nodes(
+                [
+                    (
+                        BoilerplateDashboardIds.SUMMARY_TEXT,
+                        "Text",
+                        {
+                            "content": f"规划设计排期执行失败：{planning.get('error')}",
+                            "variant": "body",
+                            "color": "warning",
+                        },
+                    )
+                ]
+            )
+            return planning
+        bundle_path = str(planning.get("bundle_path") or "")
+        merge_module_session(
+            thread_id,
+            module_id,
+            {"bundlePath": bundle_path, "upload": upload_meta or None, "uploads": uploads},
+        )
+        await _set_project_progress_and_emit(
+            progress_module_name,
+            _configured_completed_tasks(
+                cfg,
+                "confirm_planning_schedule",
+                {"作业待启动", "资料已上传", "规划设计排期已确认"},
+                module_name=progress_module_name,
+            ),
+            cfg,
+        )
+        await pusher.update_nodes(
+            [
+                (SDUI_STEPPER_MAIN_ID, "Stepper", {"steps": _job_stepper_steps(2, upload_name)}),
+                *_boilerplate_metrics_nodes(
+                    case_cfg,
+                    55,
+                    48,
+                    10,
+                    center_value="50%",
+                    center_label="作业健康度",
+                    completed=2,
+                    pending=2,
+                ),
+                (
+                    BoilerplateDashboardIds.UPLOADED_FILES,
+                    "ArtifactGrid",
+                    {"title": "已上传文件", "mode": "input", "artifacts": _uploads_as_artifacts(uploads)},
+                ),
+                (
+                    BoilerplateDashboardIds.SUMMARY_TEXT,
+                    "Text",
+                    {
+                        "content": str(planning.get("summary") or "规划设计排期已完成。"),
+                        "variant": "body",
+                        "color": "subtle",
+                    },
+                ),
+            ]
+        )
+        await mc.emit_guidance(
+            context="规划设计排期已完成。请继续执行工程安装排期。",
+            actions=[
+                {
+                    "label": "开始工程安装排期",
+                    "verb": "module_action",
+                    "payload": {
+                        "moduleId": module_id,
+                        "action": "confirm_engineering_schedule",
+                        "state": {"bundlePath": bundle_path},
+                    },
+                }
+            ],
+        )
+        return {"ok": True, "next": "confirm_engineering_schedule", "bundlePath": bundle_path}
+
+    if action == "confirm_engineering_schedule":
+        merged = merge_module_session(thread_id, module_id, dict(state))
+        bundle_path = str(state.get("bundlePath") or merged.get("bundlePath") or "").strip()
+        if not bundle_path:
+            return {"ok": False, "error": "bundlePath missing for engineering phase"}
+        discovered_uploads, _ = _plan_progress_required_uploads()
+        uploads = _merge_uploads(_merge_uploads(merged.get("uploads"), state.get("uploads")), discovered_uploads)
+        upload_meta = dict(_latest_upload_meta({"upload": merged.get("upload"), "uploads": uploads}))
+        if not upload_meta and uploads:
+            upload_meta = dict(uploads[-1])
+        upload_name = str(upload_meta.get("name") or "人员信息表.xlsx")
+        await pusher.update_nodes(
+            [
+                (SDUI_STEPPER_MAIN_ID, "Stepper", {"steps": _job_stepper_steps(2, upload_name)}),
+                *_boilerplate_metrics_nodes(
+                    case_cfg,
+                    64,
+                    56,
+                    9,
+                    center_value="62%",
+                    center_label="作业健康度",
+                    completed=2,
+                    pending=2,
+                ),
+                (
+                    BoilerplateDashboardIds.SUMMARY_TEXT,
+                    "Text",
+                    {
+                        "content": "正在执行工程安装排期：依次生成里程碑与安装排期。",
+                        "variant": "body",
+                        "color": "subtle",
+                    },
+                ),
+            ]
+        )
+        engineering = await _run_plan_progress_engineering_phase(bundle_path)
+        if not engineering.get("ok"):
+            await pusher.update_nodes(
+                [
+                    (
+                        BoilerplateDashboardIds.SUMMARY_TEXT,
+                        "Text",
+                        {
+                            "content": f"工程安装排期执行失败：{engineering.get('error')}",
+                            "variant": "body",
+                            "color": "warning",
+                        },
+                    )
+                ]
+            )
+            return engineering
+        bundle_path = str(engineering.get("bundle_path") or bundle_path)
+        merge_module_session(thread_id, module_id, {"bundlePath": bundle_path, "upload": upload_meta or None, "uploads": uploads})
+        await _set_project_progress_and_emit(
+            progress_module_name,
+            _configured_completed_tasks(
+                cfg,
+                "confirm_engineering_schedule",
+                {"作业待启动", "资料已上传", "规划设计排期已确认", "工程安装排期已确认"},
+                module_name=progress_module_name,
+            ),
+            cfg,
+        )
+        await pusher.update_nodes(
+            [
+                (SDUI_STEPPER_MAIN_ID, "Stepper", {"steps": _job_stepper_steps(3, upload_name)}),
+                *_boilerplate_metrics_nodes(
+                    case_cfg,
+                    72,
+                    65,
+                    8,
+                    center_value="72%",
+                    center_label="作业健康度",
+                    completed=3,
+                    pending=1,
+                ),
+                (
+                    BoilerplateDashboardIds.UPLOADED_FILES,
+                    "ArtifactGrid",
+                    {"title": "已上传文件", "mode": "input", "artifacts": _uploads_as_artifacts(uploads)},
+                ),
+                (
+                    BoilerplateDashboardIds.SUMMARY_TEXT,
+                    "Text",
+                    {
+                        "content": str(engineering.get("summary") or "工程安装排期已完成。"),
+                        "variant": "body",
+                        "color": "subtle",
+                    },
+                ),
+            ]
+        )
+        await mc.emit_guidance(
+            context="工程安装排期已完成。请继续执行集群联调排期。",
+            actions=[
+                {
+                    "label": "开始集群联调排期",
+                    "verb": "module_action",
+                    "payload": {
+                        "moduleId": module_id,
+                        "action": "confirm_cluster_schedule",
+                        "state": {"bundlePath": bundle_path},
+                    },
+                }
+            ],
+        )
+        return {"ok": True, "next": "confirm_cluster_schedule", "bundlePath": bundle_path}
+
+    if action == "confirm_cluster_schedule":
+        merged = merge_module_session(thread_id, module_id, dict(state))
+        bundle_path = str(state.get("bundlePath") or merged.get("bundlePath") or "").strip()
+        if not bundle_path:
+            return {"ok": False, "error": "bundlePath missing for cluster phase"}
+        discovered_uploads, _ = _plan_progress_required_uploads()
+        uploads = _merge_uploads(_merge_uploads(merged.get("uploads"), state.get("uploads")), discovered_uploads)
+        upload_meta = dict(_latest_upload_meta({"upload": merged.get("upload"), "uploads": uploads}))
+        if not upload_meta and uploads:
+            upload_meta = dict(uploads[-1])
+        upload_name = str(upload_meta.get("name") or "人员信息表.xlsx")
+        await pusher.update_nodes(
+            [
+                (SDUI_STEPPER_MAIN_ID, "Stepper", {"steps": _job_stepper_steps(3, upload_name)}),
+                *_boilerplate_metrics_nodes(
+                    case_cfg,
+                    80,
+                    72,
+                    7,
+                    center_value="82%",
+                    center_label="作业健康度",
+                    completed=3,
+                    pending=1,
+                ),
+                (
+                    BoilerplateDashboardIds.SUMMARY_TEXT,
+                    "Text",
+                    {
+                        "content": "正在执行集群联调排期：进入 Stage3 反思与收尾。",
+                        "variant": "body",
+                        "color": "subtle",
+                    },
+                ),
+            ]
+        )
+        cluster = await _run_plan_progress_cluster_phase(bundle_path)
+        if not cluster.get("ok"):
+            await pusher.update_nodes(
+                [
+                    (
+                        BoilerplateDashboardIds.SUMMARY_TEXT,
+                        "Text",
+                        {
+                            "content": f"集群联调排期执行失败：{cluster.get('error')}",
+                            "variant": "body",
+                            "color": "warning",
+                        },
+                    )
+                ]
+            )
+            return cluster
+        bundle_path = str(cluster.get("bundle_path") or bundle_path)
+        merge_module_session(thread_id, module_id, {"bundlePath": bundle_path, "upload": upload_meta or None, "uploads": uploads})
+        await _set_project_progress_and_emit(
+            progress_module_name,
+            _configured_completed_tasks(
+                cfg,
+                "confirm_cluster_schedule",
+                {
+                    "作业待启动",
+                    "资料已上传",
+                    "规划设计排期已确认",
+                    "工程安装排期已确认",
+                    "集群联调排期已确认",
+                },
+                module_name=progress_module_name,
+            ),
+            cfg,
+        )
+        await pusher.update_nodes(
+            [
+                (SDUI_STEPPER_MAIN_ID, "Stepper", {"steps": _job_stepper_steps(4, upload_name)}),
+                *_boilerplate_metrics_nodes(
+                    case_cfg,
+                    88,
+                    84,
+                    6,
+                    center_value="92%",
+                    center_label="作业健康度",
+                    completed=4,
+                    pending=0,
+                ),
+                (
+                    BoilerplateDashboardIds.UPLOADED_FILES,
+                    "ArtifactGrid",
+                    {"title": "已上传文件", "mode": "input", "artifacts": _uploads_as_artifacts(uploads)},
+                ),
+                (
+                    BoilerplateDashboardIds.SUMMARY_TEXT,
+                    "Text",
+                    {
+                        "content": str(cluster.get("summary") or "集群联调排期已完成。"),
+                        "variant": "body",
+                        "color": "subtle",
+                    },
+                ),
+            ]
+        )
+        await mc.emit_guidance(
+            context="三段排期已完成。现在可以生成闭环说明。",
+            actions=[
+                {
+                    "label": "完成闭环",
+                    "verb": "module_action",
+                    "payload": {"moduleId": module_id, "action": "finish", "state": {"bundlePath": bundle_path}},
+                }
+            ],
+        )
+        return {"ok": True, "next": "finish", "bundlePath": bundle_path}
+
+    return await _flow_job_management_legacy(
+        module_id=module_id,
+        action=action,
+        state=state,
+        thread_id=thread_id,
+        docman=docman,
+        cfg=cfg,
+    )
 
 
 async def run_module_action(

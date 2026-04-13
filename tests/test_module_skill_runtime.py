@@ -73,6 +73,10 @@ def _expected_workbench_synthetic_path() -> str:
     return "skill-ui://SduiView?dataFile=skills/intelligent_analysis_workbench/data/dashboard.json"
 
 
+def _expected_modeling_simulation_synthetic_path() -> str:
+    return "skill-ui://SduiView?dataFile=skills/modeling_simulation_workbench/data/dashboard.json"
+
+
 @pytest.fixture()
 def capture_skill_ui_patches(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
     """收集 run_module_action 期间发出的 SkillUiDataPatch payload（绕过无 SSE 时的 no-op）。"""
@@ -596,6 +600,16 @@ def skills_intelligent_analysis_workbench(tmp_path: Path, monkeypatch: pytest.Mo
     return dst_root / "intelligent_analysis_workbench"
 
 
+@pytest.fixture()
+def skills_modeling_simulation_workbench(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    repo_root = Path(__file__).resolve().parents[1]
+    src = repo_root / "templates" / "modeling_simulation_workbench"
+    dst_root = tmp_path / "skills"
+    shutil.copytree(src, dst_root / "modeling_simulation_workbench")
+    monkeypatch.setenv("NANOBOT_AGUI_SKILLS_ROOT", str(dst_root))
+    return dst_root / "modeling_simulation_workbench"
+
+
 def test_load_module_config_rejects_missing_save_relative_dir(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -948,3 +962,118 @@ async def test_intelligent_analysis_workbench_finish_emits_completed_task_status
     assert workbench is not None
     assert workbench.get("status") == "completed"
     assert all(bool(step.get("done")) for step in workbench.get("steps") or [])
+
+
+@pytest.mark.asyncio
+async def test_load_module_config_modeling_simulation_workbench(
+    skills_modeling_simulation_workbench: Path,
+) -> None:
+    from nanobot.web.module_skill_runtime import load_module_config
+
+    cfg = load_module_config("modeling_simulation_workbench")
+    assert cfg.get("flow") == "simulation_workflow"
+    assert cfg.get("docId") == "dashboard:modeling-simulation-workbench"
+
+
+@pytest.mark.asyncio
+async def test_modeling_simulation_workbench_guide_emits_dashboard_nodes(
+    skills_modeling_simulation_workbench: Path,
+    capture_skill_ui_patches: list[dict],
+    capture_task_status_updates: list[dict],
+) -> None:
+    from nanobot.web.module_skill_runtime import run_module_action
+
+    r = await run_module_action(
+        module_id="modeling_simulation_workbench",
+        action="guide",
+        state={},
+        thread_id="thread-modeling-guide",
+        docman=None,
+    )
+    assert r.get("ok") is True
+    assert r.get("next") == "upload_bundle"
+    for payload in capture_skill_ui_patches:
+        assert payload.get("syntheticPath") == _expected_modeling_simulation_synthetic_path()
+    merged = _merge_node_ids_from_patch_payloads(capture_skill_ui_patches)
+    assert {"stepper-main", "summary-text", "uploaded-files", "embedded-modeling-access"}.issubset(merged)
+    assert capture_task_status_updates
+    latest = capture_task_status_updates[-1]
+    modules = latest.get("modules")
+    assert isinstance(modules, list)
+    modeling = next((m for m in modules if m.get("name") == "建模仿真模块"), None)
+    assert modeling is not None
+
+
+@pytest.mark.asyncio
+async def test_modeling_simulation_workbench_upload_complete_advances_to_device_confirm(
+    skills_modeling_simulation_workbench: Path,
+    capture_skill_ui_patches: list[dict],
+) -> None:
+    from nanobot.web.module_skill_runtime import run_module_action
+
+    r = await run_module_action(
+        module_id="modeling_simulation_workbench",
+        action="upload_bundle_complete",
+        state={
+            "upload": {
+                "fileId": "sim-file-001",
+                "name": "simulation_boq_bundle.zip",
+                "logicalPath": "workspace/skills/modeling_simulation_workbench/input/simulation_boq_bundle.zip",
+            },
+            "uploads": [
+                {
+                    "fileId": "sim-file-001",
+                    "name": "simulation_boq_bundle.zip",
+                    "logicalPath": "workspace/skills/modeling_simulation_workbench/input/simulation_boq_bundle.zip",
+                    "savedDir": "skills/modeling_simulation_workbench/input",
+                }
+            ],
+        },
+        thread_id="thread-modeling-upload",
+        docman=None,
+    )
+    assert r.get("ok") is True
+    assert r.get("next") == "device_confirm"
+    uploaded_updates = _merge_values_for_node(capture_skill_ui_patches, "uploaded-files")
+    assert uploaded_updates
+    latest = uploaded_updates[-1]
+    artifacts = latest.get("artifacts")
+    assert isinstance(artifacts, list)
+    assert artifacts
+    assert artifacts[0].get("label") == "simulation_boq_bundle.zip"
+
+
+@pytest.mark.asyncio
+async def test_modeling_simulation_workbench_finish_emits_completed_task_status(
+    skills_modeling_simulation_workbench: Path,
+    capture_task_status_updates: list[dict],
+) -> None:
+    from nanobot.web.module_skill_runtime import run_module_action
+
+    r = await run_module_action(
+        module_id="modeling_simulation_workbench",
+        action="finish",
+        state={
+            "upload": {"name": "simulation_boq_bundle.zip"},
+            "uploads": [
+                {
+                    "fileId": "sim-file-001",
+                    "name": "simulation_boq_bundle.zip",
+                    "logicalPath": "workspace/skills/modeling_simulation_workbench/input/simulation_boq_bundle.zip",
+                    "savedDir": "skills/modeling_simulation_workbench/input",
+                }
+            ],
+        },
+        thread_id="thread-modeling-finish",
+        docman=None,
+    )
+    assert r.get("ok") is True
+    assert r.get("done") is True
+    assert capture_task_status_updates
+    latest = capture_task_status_updates[-1]
+    modules = latest.get("modules")
+    assert isinstance(modules, list)
+    modeling = next((m for m in modules if m.get("name") == "建模仿真模块"), None)
+    assert modeling is not None
+    assert modeling.get("status") == "completed"
+    assert all(bool(step.get("done")) for step in modeling.get("steps") or [])

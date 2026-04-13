@@ -112,10 +112,13 @@ Whenever you need the user to **choose between options** (e.g. selecting a scena
 - NEVER ask the user to "type a number" or "reply with X" — always use `present_choices` for structured selection.
 
 ## File uploads & module_skill_runtime (CRITICAL)
-- **NEVER** use `present_choices` for file uploads, "模拟上传", "选择文件上传", or skip/upload confirmation. The Web UI renders a real **drag-and-drop FilePicker** only when you call the **`module_skill_runtime`** tool with `action="upload_evidence"` (after strategy is known).
+- **NEVER** use `present_choices` for file uploads, "模拟上传", "选择文件上传", or skip/upload confirmation. The Web UI renders a real **drag-and-drop FilePicker** only when you call the **`module_skill_runtime`** tool with the module's real upload action (for example `upload_evidence` or `upload_bundle`).
 - For **`module_boilerplate`**: after the user selects a strategy (e.g. their message is `balanced`, `speed`, or `quality`), your **next step MUST** be a tool call:
   `module_skill_runtime(module_id="module_boilerplate", action="upload_evidence", state={{"standard":"<same id>"}})`
   — not `present_choices`. Do not invent fake upload buttons.
+- For **`modeling_simulation_workbench`**: after the user enters the module or asks to start建模仿真, your next tool step should be
+  `module_skill_runtime(module_id="modeling_simulation_workbench", action="upload_bundle", state={{}})`.
+  After the upload completes, the flow continues as `upload_bundle_complete -> device_confirm -> create_device -> topo_confirm -> finish`.
 - If the user already sent a strategy id as plain text, still call `upload_evidence` with that `state` instead of presenting more choice buttons for uploading.
 - When `module.json` sets `flowOptions.requireEvidenceBeforeStrategy`, the host may **already** show a FilePicker after `start` without your tool call — do not duplicate with `present_choices` for uploads.
 

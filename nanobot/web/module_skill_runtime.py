@@ -426,28 +426,24 @@ def _embedded_web_golden_metrics_nodes(
     center_label: str | None = None,
 ) -> list[tuple[str, str, dict[str, Any]]]:
     """
-    与 ``_boilerplate_metrics_nodes`` 参数一致，但只更新 ``EmbeddedWeb`` 节点 ``embedded-bilibili-golden`` 的 state
-    （用于建模仿真等「黄金指标位」嵌入 bilibili 播放器等外部页）。
+    与 ``_boilerplate_metrics_nodes`` 参数一致，但只更新 ``EmbeddedWeb`` 的 ``state``（建模仿真内网 access 页等指标联动）。
+
+    同时写入 ``embedded-modeling-access`` 与旧 id ``embedded-bilibili-golden``：后者无节点时 merge 会被 doc 层跳过，便于旧版 dashboard 兼容。
     """
+    metrics = {
+        "throughput": throughput,
+        "quality": quality,
+        "risk": risk,
+        "centerValue": center_value,
+        "completed": completed,
+        "pending": pending,
+        "centerLabel": center_label or "仿真健康度",
+        "labels": case_cfg["metric_labels"],
+    }
+    embed = {"state": {"metrics": dict(metrics)}}
     return [
-        (
-            "embedded-bilibili-golden",
-            "EmbeddedWeb",
-            {
-                "state": {
-                    "metrics": {
-                        "throughput": throughput,
-                        "quality": quality,
-                        "risk": risk,
-                        "centerValue": center_value,
-                        "completed": completed,
-                        "pending": pending,
-                        "centerLabel": center_label or "仿真健康度",
-                        "labels": case_cfg["metric_labels"],
-                    }
-                }
-            },
-        ),
+        ("embedded-modeling-access", "EmbeddedWeb", dict(embed)),
+        ("embedded-bilibili-golden", "EmbeddedWeb", dict(embed)),
     ]
 
 
@@ -554,6 +550,68 @@ def _write_workbench_report(
         f"## 结论建议\n"
         f"- 当前工作台展示的是标准模块骨架，可直接替换为实际业务 skill。\n"
         f"- 项目层进度建议继续由 task_progress 驱动，模块层细节建议继续由 dashboard patch 驱动。\n"
+    )
+    out_file.write_text(content, encoding="utf-8")
+    return f"workspace/skills/{module_id}/output/{out_file.name}"
+
+
+def _simulation_stepper_steps(stage: int, upload_name: str = "") -> list[dict[str, Any]]:
+    """建模仿真模块五阶段 Stepper：0-4 为当前阶段，5 表示全部完成。"""
+    un = (upload_name or "").strip() or "BOQ资料包"
+    specs = [
+        ("s1", "BOQ提取", "请上传 BOQ 与建模资料包", f"已提取：{un}"),
+        ("s2", "设备确认", "请确认识别出的设备清单", "设备清单已确认"),
+        ("s3", "创建设备", "正在根据设备清单创建设备模型", "设备模型已创建"),
+        ("s4", "拓扑确认", "请确认生成的拓扑结构", "拓扑结构已确认"),
+        ("s5", "拓扑连接", "正在执行拓扑连接与结果固化", "拓扑连接已完成"),
+    ]
+    wait_msgs = [
+        "等待进入模块",
+        "等待 BOQ 提取完成",
+        "等待设备清单确认",
+        "等待设备模型生成",
+        "等待拓扑结构确认",
+    ]
+    out: list[dict[str, Any]] = []
+    for i, (sid, title, run_det, done_det) in enumerate(specs):
+        if stage < i:
+            out.append({"id": sid, "title": title, "status": "waiting", "detail": [{"title": wait_msgs[i], "status": "waiting"}]})
+        elif stage == i:
+            out.append({"id": sid, "title": title, "status": "running", "detail": [{"title": run_det, "status": "running"}]})
+        else:
+            out.append({"id": sid, "title": title, "status": "done", "detail": [{"title": done_det, "status": "done"}]})
+    return out
+
+
+def _write_modeling_simulation_report(
+    *,
+    module_id: str,
+    case_cfg: dict[str, Any],
+    upload_name: str,
+    throughput: int,
+    quality: int,
+    risk: int,
+) -> str:
+    out_dir = get_skills_root() / module_id / "output"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_file = out_dir / case_cfg["report_file_name"]
+    content = (
+        f"# {case_cfg['module_title']} · 结果说明\n\n"
+        f"## 本次输入\n"
+        f"- 资料包：{upload_name}\n"
+        f"- 流程：BOQ提取 → 设备确认 → 创建设备 → 拓扑确认 → 拓扑连接\n\n"
+        f"## 阶段结论\n"
+        f"1. 已完成 BOQ 资料接收与设备清单提取。\n"
+        f"2. 已确认设备清单并创建设备模型。\n"
+        f"3. 已完成拓扑预览确认与拓扑连接固化。\n\n"
+        f"## 指标摘要\n"
+        f"- {case_cfg['metric_labels']['throughput']}：{throughput}\n"
+        f"- {case_cfg['metric_labels']['quality']}：{quality}\n"
+        f"- {case_cfg['metric_labels']['risk']}：{risk}\n\n"
+        f"## 集成建议\n"
+        f"- 保持 `stepper-main`、`summary-text`、`uploaded-files`、`artifacts` 与嵌入页节点 id 不变。\n"
+        f"- 后续可在 `create_device` / `topo_confirm` 中接入真实建模与拓扑 API。\n"
+        f"- 项目总览继续由 `taskProgress.actionMapping` 驱动，模块细节由 dashboard patch 驱动。\n"
     )
     out_file.write_text(content, encoding="utf-8")
     return f"workspace/skills/{module_id}/output/{out_file.name}"
@@ -2803,6 +2861,499 @@ async def _flow_intelligent_analysis_workbench(
     return {"ok": False, "error": f"unknown action: {action!r}"}
 
 
+async def _flow_simulation_workflow(
+    *,
+    module_id: str,
+    action: str,
+    state: dict[str, Any],
+    thread_id: str,
+    docman: Any,
+    cfg: dict[str, Any],
+) -> dict[str, Any]:
+    pusher = _pusher_for(cfg)
+    doc_id = str(cfg["docId"])
+    sp = synthetic_path_for_data_file(str(cfg["dataFile"]))
+    mc = MissionControlManager(thread_id=thread_id, docman=docman)
+    sess = merge_module_session(thread_id, module_id, state)
+    case_cfg = _boilerplate_case_config(cfg, module_id)
+    metrics_nodes_fn = (
+        _embedded_web_golden_metrics_nodes
+        if str(cfg.get("metricsPresentation") or "").strip() == "embedded_web"
+        else _boilerplate_metrics_nodes
+    )
+    progress_module_name = _task_progress_definition(case_cfg["module_title"], cfg)["module_name"]
+    brand = str(case_cfg.get("module_title") or "建模仿真模块").strip() or "建模仿真模块"
+    upload_cfg = _upload_config(cfg, "analysis_bundle")
+
+    if action == "cancel":
+        clear_module_session(thread_id, module_id)
+        await _set_project_progress_and_emit(progress_module_name, set(), cfg)
+        return {"ok": True, "cancelled": True}
+
+    if action == "guide":
+        clear_module_session(thread_id, module_id)
+        await _set_project_progress_and_emit(
+            progress_module_name,
+            _configured_completed_tasks(cfg, "guide", {"BOQ提取"}, module_name=progress_module_name),
+            cfg,
+        )
+        await pusher.update_nodes(
+            [
+                (SDUI_STEPPER_MAIN_ID, "Stepper", {"steps": _simulation_stepper_steps(0)}),
+                *metrics_nodes_fn(
+                    case_cfg,
+                    6,
+                    4,
+                    1,
+                    center_value="6%",
+                    center_label="仿真健康度",
+                    completed=0,
+                    pending=5,
+                ),
+                (
+                    BoilerplateDashboardIds.SUMMARY_TEXT,
+                    "Text",
+                    {
+                        "content": f"{brand}已就绪。请先上传 BOQ 与建模资料包，系统会依次完成 BOQ 提取、设备确认、创建设备、拓扑确认与拓扑连接。",
+                        "variant": "body",
+                        "color": "subtle",
+                    },
+                ),
+                (
+                    BoilerplateDashboardIds.UPLOADED_FILES,
+                    "ArtifactGrid",
+                    {"title": "已上传文件", "mode": "input", "artifacts": []},
+                ),
+            ]
+        )
+        await mc.emit_guidance(
+            context=f"{brand}已进入建模仿真流程。第一步请上传 BOQ 与建模资料包，随后系统会提取设备清单并进入确认。",
+            actions=[
+                {
+                    "label": "开始建模仿真",
+                    "verb": "module_action",
+                    "payload": {"moduleId": module_id, "action": "upload_bundle", "state": {}},
+                }
+            ],
+        )
+        return {"ok": True, "next": "upload_bundle"}
+
+    if action == "upload_bundle":
+        await _set_project_progress_and_emit(
+            progress_module_name,
+            _configured_completed_tasks(cfg, "upload_bundle", {"BOQ提取"}, module_name=progress_module_name),
+            cfg,
+        )
+        await pusher.update_nodes(
+            [
+                (SDUI_STEPPER_MAIN_ID, "Stepper", {"steps": _simulation_stepper_steps(0)}),
+                *metrics_nodes_fn(
+                    case_cfg,
+                    22,
+                    18,
+                    3,
+                    center_value="18%",
+                    center_label="仿真健康度",
+                    completed=0,
+                    pending=5,
+                ),
+                (
+                    BoilerplateDashboardIds.SUMMARY_TEXT,
+                    "Text",
+                    {
+                        "content": "请上传 BOQ、设备清单或建模资料包。上传完成后会先展示设备清单预览，再进入设备确认。",
+                        "variant": "body",
+                        "color": "subtle",
+                    },
+                ),
+                (
+                    BoilerplateDashboardIds.UPLOADED_FILES,
+                    "ArtifactGrid",
+                    {"title": "已上传文件", "mode": "input", "artifacts": _uploads_as_artifacts(_merge_uploads(sess.get('uploads'), state.get('uploads')))},
+                ),
+            ]
+        )
+        await mc.ask_for_file(
+            purpose="analysis_bundle",
+            title="请上传 BOQ 与建模资料包",
+            accept=str(upload_cfg.get("accept") or ".zip,.xlsx,.csv,.pdf,.doc,.docx,.png,.jpg,.stp,.step,.iges,.stl,.json"),
+            multiple=bool(upload_cfg.get("multiple", True)),
+            module_id=module_id,
+            next_action="upload_bundle_complete",
+            save_relative_dir=str(upload_cfg.get("save_relative_dir") or f"skills/{module_id}/input"),
+        )
+        return {"ok": True, "next": "upload_bundle_complete"}
+
+    if action == "upload_bundle_complete":
+        merged = merge_module_session(thread_id, module_id, dict(state))
+        uploads = _merge_uploads(merged.get("uploads"), state.get("uploads"))
+        upload_meta = dict(_latest_upload_meta({"upload": merged.get("upload"), "uploads": uploads}))
+        if not uploads and upload_meta:
+            uploads = [upload_meta]
+        merged = merge_module_session(
+            thread_id,
+            module_id,
+            {"upload": upload_meta or None, "uploads": uploads},
+        )
+        upload_name = str(upload_meta.get("name") or "BOQ资料包")
+        await _set_project_progress_and_emit(
+            progress_module_name,
+            _configured_completed_tasks(
+                cfg,
+                "upload_bundle_complete",
+                {"BOQ提取", "设备确认"},
+                module_name=progress_module_name,
+            ),
+            cfg,
+        )
+        await pusher.update_nodes(
+            [
+                (SDUI_STEPPER_MAIN_ID, "Stepper", {"steps": _simulation_stepper_steps(1, upload_name)}),
+                *metrics_nodes_fn(
+                    case_cfg,
+                    48,
+                    42,
+                    6,
+                    center_value="36%",
+                    center_label="仿真健康度",
+                    completed=1,
+                    pending=4,
+                ),
+                (
+                    BoilerplateDashboardIds.UPLOADED_FILES,
+                    "ArtifactGrid",
+                    {"title": "已上传文件", "mode": "input", "artifacts": _uploads_as_artifacts(uploads)},
+                ),
+                (
+                    BoilerplateDashboardIds.SUMMARY_TEXT,
+                    "Text",
+                    {
+                        "content": f"已完成 BOQ 提取，最近上传：{upload_name}。当前已生成设备清单预览，请确认设备名称、数量与类型后进入创建设备。",
+                        "variant": "body",
+                        "color": "subtle",
+                    },
+                ),
+            ]
+        )
+        cid = str(merged.get("cardId") or state.get("cardId") or "").strip()
+        if cid:
+            await mc.replace_card(
+                card_id=cid,
+                title="BOQ 已提取",
+                node={
+                    "type": "Stack",
+                    "gap": "sm",
+                    "children": [
+                        {
+                            "type": "Text",
+                            "variant": "body",
+                            "content": f"已完成资料接收与 BOQ 提取，最近上传：{upload_name}。可继续补传文件，或直接确认设备清单。",
+                            "color": "subtle",
+                        },
+                        {
+                            "type": "ArtifactGrid",
+                            "title": "已上传文件",
+                            "mode": "input",
+                            "artifacts": _uploads_as_artifacts(uploads),
+                        },
+                        {
+                            "type": "GuidanceCard",
+                            "cardId": cid,
+                            "context": "设备清单预览已准备好。请选择继续上传或进入设备确认。",
+                            "actions": [
+                                {
+                                    "label": "继续上传",
+                                    "verb": "module_action",
+                                    "payload": {
+                                        "moduleId": module_id,
+                                        "action": "upload_bundle",
+                                        "state": {"upload": upload_meta, "uploads": uploads},
+                                    },
+                                },
+                                {
+                                    "label": "确认设备清单",
+                                    "verb": "module_action",
+                                    "payload": {
+                                        "moduleId": module_id,
+                                        "action": "device_confirm",
+                                        "state": {"upload": upload_meta, "uploads": uploads},
+                                    },
+                                },
+                            ],
+                        },
+                    ],
+                },
+                doc_id=f"chat:{thread_id}",
+            )
+        return {"ok": True, "next": "device_confirm"}
+
+    if action == "device_confirm":
+        merged = merge_module_session(thread_id, module_id, dict(state))
+        upload_meta = _latest_upload_meta(merged)
+        upload_name = str(upload_meta.get("name") or "BOQ资料包")
+        uploads = _merge_uploads(merged.get("uploads"), state.get("uploads"))
+        await _set_project_progress_and_emit(
+            progress_module_name,
+            _configured_completed_tasks(
+                cfg,
+                "device_confirm",
+                {"BOQ提取", "设备确认"},
+                module_name=progress_module_name,
+            ),
+            cfg,
+        )
+        await pusher.update_nodes(
+            [
+                (SDUI_STEPPER_MAIN_ID, "Stepper", {"steps": _simulation_stepper_steps(1, upload_name)}),
+                *metrics_nodes_fn(
+                    case_cfg,
+                    55,
+                    48,
+                    8,
+                    center_value="44%",
+                    center_label="仿真健康度",
+                    completed=1,
+                    pending=4,
+                ),
+                (
+                    BoilerplateDashboardIds.UPLOADED_FILES,
+                    "ArtifactGrid",
+                    {"title": "已上传文件", "mode": "input", "artifacts": _uploads_as_artifacts(uploads)},
+                ),
+                (
+                    BoilerplateDashboardIds.SUMMARY_TEXT,
+                    "Text",
+                    {
+                        "content": f"请确认 {upload_name} 提取出的设备清单。确认后系统会据此创建设备模型，并继续生成拓扑结构。",
+                        "variant": "body",
+                        "color": "subtle",
+                    },
+                ),
+            ]
+        )
+        await mc.emit_guidance(
+            context="设备清单预览已生成。请确认设备识别结果，系统将开始创建设备模型。",
+            actions=[
+                {
+                    "label": "开始创建设备",
+                    "verb": "module_action",
+                    "payload": {"moduleId": module_id, "action": "create_device", "state": dict(merged)},
+                }
+            ],
+        )
+        return {"ok": True, "next": "create_device"}
+
+    if action == "create_device":
+        merged = merge_module_session(thread_id, module_id, dict(state))
+        upload_meta = _latest_upload_meta(merged)
+        upload_name = str(upload_meta.get("name") or "BOQ资料包")
+        uploads = _merge_uploads(merged.get("uploads"), state.get("uploads"))
+        await _set_project_progress_and_emit(
+            progress_module_name,
+            _configured_completed_tasks(
+                cfg,
+                "create_device",
+                {"BOQ提取", "设备确认", "创建设备"},
+                module_name=progress_module_name,
+            ),
+            cfg,
+        )
+        await _stream_patch_frames(
+            pusher,
+            [
+                [
+                    (SDUI_STEPPER_MAIN_ID, "Stepper", {"steps": _simulation_stepper_steps(2, upload_name)}),
+                    *metrics_nodes_fn(
+                        case_cfg,
+                        62,
+                        58,
+                        10,
+                        center_value="56%",
+                        center_label="仿真健康度",
+                        completed=2,
+                        pending=3,
+                    ),
+                    (
+                        BoilerplateDashboardIds.UPLOADED_FILES,
+                        "ArtifactGrid",
+                        {"title": "已上传文件", "mode": "input", "artifacts": _uploads_as_artifacts(uploads)},
+                    ),
+                    (
+                        BoilerplateDashboardIds.SUMMARY_TEXT,
+                        "Text",
+                        {
+                            "content": f"正在根据 {upload_name} 中的设备清单创建设备模型，并生成可用于拓扑编排的实体。",
+                            "variant": "body",
+                            "color": "subtle",
+                        },
+                    ),
+                ],
+                [
+                    (SDUI_STEPPER_MAIN_ID, "Stepper", {"steps": _simulation_stepper_steps(3, upload_name)}),
+                    *metrics_nodes_fn(
+                        case_cfg,
+                        74,
+                        68,
+                        9,
+                        center_value="70%",
+                        center_label="仿真健康度",
+                        completed=3,
+                        pending=2,
+                    ),
+                    (
+                        BoilerplateDashboardIds.UPLOADED_FILES,
+                        "ArtifactGrid",
+                        {"title": "已上传文件", "mode": "input", "artifacts": _uploads_as_artifacts(uploads)},
+                    ),
+                    (
+                        BoilerplateDashboardIds.SUMMARY_TEXT,
+                        "Text",
+                        {
+                            "content": "设备模型已创建完成，系统已生成拓扑预览。下一步请确认拓扑结构与连接关系。",
+                            "variant": "body",
+                            "color": "subtle",
+                        },
+                    ),
+                ],
+            ],
+        )
+        await mc.emit_guidance(
+            context="设备模型已创建，拓扑预览已准备好。请进入拓扑确认阶段。",
+            actions=[
+                {
+                    "label": "确认拓扑结构",
+                    "verb": "module_action",
+                    "payload": {"moduleId": module_id, "action": "topo_confirm", "state": dict(merged)},
+                }
+            ],
+        )
+        return {"ok": True, "next": "topo_confirm"}
+
+    if action == "topo_confirm":
+        merged = merge_module_session(thread_id, module_id, dict(state))
+        upload_meta = _latest_upload_meta(merged)
+        upload_name = str(upload_meta.get("name") or "BOQ资料包")
+        uploads = _merge_uploads(merged.get("uploads"), state.get("uploads"))
+        await _set_project_progress_and_emit(
+            progress_module_name,
+            _configured_completed_tasks(
+                cfg,
+                "topo_confirm",
+                {"BOQ提取", "设备确认", "创建设备", "拓扑确认"},
+                module_name=progress_module_name,
+            ),
+            cfg,
+        )
+        await pusher.update_nodes(
+            [
+                (SDUI_STEPPER_MAIN_ID, "Stepper", {"steps": _simulation_stepper_steps(3, upload_name)}),
+                *metrics_nodes_fn(
+                    case_cfg,
+                    82,
+                    76,
+                    8,
+                    center_value="84%",
+                    center_label="仿真健康度",
+                    completed=4,
+                    pending=1,
+                ),
+                (
+                    BoilerplateDashboardIds.UPLOADED_FILES,
+                    "ArtifactGrid",
+                    {"title": "已上传文件", "mode": "input", "artifacts": _uploads_as_artifacts(uploads)},
+                ),
+                (
+                    BoilerplateDashboardIds.SUMMARY_TEXT,
+                    "Text",
+                    {
+                        "content": "拓扑结构已生成。请确认关键设备节点、上下游关系和连接约束，确认后系统将执行拓扑连接并固化结果。",
+                        "variant": "body",
+                        "color": "subtle",
+                    },
+                ),
+            ]
+        )
+        await mc.emit_guidance(
+            context="拓扑结构待确认。确认后将执行拓扑连接并生成最终结果。",
+            actions=[
+                {
+                    "label": "执行拓扑连接",
+                    "verb": "module_action",
+                    "payload": {"moduleId": module_id, "action": "finish", "state": dict(merged)},
+                }
+            ],
+        )
+        return {"ok": True, "next": "finish"}
+
+    if action == "finish":
+        upload_meta = _latest_upload_meta(sess)
+        upload_name = str(upload_meta.get("name") or "BOQ资料包")
+        uploads = _merge_uploads(sess.get("uploads"), state.get("uploads"))
+        throughput = 92
+        quality = 88
+        risk = 5
+        await _set_project_progress_and_emit(
+            progress_module_name,
+            _configured_completed_tasks(
+                cfg,
+                "finish",
+                {"BOQ提取", "设备确认", "创建设备", "拓扑确认", "拓扑连接"},
+                module_name=progress_module_name,
+            ),
+            cfg,
+        )
+        await pusher.update_nodes(
+            [
+                (SDUI_STEPPER_MAIN_ID, "Stepper", {"steps": _simulation_stepper_steps(5, upload_name)}),
+                *metrics_nodes_fn(
+                    case_cfg,
+                    throughput,
+                    quality,
+                    risk,
+                    center_value="100%",
+                    center_label="仿真健康度",
+                    completed=5,
+                    pending=0,
+                ),
+                (
+                    BoilerplateDashboardIds.UPLOADED_FILES,
+                    "ArtifactGrid",
+                    {"title": "已上传文件", "mode": "input", "artifacts": _uploads_as_artifacts(uploads)},
+                ),
+                (
+                    BoilerplateDashboardIds.SUMMARY_TEXT,
+                    "Text",
+                    {
+                        "content": f"{brand}已完成本轮建模仿真：资料={upload_name}。系统已完成设备创建、拓扑确认与拓扑连接，并生成最终结果说明。",
+                        "variant": "body",
+                        "color": "subtle",
+                    },
+                ),
+            ]
+        )
+        out_path = _write_modeling_simulation_report(
+            module_id=module_id,
+            case_cfg=case_cfg,
+            upload_name=upload_name,
+            throughput=throughput,
+            quality=quality,
+            risk=risk,
+        )
+        await mc.add_artifact(
+            doc_id,
+            synthetic_path=sp,
+            artifact_id="modeling-simulation-workbench-report-001",
+            label=case_cfg["report_label"],
+            path=out_path,
+            kind="md",
+            status="ready",
+        )
+        clear_module_session(thread_id, module_id)
+        return {"ok": True, "done": True, "summary": "simulation_workflow 完成：建模仿真结果已生成。"}
+
+    return {"ok": False, "error": f"unknown action: {action!r}"}
+
+
 async def _flow_job_management(
     *,
     module_id: str,
@@ -3368,6 +3919,15 @@ async def run_module_action(
             )
         elif flow == "intelligent_analysis_workbench":
             result = await _flow_intelligent_analysis_workbench(
+                module_id=mid,
+                action=act,
+                state=st,
+                thread_id=tid,
+                docman=docman,
+                cfg=cfg,
+            )
+        elif flow == "simulation_workflow":
+            result = await _flow_simulation_workflow(
                 module_id=mid,
                 action=act,
                 state=st,

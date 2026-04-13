@@ -31,4 +31,6 @@ test("composeProjectRegistryItems prepends canonical modules and preserves real 
     ],
   );
   assert.equal(items[1].dashboard.dataFile, "skills/zhgk_module_case/data/dashboard.json");
+  assert.match(items[2].description, /访问页|嵌入网页/);
+  assert.doesNotMatch(items[2].description, /哔哩哔哩/);
 });

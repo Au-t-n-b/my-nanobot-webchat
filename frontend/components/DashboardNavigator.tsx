@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { SkillUiBootstrapEvent, SkillUiDataPatchEvent } from "@/hooks/useAgentChat";
 import { ProjectOverview } from "@/components/dashboard/ProjectOverview";
 import { ModuleDashboard } from "@/components/dashboard/ModuleDashboard";
+import { shouldSuppressAutoGuide } from "@/lib/dashboardAutoGuidePolicy";
 import {
   markProjectModuleAutoGuided,
   selectProjectModule,
@@ -160,7 +161,7 @@ export function DashboardNavigator({
     if (!moduleId) return;
     if (isAgentRunning) return;
     if (autoGuidedModuleIds.includes(moduleId)) return;
-    if (activeTaskModuleStatus === "running" || activeTaskModuleStatus === "completed") return;
+    if (shouldSuppressAutoGuide(moduleId, activeTaskModuleStatus)) return;
 
     const handle = window.setTimeout(() => {
       if (autoGuidedModuleIds.includes(moduleId)) return;

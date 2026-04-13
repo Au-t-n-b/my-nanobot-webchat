@@ -14,7 +14,7 @@ const CANONICAL_STAGE_MODULES = [
   {
     moduleId: "modeling_simulation_workbench",
     label: "建模仿真模块",
-    description: "负责建模、仿真推演与结果校核；模板大盘黄金指标位可嵌入哔哩哔哩播放器。",
+    description: "负责建模、仿真推演与结果校核；模板大盘黄金指标位可嵌入建模仿真访问页。",
     aliases: ["建模仿真模块", "建模仿真", "modeling_simulation"],
   },
   {

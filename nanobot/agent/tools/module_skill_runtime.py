@@ -21,8 +21,10 @@ class ModuleSkillRuntimeTool(Tool):
             "运行已安装的模块 Skill：更新中间栏 Skill-UI 大盘（SkillUiDataPatch），"
             "并在会话中下发引导 / 选择 / 真实文件上传（FilePicker，可拖拽）等 ChatCard。"
             "module_id 为技能目录名；action 依模块 flow（如 demo_compliance：guide/start/choose_standard/upload_material/finish；"
-            "module_boilerplate：guide/start/choose_strategy/upload_evidence/after_upload/finish）。"
-            "上传步骤必须由本工具 action=upload_evidence（或 demo 的 upload_material）触发，"
+            "module_boilerplate：guide/start/choose_strategy/upload_evidence/after_upload/finish；"
+            "simulation_workflow：guide/upload_bundle/upload_bundle_complete/device_confirm/create_device/topo_confirm/finish）。"
+            "上传步骤必须由本工具的真实上传 action 触发（如 module_boilerplate 的 upload_evidence、"
+            "simulation_workflow 的 upload_bundle，或 demo 的 upload_material），"
             "禁止用 present_choices 模拟上传。"
             "state 可含 standard（策略 id）、upload 等。仅 Web 聊天上下文可用（需 thread_id）。"
         )

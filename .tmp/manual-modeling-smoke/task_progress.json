@@ -1,0 +1,64 @@
+{
+  "schemaVersion": 1,
+  "updatedAt": 1776046117,
+  "progress": [
+    {
+      "moduleId": "m_7",
+      "moduleName": "智能分析工作台",
+      "updatedAt": null,
+      "tasks": [
+        {
+          "name": "模块待启动",
+          "completed": false
+        },
+        {
+          "name": "分析目标已确认",
+          "completed": false
+        },
+        {
+          "name": "资料已上传",
+          "completed": false
+        },
+        {
+          "name": "并行分析进行中",
+          "completed": false
+        },
+        {
+          "name": "结论汇总中",
+          "completed": false
+        },
+        {
+          "name": "分析完成",
+          "completed": false
+        }
+      ]
+    },
+    {
+      "moduleId": "modeling_simulation_workbench",
+      "moduleName": "建模仿真模块",
+      "updatedAt": 1776046117,
+      "tasks": [
+        {
+          "name": "BOQ提取",
+          "completed": true
+        },
+        {
+          "name": "设备确认",
+          "completed": true
+        },
+        {
+          "name": "创建设备",
+          "completed": true
+        },
+        {
+          "name": "拓扑确认",
+          "completed": true
+        },
+        {
+          "name": "拓扑连接",
+          "completed": true
+        }
+      ]
+    }
+  ]
+}

@@ -647,7 +647,7 @@ export type SduiEmbeddedWebNode = SduiOptionalId & {
   allowedOrigins?: string[];
   minHeight?: number | string;
   /**
-   * 是否启用 iframe sandbox。视频站嵌入（如哔哩哔哩播放器）常为 false，否则可能无法播放。
+   * 是否启用 iframe sandbox。内网业务页或部分视频站嵌入常为 false，否则可能无法加载或播放。
    * @default true
    */
   embedSandbox?: boolean;

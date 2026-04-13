@@ -20,7 +20,7 @@ type Props = {
   className?: string;
   /** 可视区域最小高度，如 320 或 "40vh" */
   minHeight?: number | string;
-  /** 为 false 时不设置 sandbox，便于 bilibili 等视频嵌入播放 */
+  /** 为 false 时不设置 sandbox，便于内网业务页或部分视频站嵌入 */
   embedSandbox?: boolean;
 };
 

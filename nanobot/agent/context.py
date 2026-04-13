@@ -119,6 +119,12 @@ Whenever you need the user to **choose between options** (e.g. selecting a scena
 - For **`modeling_simulation_workbench`**: after the user enters the module or asks to start建模仿真, your next tool step should be
   `module_skill_runtime(module_id="modeling_simulation_workbench", action="upload_bundle", state={{}})`.
   After the upload completes, the flow continues as `upload_bundle_complete -> device_confirm -> create_device -> topo_confirm -> finish`.
+- For **`smart_survey_workbench`**: after the user enters the module or asks to start智慧工勘, your next tool step should be
+  `module_skill_runtime(module_id="smart_survey_workbench", action="prepare_step1", state={{}})`.
+  The flow continues as `run_step1 -> prepare_step2 -> run_step2 -> prepare_step3 -> run_step3 -> prepare_step4 -> run_step4_approve`.
+  After `run_step4_approve`, pause for human confirmation and only continue with
+  `module_skill_runtime(module_id="smart_survey_workbench", action="approval_pass", state={{...}})`
+  when the user明确表示“审批通过”.
 - If the user already sent a strategy id as plain text, still call `upload_evidence` with that `state` instead of presenting more choice buttons for uploading.
 - When `module.json` sets `flowOptions.requireEvidenceBeforeStrategy`, the host may **already** show a FilePicker after `start` without your tool call — do not duplicate with `present_choices` for uploads.
 

@@ -20,6 +20,48 @@
         "steps": []
       },
       {
+        "type": "Text",
+        "variant": "heading",
+        "content": "黄金指标"
+      },
+      {
+        "type": "Row",
+        "gap": "md",
+        "children": [
+          {
+            "type": "DonutChart",
+            "id": "chart-donut",
+            "flex": 1,
+            "centerLabel": "勘测完成度",
+            "centerValue": "0%",
+            "segments": [
+              { "label": "已完成", "value": 0, "color": "success" },
+              { "label": "待办", "value": 4, "color": "subtle" }
+            ]
+          },
+          {
+            "type": "BarChart",
+            "id": "chart-bar",
+            "flex": 1,
+            "valueUnit": "",
+            "data": [
+              { "label": "勘测完成度", "value": 0, "color": "accent" },
+              { "label": "数据完整率", "value": 0, "color": "success" },
+              { "label": "遗留问题数", "value": 0, "color": "warning" }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "GoldenMetrics",
+        "id": "golden-metrics",
+        "metrics": [
+          { "id": "metric-throughput", "label": "勘测完成度", "value": 0, "color": "accent" },
+          { "id": "metric-quality", "label": "数据完整率", "value": 0, "color": "success" },
+          { "id": "metric-risk", "label": "遗留问题数", "value": 0, "color": "warning" }
+        ]
+      },
+      {
         "type": "Stack",
         "id": "alerts",
         "gap": "sm",

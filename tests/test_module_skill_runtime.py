@@ -1093,6 +1093,162 @@ async def test_smart_survey_prepare_step1_requests_missing_inputs(
 
 
 @pytest.mark.asyncio
+async def test_smart_survey_run_step1_updates_summary_and_artifacts(
+    skills_smart_survey_with_gongkan: Path,
+    capture_skill_ui_patches: list[dict],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import nanobot.web.module_skill_runtime as module_skill_runtime
+
+    skill_root = skills_smart_survey_with_gongkan / "gongkan_skill"
+    start_dir = skill_root / "ProjectData" / "Start"
+    input_dir = skill_root / "ProjectData" / "Input"
+    for name in ["勘测问题底表.xlsx", "评估项底表.xlsx", "工勘常见高风险库.xlsx"]:
+        (start_dir / name).write_text(name, encoding="utf-8")
+    (input_dir / "sample_BOQ.xlsx").write_text("boq", encoding="utf-8")
+    (input_dir / "勘测信息预置集.docx").write_text("preset", encoding="utf-8")
+
+    monkeypatch.setattr(
+        module_skill_runtime,
+        "_run_gongkan_step1",
+        AsyncMock(
+            return_value={
+                "ok": True,
+                "summary": "已识别液冷/A3/新址新建",
+                "artifacts": [{"label": "定制工勘表.xlsx"}],
+            }
+        ),
+        raising=False,
+    )
+
+    r = await module_skill_runtime.run_module_action(
+        module_id="smart_survey_workbench",
+        action="run_step1",
+        state={},
+        thread_id="thread-smart-run1",
+        docman=None,
+    )
+    assert r.get("ok") is True
+    assert r.get("next") == "prepare_step2"
+    summary_updates = _merge_values_for_node(capture_skill_ui_patches, "summary-text")
+    assert summary_updates
+    assert "液冷" in str(summary_updates[-1].get("content") or "")
+    artifact_updates = _merge_values_for_node(capture_skill_ui_patches, "artifacts")
+    assert artifact_updates
+
+
+@pytest.mark.asyncio
+async def test_smart_survey_prepare_step2_requests_missing_results_or_images(
+    skills_smart_survey_with_gongkan: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import nanobot.web.module_skill_runtime as module_skill_runtime
+
+    skill_root = skills_smart_survey_with_gongkan / "gongkan_skill"
+    (skill_root / "ProjectData" / "RunTime" / "勘测问题底表_过滤.xlsx").write_text("filtered", encoding="utf-8")
+
+    mock_af = AsyncMock(
+        return_value=ChatCardHandle(card_id="upload:smart:step2", doc_id="chat:thread-smart-step2")
+    )
+    monkeypatch.setattr(
+        "nanobot.web.mission_control.MissionControlManager.ask_for_file",
+        mock_af,
+    )
+
+    r = await module_skill_runtime.run_module_action(
+        module_id="smart_survey_workbench",
+        action="prepare_step2",
+        state={},
+        thread_id="thread-smart-step2",
+        docman=None,
+    )
+    assert r.get("ok") is True
+    assert r.get("next") == "run_step2"
+    mock_af.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_smart_survey_run_step2_updates_uploaded_files_kpis_and_summary(
+    skills_smart_survey_with_gongkan: Path,
+    capture_skill_ui_patches: list[dict],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import nanobot.web.module_skill_runtime as module_skill_runtime
+
+    monkeypatch.setattr(
+        module_skill_runtime,
+        "_run_gongkan_step2",
+        AsyncMock(
+            return_value={
+                "ok": True,
+                "summary": "已生成全量勘测结果表，完整率 81%",
+                "uploaded_artifacts": [{"label": "勘测结果.xlsx"}],
+                "artifacts": [{"label": "全量勘测结果表.xlsx"}],
+                "metrics": {"completion": 81, "integrity": 81, "remaining": 24},
+            }
+        ),
+        raising=False,
+    )
+
+    r = await module_skill_runtime.run_module_action(
+        module_id="smart_survey_workbench",
+        action="run_step2",
+        state={},
+        thread_id="thread-smart-run2",
+        docman=None,
+    )
+    assert r.get("ok") is True
+    assert r.get("next") == "prepare_step3"
+    uploaded_updates = _merge_values_for_node(capture_skill_ui_patches, "uploaded-files")
+    assert uploaded_updates
+    summary_updates = _merge_values_for_node(capture_skill_ui_patches, "summary-text")
+    assert "完整率" in str(summary_updates[-1].get("content") or "")
+
+
+@pytest.mark.asyncio
+async def test_smart_survey_run_step4_approve_pauses_before_finish(
+    skills_smart_survey_with_gongkan: Path,
+    capture_skill_ui_patches: list[dict],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import nanobot.web.module_skill_runtime as module_skill_runtime
+
+    emit_guidance = AsyncMock()
+    monkeypatch.setattr(
+        "nanobot.web.mission_control.MissionControlManager.emit_guidance",
+        emit_guidance,
+    )
+    monkeypatch.setattr(
+        module_skill_runtime,
+        "_run_gongkan_step4_approve",
+        AsyncMock(return_value={"ok": True, "summary": "已发送专家审批，等待回执"}),
+        raising=False,
+    )
+
+    r = await module_skill_runtime.run_module_action(
+        module_id="smart_survey_workbench",
+        action="run_step4_approve",
+        state={},
+        thread_id="thread-smart-approve",
+        docman=None,
+    )
+    assert r.get("ok") is True
+    assert r.get("next") == "approval_pass"
+    emit_guidance.assert_awaited_once()
+    summary_updates = _merge_values_for_node(capture_skill_ui_patches, "summary-text")
+    assert "等待回执" in str(summary_updates[-1].get("content") or "")
+
+
+def test_system_prompt_mentions_smart_survey_workbench_flow() -> None:
+    from nanobot.agent.context import ContextBuilder
+
+    prompt = ContextBuilder(Path("D:/code/nanobot")).build_system_prompt([])
+    assert "smart_survey_workbench" in prompt
+    assert 'module_skill_runtime(module_id="smart_survey_workbench", action="prepare_step1"' in prompt
+    assert "approval_pass" in prompt
+
+
+@pytest.mark.asyncio
 async def test_modeling_simulation_workbench_guide_emits_dashboard_nodes(
     skills_modeling_simulation_workbench: Path,
     capture_skill_ui_patches: list[dict],

@@ -29,5 +29,13 @@
       "报告生成",
       "审批分发"
     ]
+  },
+  "caseTemplate": {
+    "moduleTitle": "智慧工勘模块",
+    "metricLabels": {
+      "throughput": "勘测完成度",
+      "quality": "数据完整率",
+      "risk": "遗留问题数"
+    }
   }
 }

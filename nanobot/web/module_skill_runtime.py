@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import shutil
 import sys
 import time
 from pathlib import Path
@@ -25,7 +26,7 @@ from nanobot.web.mission_control import MissionControlManager
 from nanobot.web.task_progress import load_task_status_payload, normalize_task_progress_payload, task_progress_file_path
 
 # 执行结束后发 idle。guide/start 不发 idle，让前端保持「模块进行中」并停在模块大盘，直到 finish/cancel。
-_ACTIONS_EMIT_IDLE_AFTER: frozenset[str] = frozenset({"cancel", "finish"})
+_ACTIONS_EMIT_IDLE_AFTER: frozenset[str] = frozenset({"cancel", "finish", "approval_pass"})
 
 
 async def _emit_module_session_focus(thread_id: str, module_id: str, status: str) -> None:
@@ -226,22 +227,12 @@ def _set_project_progress(
         }
         progress.append(target)
 
-    tasks = target.get("tasks")
-    if not isinstance(tasks, list):
-        tasks = []
-        target["tasks"] = tasks
     expected_task_order = definition["tasks"]
-    existing_names = {
-        str(task.get("name") or "").strip()
-        for task in tasks
-        if isinstance(task, dict)
-    }
-    for name in expected_task_order:
-        if name and name not in existing_names:
-            tasks.append({"name": name, "completed": False})
-    for task in tasks:
-        if isinstance(task, dict):
-            task["completed"] = str(task.get("name") or "") in completed_names
+    target["tasks"] = [
+        {"name": name, "completed": name in completed_names}
+        for name in expected_task_order
+        if name
+    ]
     now = int(time.time())
     payload["updatedAt"] = now
     target["updatedAt"] = now
@@ -1250,6 +1241,7 @@ async def _flow_module_boilerplate(
     sp = synthetic_path_for_data_file(str(cfg["dataFile"]))
     mc = MissionControlManager(thread_id=thread_id, docman=docman)
     sess = merge_module_session(thread_id, module_id, state)
+    case_cfg = _boilerplate_case_config(cfg, module_id)
 
     async def _emit_boilerplate_strategy_choices() -> None:
         await pusher.update_node(
@@ -3145,6 +3137,51 @@ def _smart_survey_skill_root() -> Path:
     return get_skills_root() / "gongkan_skill"
 
 
+_SMART_SURVEY_IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png"}
+_SMART_SURVEY_PROGRESS_NAME_MAP = {
+    "zhgk-scene-filter": "场景筛选与底表过滤",
+    "zhgk-survey-build": "勘测数据汇总",
+    "zhgk-report-gen": "报告生成",
+    "zhgk-report-distribute": "审批分发",
+}
+
+
+def _smart_survey_project_dir(skill_root: Path) -> Path:
+    path = skill_root / "ProjectData"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _smart_survey_start_dir(skill_root: Path) -> Path:
+    path = _smart_survey_project_dir(skill_root) / "Start"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _smart_survey_input_dir(skill_root: Path) -> Path:
+    path = _smart_survey_project_dir(skill_root) / "Input"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _smart_survey_images_dir(skill_root: Path) -> Path:
+    path = _smart_survey_project_dir(skill_root) / "Images"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _smart_survey_runtime_dir(skill_root: Path) -> Path:
+    path = _smart_survey_project_dir(skill_root) / "RunTime"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _smart_survey_output_dir(skill_root: Path) -> Path:
+    path = _smart_survey_project_dir(skill_root) / "Output"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
 def _smart_survey_stepper_steps(active_index: int) -> list[dict[str, Any]]:
     titles = [
         "场景筛选与底表过滤",
@@ -3172,8 +3209,8 @@ def _smart_survey_stepper_steps(active_index: int) -> list[dict[str, Any]]:
 
 
 def _smart_survey_missing_step1_inputs(skill_root: Path) -> list[str]:
-    start_dir = skill_root / "ProjectData" / "Start"
-    input_dir = skill_root / "ProjectData" / "Input"
+    start_dir = _smart_survey_start_dir(skill_root)
+    input_dir = _smart_survey_input_dir(skill_root)
     missing: list[str] = []
     for name in ["勘测问题底表.xlsx", "评估项底表.xlsx", "工勘常见高风险库.xlsx"]:
         if not (start_dir / name).exists():
@@ -3183,6 +3220,433 @@ def _smart_survey_missing_step1_inputs(skill_root: Path) -> list[str]:
     if not (input_dir / "勘测信息预置集.docx").exists():
         missing.append("勘测信息预置集.docx")
     return missing
+
+
+def _smart_survey_move_uploaded_images(skill_root: Path) -> None:
+    input_dir = _smart_survey_input_dir(skill_root)
+    image_dir = _smart_survey_images_dir(skill_root)
+    for path in input_dir.iterdir():
+        if not path.is_file() or path.suffix.lower() not in _SMART_SURVEY_IMAGE_SUFFIXES:
+            continue
+        target = image_dir / path.name
+        if target.exists():
+            continue
+        try:
+            shutil.copy2(path, target)
+        except OSError:
+            continue
+
+
+def _smart_survey_missing_step2_inputs(skill_root: Path) -> list[str]:
+    _smart_survey_move_uploaded_images(skill_root)
+    input_dir = _smart_survey_input_dir(skill_root)
+    image_dir = _smart_survey_images_dir(skill_root)
+    runtime_dir = _smart_survey_runtime_dir(skill_root)
+    missing: list[str] = []
+    if not (runtime_dir / "勘测问题底表_过滤.xlsx").exists():
+        missing.append("勘测问题底表_过滤.xlsx")
+    if not (input_dir / "勘测结果.xlsx").exists():
+        missing.append("勘测结果.xlsx")
+    if not any(path.is_file() for path in image_dir.iterdir()):
+        missing.append("现场照片")
+    return missing
+
+
+def _read_json_file(path: Path) -> dict[str, Any]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _artifact_kind_for_path(path: Path) -> str:
+    suffix = path.suffix.lstrip(".").lower()
+    return suffix if suffix in {"docx", "xlsx", "pdf", "html", "json", "md", "png", "jpg", "jpeg"} else "other"
+
+
+def _artifact_for_path(path: Path, *, prefix: str, index: int) -> dict[str, Any]:
+    return {
+        "id": f"{prefix}-{index}",
+        "label": path.name,
+        "path": _workspace_relative_path(path),
+        "kind": _artifact_kind_for_path(path),
+        "status": "ready",
+    }
+
+
+def _artifacts_for_existing_paths(paths: list[Path], *, prefix: str) -> list[dict[str, Any]]:
+    artifacts: list[dict[str, Any]] = []
+    for index, path in enumerate(paths, start=1):
+        if not path.exists():
+            continue
+        artifacts.append(_artifact_for_path(path, prefix=prefix, index=index))
+    return artifacts
+
+
+def _smart_survey_input_artifacts(skill_root: Path) -> list[dict[str, Any]]:
+    input_dir = _smart_survey_input_dir(skill_root)
+    image_dir = _smart_survey_images_dir(skill_root)
+    files = sorted([path for path in input_dir.iterdir() if path.is_file()], key=lambda item: item.name)
+    files.extend(sorted([path for path in image_dir.iterdir() if path.is_file()], key=lambda item: item.name))
+    return _artifacts_for_existing_paths(files, prefix="smart-survey-input")
+
+
+def _smart_survey_skill_result(skill_root: Path) -> dict[str, Any]:
+    return _read_json_file(_smart_survey_output_dir(skill_root) / "skill_result.json")
+
+
+def _smart_survey_progress_payload(skill_root: Path) -> dict[str, Any]:
+    return _read_json_file(_smart_survey_runtime_dir(skill_root) / "progress.json")
+
+
+def _smart_survey_completed_task_names(skill_root: Path) -> set[str]:
+    payload = _smart_survey_progress_payload(skill_root)
+    modules = payload.get("modules")
+    if not isinstance(modules, list):
+        return set()
+    for item in modules:
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("moduleId") or "").strip() != "smart_survey":
+            continue
+        tasks = item.get("tasks")
+        if not isinstance(tasks, list):
+            return set()
+        completed: set[str] = set()
+        for task in tasks:
+            if not isinstance(task, dict) or not bool(task.get("completed")):
+                continue
+            display_name = str(task.get("displayName") or "").strip()
+            if display_name:
+                completed.add(display_name)
+                continue
+            name = str(task.get("name") or "").strip()
+            mapped = _SMART_SURVEY_PROGRESS_NAME_MAP.get(name)
+            if mapped:
+                completed.add(mapped)
+        return completed
+    return set()
+
+
+async def _sync_smart_survey_task_progress(
+    skill_root: Path,
+    cfg: dict[str, Any],
+    fallback: set[str],
+) -> None:
+    definition = _task_progress_definition("智慧工勘模块", cfg)
+    completed = _smart_survey_completed_task_names(skill_root) or set(fallback)
+    await _set_project_progress_and_emit(definition["module_name"], completed, cfg)
+
+
+async def _run_gongkan_command(
+    command: list[str],
+    *,
+    cwd: Path,
+) -> dict[str, Any]:
+    env = os.environ.copy()
+    env["PYTHONIOENCODING"] = "utf-8"
+    env["PYTHONUTF8"] = "1"
+    env["NANOBOT_WORKSPACE"] = str(_workspace_root())
+    proc = await asyncio.create_subprocess_exec(
+        *command,
+        cwd=str(cwd),
+        env=env,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout_bytes, stderr_bytes = await proc.communicate()
+    stdout = stdout_bytes.decode("utf-8", errors="replace").strip()
+    stderr = stderr_bytes.decode("utf-8", errors="replace").strip()
+    parsed = _parse_json_output(stdout)
+    result = {
+        "ok": proc.returncode == 0,
+        "returncode": int(proc.returncode or 0),
+        "stdout": stdout,
+        "stderr": stderr,
+        "json": parsed,
+    }
+    if proc.returncode != 0:
+        result["error"] = str(parsed.get("error") or stderr or stdout or f"command failed: {command[0]}")
+    return result
+
+
+async def _run_gongkan_progress_update(skill_root: Path, task_name: str) -> dict[str, Any]:
+    progress_path = _smart_survey_runtime_dir(skill_root) / "progress.json"
+    if not progress_path.is_file():
+        return {"ok": False, "error": f"progress file missing: {progress_path}"}
+    return await _run_gongkan_command(
+        [
+            sys.executable,
+            str(skill_root / "tools" / "update_progress.py"),
+            "smart_survey",
+            task_name,
+        ],
+        cwd=skill_root,
+    )
+
+
+def _smart_survey_step1_summary(skill_root: Path) -> str:
+    result = _smart_survey_skill_result(skill_root)
+    scene_filter = result.get("scene_filter") if isinstance(result.get("scene_filter"), dict) else {}
+    cooling = str(scene_filter.get("cooling_tag") or "").strip()
+    scenario = str(scene_filter.get("scenario") or "").strip()
+    if cooling or scenario:
+        return f"已完成场景筛选与底表过滤：制冷={cooling or '待确认'}，场景={scenario or '待确认'}。"
+    return "已完成场景筛选与底表过滤。"
+
+
+async def _run_gongkan_step1(skill_root: Path) -> dict[str, Any]:
+    runtime_dir = _smart_survey_runtime_dir(skill_root)
+    command = await _run_gongkan_command(
+        [
+            sys.executable,
+            str(skill_root / "zhgk" / "scene-filter" / "scripts" / "scene_filter.py"),
+        ],
+        cwd=skill_root,
+    )
+    if not command.get("ok"):
+        return {"ok": False, "error": str(command.get("error") or "scene filter failed"), "command": command}
+    progress = await _run_gongkan_progress_update(skill_root, "zhgk-scene-filter")
+    return {
+        "ok": True,
+        "summary": _smart_survey_step1_summary(skill_root),
+        "uploaded_artifacts": _smart_survey_input_artifacts(skill_root),
+        "artifacts": _artifacts_for_existing_paths(
+            [
+                runtime_dir / "定制工勘表.xlsx",
+                runtime_dir / "勘测问题底表_过滤.xlsx",
+                runtime_dir / "评估项底表_过滤.xlsx",
+                runtime_dir / "工勘常见高风险库_过滤.xlsx",
+            ],
+            prefix="smart-survey-step1",
+        ),
+        "progress": progress,
+    }
+
+
+def _smart_survey_step2_result(skill_root: Path) -> dict[str, Any]:
+    result = _smart_survey_skill_result(skill_root)
+    survey = result.get("survey") if isinstance(result.get("survey"), dict) else {}
+    empty_by_type = survey.get("empty_by_type") if isinstance(survey.get("empty_by_type"), dict) else {}
+    total = int(survey.get("total_items") or 0)
+    filled = int(survey.get("filled_items") or 0)
+    completion = int(round(float(survey.get("completion_rate") or 0)))
+    remaining = sum(int(value or 0) for value in empty_by_type.values())
+    summary = f"已生成全量勘测结果表，已填写 {filled}/{total} 项，完整率 {completion}% 。"
+    if remaining:
+        summary += f" 当前仍有 {remaining} 个遗留项待补充。"
+    return {
+        "summary": summary,
+        "uploaded_artifacts": _smart_survey_input_artifacts(skill_root),
+        "artifacts": _artifacts_for_existing_paths(
+            [
+                _smart_survey_output_dir(skill_root) / "全量勘测结果表.xlsx",
+                _smart_survey_output_dir(skill_root) / "待客户确认勘测项.xlsx",
+                _smart_survey_output_dir(skill_root) / "待拍摄图片项.xlsx",
+                _smart_survey_output_dir(skill_root) / "待补充勘测项.xlsx",
+            ],
+            prefix="smart-survey-step2",
+        ),
+        "metrics": {
+            "completion": completion,
+            "integrity": completion,
+            "remaining": remaining,
+        },
+    }
+
+
+async def _run_gongkan_step2(skill_root: Path) -> dict[str, Any]:
+    _smart_survey_move_uploaded_images(skill_root)
+    command = await _run_gongkan_command(
+        [
+            sys.executable,
+            str(skill_root / "zhgk" / "survey-build" / "scripts" / "generate_survey_table.py"),
+        ],
+        cwd=skill_root,
+    )
+    if not command.get("ok"):
+        return {"ok": False, "error": str(command.get("error") or "survey build failed"), "command": command}
+    progress = await _run_gongkan_progress_update(skill_root, "zhgk-survey-build")
+    result = _smart_survey_step2_result(skill_root)
+    result.update({"ok": True, "progress": progress, "command": command})
+    return result
+
+
+def _smart_survey_step3_result(skill_root: Path) -> dict[str, Any]:
+    result = _smart_survey_skill_result(skill_root)
+    assessment = result.get("assessment") if isinstance(result.get("assessment"), dict) else {}
+    remaining = result.get("remaining_issues") if isinstance(result.get("remaining_issues"), dict) else {}
+    report = result.get("report") if isinstance(result.get("report"), dict) else {}
+    risks = result.get("risks") if isinstance(result.get("risks"), dict) else {}
+    satisfaction = int(round(float(assessment.get("satisfaction_rate") or 0)))
+    remaining_total = int(remaining.get("total") or 0)
+    risk_count = len(risks.get("triggered_risks", [])) if isinstance(risks.get("triggered_risks"), list) else 0
+    summary = f"报告生成已完成：机房满足度 {satisfaction}% ，风险项 {risk_count} 个。"
+    if bool(report.get("generated")):
+        summary += " 工勘报告与整改待办已就绪。"
+    return {
+        "summary": summary,
+        "uploaded_artifacts": _smart_survey_input_artifacts(skill_root),
+        "artifacts": _artifacts_for_existing_paths(
+            [
+                _smart_survey_output_dir(skill_root) / "工勘报告.docx",
+                _smart_survey_output_dir(skill_root) / "机房满足度评估表.xlsx",
+                _smart_survey_output_dir(skill_root) / "风险识别结果表.xlsx",
+                _smart_survey_output_dir(skill_root) / "整改待办.xlsx",
+                _smart_survey_output_dir(skill_root) / "全量勘测结果表.xlsx",
+            ],
+            prefix="smart-survey-step3",
+        ),
+        "metrics": {
+            "completion": 100,
+            "integrity": max(satisfaction, 0),
+            "remaining": remaining_total,
+        },
+    }
+
+
+async def _run_gongkan_step3(skill_root: Path) -> dict[str, Any]:
+    commands = [
+        [sys.executable, str(skill_root / "zhgk" / "report-gen" / "scripts" / "generate_assessment.py")],
+        [sys.executable, str(skill_root / "zhgk" / "report-gen" / "scripts" / "generate_risk.py")],
+        [sys.executable, str(skill_root / "zhgk" / "report-gen" / "scripts" / "generate_report.py")],
+    ]
+    executed: list[dict[str, Any]] = []
+    for command in commands:
+        run = await _run_gongkan_command(command, cwd=skill_root)
+        executed.append(run)
+        if not run.get("ok"):
+            return {"ok": False, "error": str(run.get("error") or "report generation failed"), "commands": executed}
+    progress = await _run_gongkan_progress_update(skill_root, "zhgk-report-gen")
+    result = _smart_survey_step3_result(skill_root)
+    result.update({"ok": True, "progress": progress, "commands": executed})
+    return result
+
+
+async def _run_gongkan_step4_approve(skill_root: Path) -> dict[str, Any]:
+    command = await _run_gongkan_command(
+        [
+            sys.executable,
+            str(skill_root / "zhgk" / "report-distribute" / "scripts" / "distribute_report.py"),
+        ],
+        cwd=skill_root,
+    )
+    if not command.get("ok"):
+        return {"ok": False, "error": str(command.get("error") or "report approve failed"), "command": command}
+    result = _smart_survey_skill_result(skill_root)
+    project_info = result.get("project_info") if isinstance(result.get("project_info"), dict) else {}
+    project_name = str(project_info.get("项目名称") or "").strip()
+    return {
+        "ok": True,
+        "summary": f"{project_name + ' ' if project_name else ''}已发送专家审批，等待回执。",
+        "uploaded_artifacts": _smart_survey_input_artifacts(skill_root),
+        "artifacts": _artifacts_for_existing_paths(
+            [
+                _smart_survey_output_dir(skill_root) / "工勘报告.docx",
+                _smart_survey_output_dir(skill_root) / "机房满足度评估表.xlsx",
+                _smart_survey_output_dir(skill_root) / "风险识别结果表.xlsx",
+                _smart_survey_output_dir(skill_root) / "全量勘测结果表.xlsx",
+            ],
+            prefix="smart-survey-step4a",
+        ),
+        "command": command,
+    }
+
+
+async def _run_gongkan_step4_finish(skill_root: Path) -> dict[str, Any]:
+    command = await _run_gongkan_command(
+        [
+            sys.executable,
+            str(skill_root / "zhgk" / "report-distribute" / "scripts" / "distribute_report_4b.py"),
+        ],
+        cwd=skill_root,
+    )
+    if not command.get("ok"):
+        return {"ok": False, "error": str(command.get("error") or "report distribute failed"), "command": command}
+    progress = await _run_gongkan_progress_update(skill_root, "zhgk-report-distribute")
+    result = _smart_survey_skill_result(skill_root)
+    project_info = result.get("project_info") if isinstance(result.get("project_info"), dict) else {}
+    remaining = result.get("remaining_issues") if isinstance(result.get("remaining_issues"), dict) else {}
+    project_name = str(project_info.get("项目名称") or "").strip()
+    return {
+        "ok": True,
+        "summary": f"{project_name + ' ' if project_name else ''}工勘流程已完成闭环，报告已分发给干系人。",
+        "uploaded_artifacts": _smart_survey_input_artifacts(skill_root),
+        "artifacts": _artifacts_for_existing_paths(
+            [
+                _smart_survey_output_dir(skill_root) / "工勘报告.docx",
+                _smart_survey_output_dir(skill_root) / "机房满足度评估表.xlsx",
+                _smart_survey_output_dir(skill_root) / "风险识别结果表.xlsx",
+                _smart_survey_output_dir(skill_root) / "整改待办.xlsx",
+                _smart_survey_output_dir(skill_root) / "全量勘测结果表.xlsx",
+            ],
+            prefix="smart-survey-step4b",
+        ),
+        "metrics": {
+            "completion": 100,
+            "integrity": 100,
+            "remaining": int(remaining.get("total") or 0),
+        },
+        "progress": progress,
+        "command": command,
+    }
+
+
+def _smart_survey_dashboard_nodes(
+    cfg: dict[str, Any],
+    result: dict[str, Any],
+    *,
+    completed: int,
+    pending: int,
+    center_value: str,
+    center_label: str,
+) -> list[tuple[str, str, dict[str, Any]]]:
+    case_cfg = _boilerplate_case_config(cfg, "smart_survey_workbench")
+    metrics = result.get("metrics") if isinstance(result.get("metrics"), dict) else {}
+    throughput = int(metrics.get("completion") or 0)
+    quality = int(metrics.get("integrity") or 0)
+    risk = int(metrics.get("remaining") or 0)
+    return [
+        *_boilerplate_metrics_nodes(
+            case_cfg,
+            throughput,
+            quality,
+            risk,
+            center_value=center_value,
+            center_label=center_label,
+            completed=completed,
+            pending=pending,
+        ),
+        (
+            BoilerplateDashboardIds.SUMMARY_TEXT,
+            "Text",
+            {
+                "content": str(result.get("summary") or ""),
+                "variant": "body",
+                "color": "subtle",
+            },
+        ),
+        (
+            BoilerplateDashboardIds.UPLOADED_FILES,
+            "ArtifactGrid",
+            {
+                "title": "已上传文件",
+                "mode": "input",
+                "artifacts": list(result.get("uploaded_artifacts") or []),
+            },
+        ),
+        (
+            BoilerplateDashboardIds.ARTIFACTS,
+            "ArtifactGrid",
+            {
+                "title": "作业结果",
+                "mode": "output",
+                "artifacts": list(result.get("artifacts") or []),
+            },
+        ),
+        ("alerts", "Stack", {"children": list(result.get("alerts") or [])}),
+    ]
 
 
 async def _flow_smart_survey_workflow(
@@ -3208,24 +3672,19 @@ async def _flow_smart_survey_workflow(
         await pusher.update_nodes(
             [
                 (SDUI_STEPPER_MAIN_ID, "Stepper", {"steps": _smart_survey_stepper_steps(0)}),
-                (
-                    BoilerplateDashboardIds.SUMMARY_TEXT,
-                    "Text",
+                *_smart_survey_dashboard_nodes(
+                    cfg,
                     {
-                        "content": "智慧工勘模块已就绪，请先检查并补齐 Step 1 输入件。",
-                        "variant": "body",
-                        "color": "subtle",
+                        "summary": "智慧工勘模块已就绪，请先检查并补齐 Step 1 输入件。",
+                        "uploaded_artifacts": [],
+                        "artifacts": [],
+                        "metrics": {"completion": 0, "integrity": 0, "remaining": 0},
+                        "alerts": [],
                     },
-                ),
-                (
-                    BoilerplateDashboardIds.UPLOADED_FILES,
-                    "ArtifactGrid",
-                    {"title": "已上传文件", "mode": "input", "artifacts": []},
-                ),
-                (
-                    BoilerplateDashboardIds.ARTIFACTS,
-                    "ArtifactGrid",
-                    {"title": "作业结果", "mode": "output", "artifacts": []},
+                    completed=0,
+                    pending=4,
+                    center_value="0%",
+                    center_label="勘测完成度",
                 ),
             ]
         )
@@ -3244,6 +3703,170 @@ async def _flow_smart_survey_workflow(
                 save_relative_dir=str(upload_cfg.get("save_relative_dir") or "skills/gongkan_skill/ProjectData/Input"),
             )
         return {"ok": True, "next": "run_step1"}
+
+    if action == "run_step1":
+        result = await _run_gongkan_step1(skill_root)
+        if not result.get("ok"):
+            return result
+        await _sync_smart_survey_task_progress(skill_root, cfg, {"场景筛选与底表过滤"})
+        await pusher.update_nodes(
+            [
+                (SDUI_STEPPER_MAIN_ID, "Stepper", {"steps": _smart_survey_stepper_steps(1)}),
+                *_smart_survey_dashboard_nodes(
+                    cfg,
+                    result,
+                    completed=1,
+                    pending=3,
+                    center_value="25%",
+                    center_label="勘测完成度",
+                ),
+            ]
+        )
+        await mc.emit_guidance(
+            context="场景筛选已完成。请补齐勘测结果与现场照片，然后进入勘测数据汇总。",
+            actions=[
+                {
+                    "label": "开始勘测数据汇总",
+                    "verb": "module_action",
+                    "payload": {"moduleId": module_id, "action": "prepare_step2", "state": dict(state)},
+                }
+            ],
+        )
+        return {"ok": True, "next": "prepare_step2"}
+
+    if action == "prepare_step2":
+        missing = _smart_survey_missing_step2_inputs(skill_root)
+        if missing:
+            await mc.ask_for_file(
+                purpose="smart_survey_inputs",
+                title="请补齐工勘 Step 2 输入件",
+                accept=".xlsx,.jpg,.jpeg,.png",
+                multiple=True,
+                module_id=module_id,
+                next_action="run_step2",
+                save_relative_dir=str(upload_cfg.get("save_relative_dir") or "skills/gongkan_skill/ProjectData/Input"),
+            )
+        return {"ok": True, "next": "run_step2"}
+
+    if action == "run_step2":
+        result = await _run_gongkan_step2(skill_root)
+        if not result.get("ok"):
+            return result
+        await _sync_smart_survey_task_progress(skill_root, cfg, {"场景筛选与底表过滤", "勘测数据汇总"})
+        await pusher.update_nodes(
+            [
+                (SDUI_STEPPER_MAIN_ID, "Stepper", {"steps": _smart_survey_stepper_steps(2)}),
+                *_smart_survey_dashboard_nodes(
+                    cfg,
+                    result,
+                    completed=2,
+                    pending=2,
+                    center_value=f"{int((result.get('metrics') or {}).get('completion') or 0)}%",
+                    center_label="勘测完成度",
+                ),
+            ]
+        )
+        await mc.emit_guidance(
+            context="勘测数据汇总已完成。全量勘测结果表已生成，可以继续生成工勘报告。",
+            actions=[
+                {
+                    "label": "生成工勘报告",
+                    "verb": "module_action",
+                    "payload": {"moduleId": module_id, "action": "prepare_step3", "state": dict(state)},
+                }
+            ],
+        )
+        return {"ok": True, "next": "prepare_step3"}
+
+    if action == "prepare_step3":
+        return {"ok": True, "next": "run_step3"}
+
+    if action == "run_step3":
+        result = await _run_gongkan_step3(skill_root)
+        if not result.get("ok"):
+            return result
+        await _sync_smart_survey_task_progress(skill_root, cfg, {"场景筛选与底表过滤", "勘测数据汇总", "报告生成"})
+        await pusher.update_nodes(
+            [
+                (SDUI_STEPPER_MAIN_ID, "Stepper", {"steps": _smart_survey_stepper_steps(3)}),
+                *_smart_survey_dashboard_nodes(
+                    cfg,
+                    result,
+                    completed=3,
+                    pending=1,
+                    center_value=f"{int((result.get('metrics') or {}).get('integrity') or 0)}%",
+                    center_label="报告成熟度",
+                ),
+            ]
+        )
+        await mc.emit_guidance(
+            context="工勘报告与评估表已生成。下一步可以发送给专家审批。",
+            actions=[
+                {
+                    "label": "发送专家审批",
+                    "verb": "module_action",
+                    "payload": {"moduleId": module_id, "action": "prepare_step4", "state": dict(state)},
+                }
+            ],
+        )
+        return {"ok": True, "next": "prepare_step4"}
+
+    if action == "prepare_step4":
+        return {"ok": True, "next": "run_step4_approve"}
+
+    if action == "run_step4_approve":
+        result = await _run_gongkan_step4_approve(skill_root)
+        if not result.get("ok"):
+            return result
+        await pusher.update_nodes(
+            [
+                (SDUI_STEPPER_MAIN_ID, "Stepper", {"steps": _smart_survey_stepper_steps(3)}),
+                *_smart_survey_dashboard_nodes(
+                    cfg,
+                    result,
+                    completed=3,
+                    pending=1,
+                    center_value="待审批",
+                    center_label="专家回执",
+                ),
+            ]
+        )
+        await mc.emit_guidance(
+            context="专家审批邮件已发送。收到回执后，请点击“审批通过”继续分发。",
+            actions=[
+                {
+                    "label": "审批通过",
+                    "verb": "module_action",
+                    "payload": {"moduleId": module_id, "action": "approval_pass", "state": dict(state)},
+                }
+            ],
+        )
+        return {"ok": True, "next": "approval_pass"}
+
+    if action == "approval_pass":
+        result = await _run_gongkan_step4_finish(skill_root)
+        if not result.get("ok"):
+            return result
+        await _sync_smart_survey_task_progress(
+            skill_root,
+            cfg,
+            {"场景筛选与底表过滤", "勘测数据汇总", "报告生成", "审批分发"},
+        )
+        await pusher.update_nodes(
+            [
+                (SDUI_STEPPER_MAIN_ID, "Stepper", {"steps": _smart_survey_stepper_steps(4)}),
+                *_smart_survey_dashboard_nodes(
+                    cfg,
+                    result,
+                    completed=4,
+                    pending=0,
+                    center_value="100%",
+                    center_label="流程闭环",
+                ),
+            ]
+        )
+        clear_module_session(thread_id, module_id)
+        return {"ok": True, "done": True, "summary": str(result.get("summary") or "智慧工勘流程已完成")}
 
     return {"ok": False, "error": f"unknown action: {action!r}"}
 

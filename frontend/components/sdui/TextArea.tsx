@@ -16,8 +16,10 @@ export function SduiTextArea({ inputId, label, placeholder, rows = 4, defaultVal
   const id = inputId?.trim() || "_sdui_textarea";
 
   useEffect(() => {
+    const cur = getInputValue(id);
+    if (cur === defaultValue) return;
     setInputValue(id, defaultValue);
-  }, [id, defaultValue, setInputValue]);
+  }, [id, defaultValue, getInputValue, setInputValue]);
 
   const value = getInputValue(id);
 

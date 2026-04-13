@@ -71,7 +71,16 @@ export function useSyncState(args: {
   onAckRevision?: (revision: number) => void;
 }) {
   const senderRef = useRef<SyncStateSender>(args.sender ?? makeDefaultSyncSender());
+  const getDocIdRef = useRef(args.getDocId);
+  const onAckRevisionRef = useRef(args.onAckRevision);
   const debounceMs = args.debounceMs ?? 250;
+
+  // Keep latest callbacks without forcing hook recomputation.
+  useEffect(() => {
+    getDocIdRef.current = args.getDocId;
+    onAckRevisionRef.current = args.onAckRevision;
+    if (args.sender) senderRef.current = args.sender;
+  }, [args.getDocId, args.onAckRevision, args.sender]);
   const pendingRef = useRef<
     Map<
       string,
@@ -85,14 +94,14 @@ export function useSyncState(args: {
 
   const flushKey = useCallback(
     async (key: string, value: unknown) => {
-      const docId = args.getDocId().trim();
+      const docId = getDocIdRef.current().trim();
       if (!docId || !key.trim()) return;
       const req: SyncRequest = { docId, key, value };
       const ok = trySendBeacon(req);
       if (ok) return;
       await flushViaFetchKeepalive(req);
     },
-    [args],
+    [],
   );
 
   const syncState = useCallback(
@@ -103,11 +112,11 @@ export function useSyncState(args: {
       const now = Date.now();
 
       const send = async (value: unknown) => {
-        const docId = args.getDocId().trim();
+        const docId = getDocIdRef.current().trim();
         if (!docId) return;
         const res = await senderRef.current({ docId, key, value });
         if (res.ok && typeof res.revision === "number") {
-          args.onAckRevision?.(res.revision);
+          onAckRevisionRef.current?.(res.revision);
         }
       };
 
@@ -129,7 +138,7 @@ export function useSyncState(args: {
       }, debounceMs);
       pendingRef.current.set(key, cur);
     },
-    [args, debounceMs],
+    [debounceMs],
   );
 
   const flushAll = useCallback(async () => {
@@ -153,7 +162,7 @@ export function useSyncState(args: {
           window.clearTimeout(st.timer);
           st.timer = null;
         }
-        const docId = args.getDocId().trim();
+        const docId = getDocIdRef.current().trim();
         if (!docId || !key.trim()) continue;
         const req: SyncRequest = { docId, key, value: st.value };
         const ok = trySendBeacon(req);
@@ -161,7 +170,7 @@ export function useSyncState(args: {
       }
       pendingRef.current.clear();
     };
-  }, [args, debounceMs, flushKey]);
+  }, [debounceMs, flushKey]);
 
   return { syncState, flushAll };
 }

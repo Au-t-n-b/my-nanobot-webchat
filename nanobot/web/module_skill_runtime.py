@@ -3758,6 +3758,22 @@ async def _flow_smart_survey_workflow(
                 ),
             ]
         )
+        # guide 直接下发可点击卡片（顶栏按钮触发 fast-path 时，避免回显 JSON 串）
+        await mc.emit_guidance(
+            context="智慧工勘模块已初始化。请先准备/补齐 Step 1 输入件，然后开始执行「场景筛选与底表过滤」。",
+            actions=[
+                {
+                    "label": "开始 Step1",
+                    "verb": "module_action",
+                    "payload": {"moduleId": module_id, "action": "prepare_step1", "state": {}},
+                },
+                {
+                    "label": "取消流程",
+                    "verb": "module_action",
+                    "payload": {"moduleId": module_id, "action": "cancel", "state": {}},
+                },
+            ],
+        )
         return {"ok": True, "next": "prepare_step1"}
 
     if action == "prepare_step1":
@@ -3772,6 +3788,32 @@ async def _flow_smart_survey_workflow(
                 next_action="run_step1",
                 save_relative_dir=str(upload_cfg.get("save_relative_dir") or "skills/gongkan_skill/ProjectData/Input"),
             )
+            await mc.emit_guidance(
+                context=f"Step1 输入件缺失：{', '.join(missing)}。已下发上传卡片，请上传后继续。",
+                actions=[
+                    {
+                        "label": "取消流程",
+                        "verb": "module_action",
+                        "payload": {"moduleId": module_id, "action": "cancel", "state": {}},
+                    }
+                ],
+            )
+            return {"ok": True, "next": "run_step1"}
+        await mc.emit_guidance(
+            context="Step1 输入件已齐备，可以开始执行场景筛选与底表过滤。",
+            actions=[
+                {
+                    "label": "执行 Step1",
+                    "verb": "module_action",
+                    "payload": {"moduleId": module_id, "action": "run_step1", "state": dict(state)},
+                },
+                {
+                    "label": "取消流程",
+                    "verb": "module_action",
+                    "payload": {"moduleId": module_id, "action": "cancel", "state": {}},
+                },
+            ],
+        )
         return {"ok": True, "next": "run_step1"}
 
     if action == "run_step1":
@@ -3816,6 +3858,32 @@ async def _flow_smart_survey_workflow(
                 next_action="run_step2",
                 save_relative_dir=str(upload_cfg.get("save_relative_dir") or "skills/gongkan_skill/ProjectData/Input"),
             )
+            await mc.emit_guidance(
+                context=f"Step2 输入件缺失：{', '.join(missing)}。已下发上传卡片，请上传后继续。",
+                actions=[
+                    {
+                        "label": "取消流程",
+                        "verb": "module_action",
+                        "payload": {"moduleId": module_id, "action": "cancel", "state": {}},
+                    }
+                ],
+            )
+            return {"ok": True, "next": "run_step2"}
+        await mc.emit_guidance(
+            context="Step2 输入件已齐备，可以开始执行勘测数据汇总。",
+            actions=[
+                {
+                    "label": "执行 Step2",
+                    "verb": "module_action",
+                    "payload": {"moduleId": module_id, "action": "run_step2", "state": dict(state)},
+                },
+                {
+                    "label": "取消流程",
+                    "verb": "module_action",
+                    "payload": {"moduleId": module_id, "action": "cancel", "state": {}},
+                },
+            ],
+        )
         return {"ok": True, "next": "run_step2"}
 
     if action == "run_step2":
@@ -3849,6 +3917,21 @@ async def _flow_smart_survey_workflow(
         return {"ok": True, "next": "prepare_step3"}
 
     if action == "prepare_step3":
+        await mc.emit_guidance(
+            context="将开始生成工勘报告（LLM 评估 + 报告生成脚本）。",
+            actions=[
+                {
+                    "label": "执行 Step3",
+                    "verb": "module_action",
+                    "payload": {"moduleId": module_id, "action": "run_step3", "state": dict(state)},
+                },
+                {
+                    "label": "取消流程",
+                    "verb": "module_action",
+                    "payload": {"moduleId": module_id, "action": "cancel", "state": {}},
+                },
+            ],
+        )
         return {"ok": True, "next": "run_step3"}
 
     if action == "run_step3":
@@ -3882,6 +3965,21 @@ async def _flow_smart_survey_workflow(
         return {"ok": True, "next": "prepare_step4"}
 
     if action == "prepare_step4":
+        await mc.emit_guidance(
+            context="将发送专家审批邮件，并等待回执（审批通过后进入闭环分发）。",
+            actions=[
+                {
+                    "label": "发送专家审批",
+                    "verb": "module_action",
+                    "payload": {"moduleId": module_id, "action": "run_step4_approve", "state": dict(state)},
+                },
+                {
+                    "label": "取消流程",
+                    "verb": "module_action",
+                    "payload": {"moduleId": module_id, "action": "cancel", "state": {}},
+                },
+            ],
+        )
         return {"ok": True, "next": "run_step4_approve"}
 
     if action == "run_step4_approve":
@@ -5694,7 +5792,18 @@ async def dispatch_chat_card_intent(
         result = await run_module_action(
             module_id=mid, action=act, state=st, thread_id=thread_id, docman=docman
         )
-        return True, json.dumps(result, ensure_ascii=False)
+        # Fast-path 不应把原始 JSON 回显到聊天里（会导致“图 1”那样的不可读体验）。
+        # 交互反馈应由模块 flow 通过 GuidanceCard / replace_card 呈现；这里仅回传最小可读摘要。
+        if isinstance(result, dict):
+            if result.get("ok") is True:
+                summary = str(result.get("summary") or "").strip()
+                if summary:
+                    return True, summary
+                nxt = str(result.get("next") or "").strip()
+                return True, f"已进入下一步：{nxt}" if nxt else ""
+            err = str(result.get("error") or "").strip()
+            return True, err or "操作失败"
+        return True, ""
 
     if verb == "choice_selected" and isinstance(payload, dict):
         mid = str(payload.get("moduleId") or "").strip()
@@ -5707,6 +5816,15 @@ async def dispatch_chat_card_intent(
             result = await run_module_action(
                 module_id=mid, action=na, state=st, thread_id=thread_id, docman=docman
             )
-            return True, json.dumps(result, ensure_ascii=False)
+            if isinstance(result, dict):
+                if result.get("ok") is True:
+                    summary = str(result.get("summary") or "").strip()
+                    if summary:
+                        return True, summary
+                    nxt = str(result.get("next") or "").strip()
+                    return True, f"已进入下一步：{nxt}" if nxt else ""
+                err = str(result.get("error") or "").strip()
+                return True, err or "操作失败"
+            return True, ""
 
     return False, ""

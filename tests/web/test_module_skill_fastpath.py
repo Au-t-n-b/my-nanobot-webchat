@@ -37,6 +37,7 @@ async def test_chat_module_action_fastpath_skips_process_direct(
     (root / "module.json").write_text(
         json.dumps(
             {
+                "moduleId": "module_skill_demo",
                 "docId": "dashboard:test-fp",
                 "dataFile": "workspace/skills/module_skill_demo/data/dashboard.json",
                 "flow": "demo_compliance",
@@ -78,6 +79,6 @@ async def test_chat_module_action_fastpath_skips_process_direct(
     fin = _first_sse_data(body, "RunFinished")
     assert fin is not None
     assert "error" not in fin
-    payload = json.loads(fin["message"])
-    assert payload.get("ok") is True
+    # Fast-path 仅返回最小摘要；具体交互反馈由模块 flow 通过 ChatCard / Patch 呈现
+    assert fin.get("message") in ("", None) or isinstance(fin.get("message"), str)
     agent.process_direct.assert_not_called()

@@ -1,0 +1,1 @@
+{"schemaVersion": 1, "type": "SduiDocument", "root": {"type": "Stack", "children": [{"type": "Stepper", "id": "stepper-main", "steps": []}, {"type": "Text", "id": "summary-text", "content": "demo"}, {"type": "ArtifactGrid", "id": "uploaded-files", "artifacts": []}, {"type": "ArtifactGrid", "id": "artifacts", "artifacts": []}]}}

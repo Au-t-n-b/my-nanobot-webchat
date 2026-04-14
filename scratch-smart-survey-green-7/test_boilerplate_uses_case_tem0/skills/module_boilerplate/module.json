@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "module_boilerplate",
+  "docId": "dashboard:module-boilerplate",
+  "dataFile": "workspace/skills/module_boilerplate/data/dashboard.json",
+  "flow": "module_boilerplate",
+  "flowOptions": {
+    "requireEvidenceBeforeStrategy": true,
+    "evidenceSaveRelativeDir": "skills/module_boilerplate/input"
+  },
+  "caseTemplate": {
+    "moduleTitle": "站点交付模块",
+    "moduleGoal": "演示站点交付模块的参考案例。",
+    "strategyPrompt": "请选择站点交付策略：",
+    "strategyOptions": [
+      {
+        "id": "safe",
+        "label": "稳妥推进"
+      },
+      {
+        "id": "fast",
+        "label": "快速推进"
+      }
+    ],
+    "metricLabels": {
+      "throughput": "交付吞吐",
+      "quality": "验收质量",
+      "risk": "遗留风险"
+    },
+    "reportLabel": "站点交付说明.md",
+    "reportFileName": "site_delivery_handover.md"
+  }
+}

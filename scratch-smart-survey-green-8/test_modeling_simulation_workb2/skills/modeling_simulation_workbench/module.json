@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "modeling_simulation_workbench",
+  "docId": "dashboard:modeling-simulation-workbench",
+  "dataFile": "skills/modeling_simulation_workbench/data/dashboard.json",
+  "flow": "simulation_workflow",
+  "metricsPresentation": "embedded_web",
+  "capabilities": {
+    "hitl": true,
+    "uploads": true,
+    "metrics": ["embedded_web", "kpi_cards"],
+    "skillOrchestration": ["serial", "parallel", "hybrid"],
+    "taskProgressAutoSync": true
+  },
+  "uploads": [
+    {
+      "purpose": "analysis_bundle",
+      "label": "建模仿真资料包",
+      "accept": ".zip,.xlsx,.csv,.pdf,.doc,.docx,.png,.jpg,.stp,.step,.iges,.stl,.json",
+      "multiple": true,
+      "save_relative_dir": "skills/modeling_simulation_workbench/input"
+    }
+  ],
+  "taskProgress": {
+    "moduleId": "modeling_simulation_workbench",
+    "moduleName": "建模仿真模块",
+    "tasks": [
+      "BOQ提取",
+      "设备确认",
+      "创建设备",
+      "拓扑确认",
+      "拓扑连接"
+    ],
+    "actionMapping": {
+      "guide": ["BOQ提取"],
+      "upload_bundle": ["BOQ提取"],
+      "upload_bundle_complete": ["BOQ提取", "设备确认"],
+      "device_confirm": ["BOQ提取", "设备确认"],
+      "create_device": ["BOQ提取", "设备确认", "创建设备"],
+      "topo_confirm": ["BOQ提取", "设备确认", "创建设备", "拓扑确认"],
+      "finish": ["BOQ提取", "设备确认", "创建设备", "拓扑确认", "拓扑连接"]
+    }
+  },
+  "caseTemplate": {
+    "moduleTitle": "建模仿真模块",
+    "moduleGoal": "围绕建模仿真实际流程交付：上传 BOQ 与资料包、提取设备清单、确认设备、创建设备、确认拓扑并完成拓扑连接；黄金指标区嵌入建模仿真访问页，便于直接查看业务网页与指标联动。",
+    "strategyPrompt": "请选择本次建模仿真场景：",
+    "strategyOptions": [
+      { "id": "geometry", "label": "几何建模与网格" },
+      { "id": "physics", "label": "物理场与边界条件" },
+      { "id": "coupled", "label": "多物理场耦合" },
+      { "id": "full", "label": "全流程仿真" }
+    ],
+    "metricLabels": {
+      "throughput": "模型完整度",
+      "quality": "仿真就绪度",
+      "risk": "网格/求解风险"
+    },
+    "reportLabel": "建模仿真模块结论.md",
+    "reportFileName": "modeling_simulation_workbench_report.md"
+  }
+}

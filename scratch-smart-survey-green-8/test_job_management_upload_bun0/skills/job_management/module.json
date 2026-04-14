@@ -1,0 +1,82 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "job_management",
+  "docId": "dashboard:job-management",
+  "dataFile": "skills/job_management/data/dashboard.json",
+  "flow": "job_management",
+  "capabilities": {
+    "hitl": true,
+    "uploads": true,
+    "metrics": ["kpi_cards", "bar_chart", "donut_chart"],
+    "skillOrchestration": ["serial"],
+    "taskProgressAutoSync": true
+  },
+  "uploads": [
+    {
+      "purpose": "job_bundle",
+      "label": "作业输入 Excel",
+      "accept": ".xlsx",
+      "multiple": true,
+      "save_relative_dir": "skills/plan_progress/input"
+    }
+  ],
+  "taskProgress": {
+    "moduleId": "job_management",
+    "moduleName": "作业管理",
+    "tasks": [
+      "作业待启动",
+      "资料已上传",
+      "规划设计排期已确认",
+      "工程安装排期已确认",
+      "集群联调排期已确认",
+      "作业闭环完成"
+    ],
+    "actionMapping": {
+      "guide": ["作业待启动"],
+      "upload_bundle_complete": ["作业待启动", "资料已上传"],
+      "confirm_planning_schedule": [
+        "作业待启动",
+        "资料已上传",
+        "规划设计排期已确认"
+      ],
+      "confirm_engineering_schedule": [
+        "作业待启动",
+        "资料已上传",
+        "规划设计排期已确认",
+        "工程安装排期已确认"
+      ],
+      "confirm_cluster_schedule": [
+        "作业待启动",
+        "资料已上传",
+        "规划设计排期已确认",
+        "工程安装排期已确认",
+        "集群联调排期已确认"
+      ],
+      "finish": [
+        "作业待启动",
+        "资料已上传",
+        "规划设计排期已确认",
+        "工程安装排期已确认",
+        "集群联调排期已确认",
+        "作业闭环完成"
+      ]
+    }
+  },
+  "caseTemplate": {
+    "moduleTitle": "作业管理大盘",
+    "moduleGoal": "保持当前四步作业管理大盘展示，但后台真实执行 plan_progress Skill：双文件校验 → 规划设计排期 → 工程安装排期 → 集群联调排期，并把阶段进度同步回大盘与项目总览。",
+    "strategyPrompt": "请选择本次作业编排的优先级偏好（仅影响说明口径，不改变 plan_progress 的实际执行链路）：",
+    "strategyOptions": [
+      { "id": "balanced", "label": "均衡推进" },
+      { "id": "schedule_first", "label": "排期优先" },
+      { "id": "risk_first", "label": "风险优先" }
+    ],
+    "metricLabels": {
+      "throughput": "排期完整度",
+      "quality": "交付就绪度",
+      "risk": "阻塞风险"
+    },
+    "reportLabel": "作业管理闭环说明.md",
+    "reportFileName": "job_management_handover.md"
+  }
+}

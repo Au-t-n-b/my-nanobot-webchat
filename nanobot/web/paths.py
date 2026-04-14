@@ -14,10 +14,17 @@ def normalize_file_query(raw: str) -> str:
     return s.strip()
 
 
+def _strip_workspace_prefix(normalized: str) -> str:
+    if normalized.startswith("workspace/"):
+        return normalized.removeprefix("workspace/")
+    return normalized
+
+
 def resolve_file_target(normalized: str, workspace_root: Path) -> Path:
     """Absolute paths: resolve as-is (D6). Relative: under ``workspace_root`` only."""
     if not normalized or normalized == ".":
         raise ValueError("empty path")
+    normalized = _strip_workspace_prefix(normalized)
     workspace_root = workspace_root.resolve()
     candidate = Path(normalized)
     if candidate.is_absolute():

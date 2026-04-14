@@ -1,0 +1,130 @@
+{
+  "schemaVersion": 1,
+  "type": "SduiDocument",
+  "meta": { "docId": "dashboard:modeling-simulation-workbench", "provenance": "modeling_simulation_workbench" },
+  "root": {
+    "type": "Stack",
+    "gap": "lg",
+    "children": [
+      {
+        "type": "Text",
+        "variant": "heading",
+        "content": "建模仿真模块 · 当前进展 / 访问页（原黄金指标位）/ 产物总结"
+      },
+      {
+        "type": "Text",
+        "variant": "body",
+        "color": "subtle",
+        "content": "本模块使用建模仿真专属流程：BOQ提取、设备确认、创建设备、拓扑确认、拓扑连接；黄金指标区嵌入建模仿真访问页，便于直接查看业务网页与右侧指标联动。"
+      },
+      {
+        "type": "Stepper",
+        "id": "stepper-main",
+        "steps": [
+          {
+            "id": "s1",
+            "title": "BOQ提取",
+            "status": "waiting",
+            "detail": [{ "title": "等待上传 BOQ 与建模资料包", "status": "waiting" }]
+          },
+          {
+            "id": "s2",
+            "title": "设备确认",
+            "status": "waiting",
+            "detail": [{ "title": "等待识别设备清单", "status": "waiting" }]
+          },
+          {
+            "id": "s3",
+            "title": "创建设备",
+            "status": "waiting",
+            "detail": [{ "title": "等待设备清单确认", "status": "waiting" }]
+          },
+          {
+            "id": "s4",
+            "title": "拓扑确认",
+            "status": "waiting",
+            "detail": [{ "title": "等待设备模型生成", "status": "waiting" }]
+          },
+          {
+            "id": "s5",
+            "title": "拓扑连接",
+            "status": "waiting",
+            "detail": [{ "title": "等待拓扑结构确认", "status": "waiting" }]
+          }
+        ]
+      },
+      {
+        "type": "Text",
+        "variant": "heading",
+        "content": "黄金指标"
+      },
+      {
+        "type": "Text",
+        "variant": "caption",
+        "color": "subtle",
+        "content": "以下为建模仿真访问页嵌入视图；右侧指标由 runtime Patch 写入 state.metrics。"
+      },
+      {
+        "type": "EmbeddedWeb",
+        "id": "embedded-modeling-access",
+        "src": "http://100.102.191.17/access.html?v=2.19.9",
+        "embedSandbox": false,
+        "minHeight": "380px",
+        "state": {
+          "metrics": {
+            "throughput": 0,
+            "quality": 0,
+            "risk": 0,
+            "centerValue": "0%",
+            "completed": 0,
+            "pending": 5,
+            "centerLabel": "仿真健康度",
+            "labels": {
+              "throughput": "模型完整度",
+              "quality": "仿真就绪度",
+              "risk": "网格/求解风险"
+            }
+          }
+        }
+      },
+      {
+        "type": "Stack",
+        "gap": "sm",
+        "children": [
+          {
+            "type": "ChartPlaceholder",
+            "id": "chart-analysis-placeholder",
+            "variant": "bar",
+            "caption": "可替换为仿真任务状态、求解器日志摘要等；保留节点 id 以便 Patch。"
+          }
+        ]
+      },
+      {
+        "type": "Text",
+        "variant": "heading",
+        "content": "作业结果"
+      },
+      {
+        "type": "Text",
+        "id": "summary-text",
+        "variant": "body",
+        "color": "subtle",
+        "content": "进入模块后，此处展示 BOQ 提取、设备确认、拓扑确认等阶段结论；最终文件在下方产物区。"
+      },
+      {
+        "type": "ArtifactGrid",
+        "id": "uploaded-files",
+        "title": "已上传文件",
+        "mode": "input",
+        "artifacts": []
+      },
+      {
+        "type": "ArtifactGrid",
+        "id": "artifacts",
+        "title": "作业结果",
+        "mode": "output",
+        "artifacts": []
+      }
+    ]
+  }
+}

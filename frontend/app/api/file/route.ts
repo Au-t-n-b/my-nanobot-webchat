@@ -70,18 +70,23 @@ function normalizeQueryPath(raw: string): string {
   return raw.replace(/\\/g, "/").trim();
 }
 
+function stripWorkspacePrefix(normalized: string): string {
+  return normalized.startsWith("workspace/") ? normalized.slice("workspace/".length) : normalized;
+}
+
 function resolveFilePath(normalized: string): string {
+  const logical = stripWorkspacePrefix(normalized);
   // absolute path check: has drive letter (Windows) or starts with /
   const isAbsolute =
-    /^[A-Za-z]:\//.test(normalized) || normalized.startsWith("/");
+    /^[A-Za-z]:\//.test(logical) || logical.startsWith("/");
 
   if (isAbsolute) {
-    return path.resolve(normalized);
+    return path.resolve(logical);
   }
 
   // relative: resolve under workspace
   const workspace = getWorkspaceRoot();
-  const resolved = path.resolve(workspace, normalized);
+  const resolved = path.resolve(workspace, logical);
   // security: ensure it stays under workspace
   if (!resolved.startsWith(workspace)) {
     throw new Error("path escapes workspace");

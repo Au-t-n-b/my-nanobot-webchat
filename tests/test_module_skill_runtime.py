@@ -1196,6 +1196,65 @@ async def test_smart_survey_run_step4_approve_pauses_before_finish(
     assert "等待回执" in str(summary_updates[-1].get("content") or "")
 
 
+@pytest.mark.asyncio
+async def test_run_gongkan_step1_invokes_scene_filter_skill_script(
+    skills_smart_survey_with_gongkan: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import nanobot.web.module_skill_runtime as module_skill_runtime
+
+    captured: list[tuple[list[str], Path]] = []
+
+    async def fake_run(command: list[str], *, cwd: Path) -> dict[str, object]:
+        captured.append((command, cwd))
+        return {"ok": True, "returncode": 0, "stdout": "", "stderr": "", "json": {}}
+
+    monkeypatch.setattr(module_skill_runtime, "_run_gongkan_command", fake_run)
+    monkeypatch.setattr(
+        module_skill_runtime,
+        "_run_gongkan_progress_update",
+        AsyncMock(return_value={"ok": True}),
+    )
+
+    result = await module_skill_runtime._run_gongkan_step1(skills_smart_survey_with_gongkan / "gongkan_skill")
+    assert result.get("ok") is True
+    assert captured
+    command, cwd = captured[0]
+    assert cwd == skills_smart_survey_with_gongkan / "gongkan_skill"
+    assert Path(command[1]).as_posix().endswith("gongkan_skill/zhgk/scene-filter/scripts/scene_filter.py")
+
+
+@pytest.mark.asyncio
+async def test_run_gongkan_step3_invokes_report_gen_skill_scripts_in_order(
+    skills_smart_survey_with_gongkan: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import nanobot.web.module_skill_runtime as module_skill_runtime
+
+    captured: list[tuple[list[str], Path]] = []
+
+    async def fake_run(command: list[str], *, cwd: Path) -> dict[str, object]:
+        captured.append((command, cwd))
+        return {"ok": True, "returncode": 0, "stdout": "", "stderr": "", "json": {}}
+
+    monkeypatch.setattr(module_skill_runtime, "_run_gongkan_command", fake_run)
+    monkeypatch.setattr(
+        module_skill_runtime,
+        "_run_gongkan_progress_update",
+        AsyncMock(return_value={"ok": True}),
+    )
+
+    result = await module_skill_runtime._run_gongkan_step3(skills_smart_survey_with_gongkan / "gongkan_skill")
+    assert result.get("ok") is True
+    assert [Path(command[1]).name for command, _cwd in captured] == [
+        "generate_assessment.py",
+        "generate_risk.py",
+        "generate_report.py",
+    ]
+    assert all(cwd == skills_smart_survey_with_gongkan / "gongkan_skill" for _command, cwd in captured)
+    assert Path(captured[0][0][1]).as_posix().endswith("gongkan_skill/zhgk/report-gen/scripts/generate_assessment.py")
+
+
 def test_system_prompt_mentions_smart_survey_workbench_flow() -> None:
     from nanobot.agent.context import ContextBuilder
 

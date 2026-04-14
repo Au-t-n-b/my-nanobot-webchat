@@ -1108,6 +1108,92 @@ def plugins_list():
 # ============================================================================
 
 
+@app.command("reset-dashboards")
+def reset_dashboards(
+    workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
+    config: str | None = typer.Option(None, "--config", "-c", help="Config file path"),
+):
+    """Reset all module dashboards (skills/*/data/dashboard.json) back to bundled template defaults."""
+    import json
+    from importlib.resources import files as pkg_files
+
+    cfg = _load_runtime_config(config, workspace)
+    workspace_path = get_workspace_path(cfg.workspace_path)
+    skills_root = workspace_path / "skills"
+    if not skills_root.exists():
+        console.print(f"[yellow]No skills directory found at {skills_root}[/yellow]")
+        return
+
+    templates_roots: list[Path] = []
+    try:
+        tpl = pkg_files("nanobot") / "templates"
+        if getattr(tpl, "is_dir", lambda: False)():
+            templates_roots.append(Path(str(tpl)))
+    except Exception:
+        pass
+    # Dev / source checkout fallback: repo-root `templates/`
+    repo_root_tpl = Path(__file__).resolve().parents[2] / "templates"
+    if repo_root_tpl.is_dir():
+        templates_roots.append(repo_root_tpl)
+    if not templates_roots:
+        console.print("[red]Failed to locate templates/ (bundled or repo root).[/red]")
+        raise typer.Exit(1)
+
+    reset: list[str] = []
+    skipped: list[str] = []
+
+    for entry in sorted(skills_root.iterdir(), key=lambda p: p.name.lower()):
+        if not entry.is_dir():
+            continue
+        module_file = entry / "module.json"
+        if not module_file.is_file():
+            continue
+        module_id = entry.name
+        try:
+            raw = json.loads(module_file.read_text(encoding="utf-8"))
+            if isinstance(raw, dict):
+                mid = str(raw.get("moduleId") or "").strip()
+                if mid:
+                    module_id = mid
+        except Exception:
+            # Fall back to folder name
+            pass
+
+        tpl_dashboard: Path | None = None
+        for root in templates_roots:
+            candidate = root / module_id / "data" / "dashboard.json"
+            if candidate.is_file():
+                tpl_dashboard = candidate
+                break
+        dst_dashboard = entry / "data" / "dashboard.json"
+
+        if tpl_dashboard is None:
+            skipped.append(module_id)
+            continue
+
+        try:
+            dst_dashboard.parent.mkdir(parents=True, exist_ok=True)
+            dst_dashboard.write_text(tpl_dashboard.read_text(encoding="utf-8"), encoding="utf-8")
+            reset.append(module_id)
+        except Exception as exc:
+            console.print(f"[yellow]Skip {module_id}: {exc}[/yellow]")
+            skipped.append(module_id)
+
+    if reset:
+        console.print(f"[green]✓[/green] Reset dashboards: {len(reset)}")
+        for mid in reset:
+            console.print(f"  [dim]- {mid}[/dim]")
+    else:
+        console.print("[yellow]No dashboards were reset (no matching templates found).[/yellow]")
+
+    if skipped:
+        console.print(f"\n[dim]Skipped (no bundled template / write failed): {len(skipped)}[/dim]")
+        for mid in skipped[:30]:
+            console.print(f"  [dim]- {mid}[/dim]")
+        if len(skipped) > 30:
+            console.print(f"  [dim]... and {len(skipped) - 30} more[/dim]")
+
+
 @app.command()
 def status():
     """Show nanobot status."""

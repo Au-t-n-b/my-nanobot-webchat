@@ -28,6 +28,16 @@ def test_resolve_relative_stays_in_workspace(tmp_path: Path) -> None:
     assert got == inner.resolve()
 
 
+def test_resolve_relative_workspace_prefix_stays_in_workspace(tmp_path: Path) -> None:
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    inner = ws / "skills" / "gongkan_skill" / "ProjectData" / "Input" / "BOQ.xlsx"
+    inner.parent.mkdir(parents=True)
+    inner.write_text("hi", encoding="utf-8")
+    got = resolve_file_target("workspace/skills/gongkan_skill/ProjectData/Input/BOQ.xlsx", ws)
+    assert got == inner.resolve()
+
+
 def test_resolve_relative_escape_raises(tmp_path: Path) -> None:
     ws = tmp_path / "ws"
     ws.mkdir()
@@ -68,6 +78,22 @@ async def test_get_file_relative_workspace(tmp_path: Path) -> None:
         r = await client.get("/api/file", params={"path": "a.md"})
         assert r.status == 200
         assert (await r.text()) == "# x"
+
+
+@pytest.mark.asyncio
+async def test_get_file_relative_workspace_prefix(tmp_path: Path) -> None:
+    ws = tmp_path / "w"
+    ws.mkdir()
+    target = ws / "skills" / "gongkan_skill" / "ProjectData" / "Input" / "BOQ.xlsx"
+    target.parent.mkdir(parents=True)
+    target.write_text("xlsx-bytes", encoding="utf-8")
+    cfg = MagicMock()
+    cfg.workspace_path = ws
+    app = create_app(config=cfg)
+    async with TestClient(TestServer(app)) as client:
+        r = await client.get("/api/file", params={"path": "workspace/skills/gongkan_skill/ProjectData/Input/BOQ.xlsx"})
+        assert r.status == 200
+        assert await r.text() == "xlsx-bytes"
 
 
 @pytest.mark.asyncio

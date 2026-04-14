@@ -39,7 +39,10 @@ def resolve_in_workspace(target: str, *, must_exist: bool = True) -> Path:
     if not isinstance(target, str) or not target.strip():
         raise BadRequestError("target is required")
     workspace = get_workspace_root()
-    raw = Path(target.strip()).expanduser()
+    normalized = target.strip().replace("\\", "/")
+    if normalized.startswith("workspace/"):
+        normalized = normalized.removeprefix("workspace/")
+    raw = Path(normalized).expanduser()
     joined = raw if raw.is_absolute() else workspace / raw
     resolved = joined.resolve()
     try:

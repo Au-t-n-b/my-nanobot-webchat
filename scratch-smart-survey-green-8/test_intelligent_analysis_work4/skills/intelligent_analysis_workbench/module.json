@@ -1,0 +1,85 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "intelligent_analysis_workbench",
+  "docId": "dashboard:intelligent-analysis-workbench",
+  "dataFile": "skills/intelligent_analysis_workbench/data/dashboard.json",
+  "flow": "intelligent_analysis_workbench",
+  "capabilities": {
+    "hitl": true,
+    "uploads": true,
+    "metrics": [
+      "kpi_cards",
+      "bar_chart",
+      "donut_chart",
+      "embedded_web"
+    ],
+    "skillOrchestration": [
+      "serial",
+      "parallel",
+      "hybrid"
+    ],
+    "taskProgressAutoSync": true
+  },
+  "uploads": [
+    {
+      "purpose": "analysis_bundle",
+      "label": "分析资料包",
+      "accept": ".zip,.xlsx,.csv,.pdf,.doc,.docx,.png,.jpg",
+      "multiple": true,
+      "save_relative_dir": "skills/intelligent_analysis_workbench/input"
+    }
+  ],
+  "taskProgress": {
+    "moduleId": "custom_analysis",
+    "moduleName": "自定义分析模块",
+    "tasks": [
+      "阶段 A",
+      "阶段 B",
+      "阶段 C"
+    ],
+    "actionMapping": {
+      "guide": [
+        "阶段 A"
+      ],
+      "upload_bundle": [
+        "阶段 A",
+        "阶段 B"
+      ],
+      "finish": [
+        "阶段 A",
+        "阶段 B",
+        "阶段 C"
+      ]
+    }
+  },
+  "caseTemplate": {
+    "moduleTitle": "智能分析工作台",
+    "moduleGoal": "展示 nanobot 当前全量能力的标准案例模块：项目总览引导、HITL 目标选择、多文件上传、上传预览、并行分析、流式大盘更新、结论汇总和产物展示。",
+    "strategyPrompt": "请选择本次智能分析的工作目标：",
+    "strategyOptions": [
+      {
+        "id": "completeness",
+        "label": "资料完整性分析"
+      },
+      {
+        "id": "risk",
+        "label": "风险识别分析"
+      },
+      {
+        "id": "delivery",
+        "label": "交付结论生成"
+      },
+      {
+        "id": "comprehensive",
+        "label": "综合分析"
+      }
+    ],
+    "metricLabels": {
+      "throughput": "资料覆盖度",
+      "quality": "分析就绪度",
+      "risk": "风险信号"
+    },
+    "reportLabel": "智能分析工作台结论.md",
+    "reportFileName": "intelligent_analysis_workbench_report.md"
+  }
+}

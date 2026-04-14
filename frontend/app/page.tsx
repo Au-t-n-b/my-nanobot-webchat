@@ -1051,7 +1051,7 @@ export default function Home() {
                 disabled={isLoading || !threadId}
                 focusSignal={inputFocusSignal}
                 prefillText={inputPrefill}
-                chatCardPostToAgent={(text) => void sendMessage(text, selectedModel)}
+                chatCardPostToAgent={(text) => void sendSilentMessage(text, selectedModel)}
                 onSelectPendingChoice={handlePendingChoiceSelect}
                 onDismissPendingChoices={clearPendingChoices}
               />
@@ -1083,7 +1083,7 @@ export default function Home() {
                   skillUiPatchEvent={skillUiPatchEvent}
                   skillUiBootstrapEvent={skillUiBootstrapEvent}
                   onOpenPreview={wakePreview}
-                  postToAgent={(text) => void sendMessage(text, selectedModel)}
+                  postToAgent={(text) => void sendSilentMessage(text, selectedModel)}
                   postToAgentSilently={(text) => void sendSilentMessage(text, selectedModel)}
                   isAgentRunning={isAgentRunning}
                   activeSkillName={dashboardActiveSkillName}
@@ -1132,7 +1132,7 @@ export default function Home() {
                 onOpenPath={openFilePreview}
                 activeSkillName={dashboardActiveSkillName}
                 onFillInput={handleFillInput}
-                postToAgent={(text) => void sendMessage(text, selectedModel)}
+                postToAgent={(text) => void sendSilentMessage(text, selectedModel)}
                 isAgentRunning={isAgentRunning}
                 skillUiPatchEvent={skillUiPatchEvent}
               />
@@ -1161,7 +1161,7 @@ export default function Home() {
           disabled={isLoading || !threadId}
           focusSignal={inputFocusSignal}
           prefillText={inputPrefill}
-          chatCardPostToAgent={(text) => void sendMessage(text, selectedModel)}
+          chatCardPostToAgent={(text) => void sendSilentMessage(text, selectedModel)}
           onSelectPendingChoice={handlePendingChoiceSelect}
           onDismissPendingChoices={clearPendingChoices}
         />

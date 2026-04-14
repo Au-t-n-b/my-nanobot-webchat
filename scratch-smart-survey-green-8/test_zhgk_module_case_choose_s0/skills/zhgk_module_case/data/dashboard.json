@@ -1,0 +1,133 @@
+{
+  "schemaVersion": 1,
+  "type": "SduiDocument",
+  "meta": { "docId": "dashboard:zhgk-module-case", "provenance": "zhgk_module_case" },
+  "root": {
+    "type": "Stack",
+    "gap": "lg",
+    "children": [
+      {
+        "type": "Text",
+        "variant": "heading",
+        "content": "智慧工勘模块案例 · 当前进展 / 黄金指标 / 产物总结"
+      },
+      {
+        "type": "Text",
+        "variant": "body",
+        "color": "subtle",
+        "content": "本案例把旧版 zhgk 的场景过滤、勘测汇总、报告生成、审批分发提炼成一个可复制的模块骨架：先打开大盘，再通过 HITL 场景选择和资料上传推进流程。"
+      },
+      {
+        "type": "Stepper",
+        "id": "stepper-main",
+        "steps": [
+          {
+            "id": "s1",
+            "title": "大盘预热",
+            "status": "waiting",
+            "detail": [{ "title": "等待进入模块案例", "status": "waiting" }]
+          },
+          {
+            "id": "s2",
+            "title": "勘测场景选择 (HITL)",
+            "status": "waiting",
+            "detail": [{ "title": "等待会话内选择卡片", "status": "waiting" }]
+          },
+          {
+            "id": "s3",
+            "title": "资料上传 (HITL)",
+            "status": "waiting",
+            "detail": [{ "title": "等待上传 BOQ / 勘测资料包", "status": "waiting" }]
+          },
+          {
+            "id": "s4",
+            "title": "工勘交付总结",
+            "status": "waiting",
+            "detail": [{ "title": "待生成迁移说明", "status": "waiting" }]
+          }
+        ]
+      },
+      {
+        "type": "Text",
+        "variant": "heading",
+        "content": "黄金指标"
+      },
+      {
+        "type": "Row",
+        "gap": "md",
+        "children": [
+          {
+            "type": "DonutChart",
+            "id": "chart-donut",
+            "flex": 1,
+            "centerLabel": "工勘健康度",
+            "centerValue": "—",
+            "segments": [
+              { "label": "已完成", "value": 0, "color": "subtle" },
+              { "label": "待办", "value": 4, "color": "subtle" }
+            ]
+          },
+          {
+            "type": "BarChart",
+            "id": "chart-bar",
+            "flex": 1,
+            "valueUnit": "分",
+            "data": [
+              { "label": "资料完整度", "value": 0, "color": "accent" },
+              { "label": "报告就绪度", "value": 0, "color": "success" },
+              { "label": "风险关注项", "value": 0, "color": "warning" }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Stack",
+        "gap": "sm",
+        "children": [
+          {
+            "type": "ChartPlaceholder",
+            "id": "chart-gantt-placeholder",
+            "variant": "bar",
+            "caption": "这里可替换成智慧工勘自己的图形：比如 BOQ 识别命中柱状图、风险饼图、审批流甘特图。只要保留节点 id，runtime Patch 仍然有效。"
+          },
+          {
+            "type": "Button",
+            "id": "btn-open-gantt-browser",
+            "label": "在分屏打开工勘示例页",
+            "variant": "outline",
+            "action": {
+              "kind": "open_preview",
+              "path": "browser://https://example.com/zhgk"
+            }
+          }
+        ]
+      },
+      {
+        "type": "Text",
+        "variant": "heading",
+        "content": "作业结果"
+      },
+      {
+        "type": "Text",
+        "id": "summary-text",
+        "variant": "body",
+        "color": "subtle",
+        "content": "执行 guide/start/choose_strategy/upload_evidence/after_upload/finish 后，这里会实时展示智慧工勘模块案例的迁移进展与摘要；迁移说明会自动挂到下方产物区。"
+      },
+      {
+        "type": "ArtifactGrid",
+        "id": "uploaded-files",
+        "title": "已上传文件",
+        "mode": "input",
+        "artifacts": []
+      },
+      {
+        "type": "ArtifactGrid",
+        "id": "artifacts",
+        "title": "模块产物",
+        "mode": "output",
+        "artifacts": []
+      }
+    ]
+  }
+}

@@ -3728,6 +3728,7 @@ async def _flow_smart_survey_workflow(
     mc = MissionControlManager(thread_id=thread_id, docman=docman)
     skill_root = _smart_survey_skill_root()
     upload_cfg = _upload_config(cfg, "smart_survey_inputs")
+    guidance_card_id = f"{module_id}:guidance"
 
     if action == "cancel":
         clear_module_session(thread_id, module_id)
@@ -3742,7 +3743,8 @@ async def _flow_smart_survey_workflow(
         await pusher.update_nodes(
             [
                 (SDUI_STEPPER_MAIN_ID, "Stepper", {"steps": _smart_survey_stepper_steps(0)}),
-                *_smart_survey_dashboard_nodes(
+            ]
+            + _smart_survey_dashboard_nodes(
                     cfg,
                     {
                         "summary": "智慧工勘模块已就绪，请先检查并补齐 Step 1 输入件。",
@@ -3755,8 +3757,7 @@ async def _flow_smart_survey_workflow(
                     pending=4,
                     center_value="0%",
                     center_label="勘测完成度",
-                ),
-            ]
+                )
         )
         # guide 直接下发可点击卡片（顶栏按钮触发 fast-path 时，避免回显 JSON 串）
         await mc.emit_guidance(
@@ -3773,6 +3774,7 @@ async def _flow_smart_survey_workflow(
                     "payload": {"moduleId": module_id, "action": "cancel", "state": {}},
                 },
             ],
+            card_id=guidance_card_id,
         )
         return {"ok": True, "next": "prepare_step1"}
 
@@ -3797,6 +3799,7 @@ async def _flow_smart_survey_workflow(
                         "payload": {"moduleId": module_id, "action": "cancel", "state": {}},
                     }
                 ],
+                card_id=guidance_card_id,
             )
             return {"ok": True, "next": "run_step1"}
         await mc.emit_guidance(
@@ -3813,6 +3816,7 @@ async def _flow_smart_survey_workflow(
                     "payload": {"moduleId": module_id, "action": "cancel", "state": {}},
                 },
             ],
+            card_id=guidance_card_id,
         )
         return {"ok": True, "next": "run_step1"}
 
@@ -3824,15 +3828,15 @@ async def _flow_smart_survey_workflow(
         await pusher.update_nodes(
             [
                 (SDUI_STEPPER_MAIN_ID, "Stepper", {"steps": _smart_survey_stepper_steps(1)}),
-                *_smart_survey_dashboard_nodes(
+            ]
+            + _smart_survey_dashboard_nodes(
                     cfg,
                     result,
                     completed=1,
                     pending=3,
                     center_value="25%",
                     center_label="勘测完成度",
-                ),
-            ]
+                )
         )
         await mc.emit_guidance(
             context="场景筛选已完成。请补齐勘测结果与现场照片，然后进入勘测数据汇总。",
@@ -3843,6 +3847,7 @@ async def _flow_smart_survey_workflow(
                     "payload": {"moduleId": module_id, "action": "prepare_step2", "state": dict(state)},
                 }
             ],
+            card_id=guidance_card_id,
         )
         return {"ok": True, "next": "prepare_step2"}
 
@@ -3867,6 +3872,7 @@ async def _flow_smart_survey_workflow(
                         "payload": {"moduleId": module_id, "action": "cancel", "state": {}},
                     }
                 ],
+                card_id=guidance_card_id,
             )
             return {"ok": True, "next": "run_step2"}
         await mc.emit_guidance(
@@ -3883,6 +3889,7 @@ async def _flow_smart_survey_workflow(
                     "payload": {"moduleId": module_id, "action": "cancel", "state": {}},
                 },
             ],
+            card_id=guidance_card_id,
         )
         return {"ok": True, "next": "run_step2"}
 
@@ -3894,15 +3901,15 @@ async def _flow_smart_survey_workflow(
         await pusher.update_nodes(
             [
                 (SDUI_STEPPER_MAIN_ID, "Stepper", {"steps": _smart_survey_stepper_steps(2)}),
-                *_smart_survey_dashboard_nodes(
+            ]
+            + _smart_survey_dashboard_nodes(
                     cfg,
                     result,
                     completed=2,
                     pending=2,
                     center_value=f"{int((result.get('metrics') or {}).get('completion') or 0)}%",
                     center_label="勘测完成度",
-                ),
-            ]
+                )
         )
         await mc.emit_guidance(
             context="勘测数据汇总已完成。全量勘测结果表已生成，可以继续生成工勘报告。",
@@ -3913,6 +3920,7 @@ async def _flow_smart_survey_workflow(
                     "payload": {"moduleId": module_id, "action": "prepare_step3", "state": dict(state)},
                 }
             ],
+            card_id=guidance_card_id,
         )
         return {"ok": True, "next": "prepare_step3"}
 
@@ -3931,6 +3939,7 @@ async def _flow_smart_survey_workflow(
                     "payload": {"moduleId": module_id, "action": "cancel", "state": {}},
                 },
             ],
+            card_id=guidance_card_id,
         )
         return {"ok": True, "next": "run_step3"}
 
@@ -3942,15 +3951,15 @@ async def _flow_smart_survey_workflow(
         await pusher.update_nodes(
             [
                 (SDUI_STEPPER_MAIN_ID, "Stepper", {"steps": _smart_survey_stepper_steps(3)}),
-                *_smart_survey_dashboard_nodes(
+            ]
+            + _smart_survey_dashboard_nodes(
                     cfg,
                     result,
                     completed=3,
                     pending=1,
                     center_value=f"{int((result.get('metrics') or {}).get('integrity') or 0)}%",
                     center_label="报告成熟度",
-                ),
-            ]
+                )
         )
         await mc.emit_guidance(
             context="工勘报告与评估表已生成。下一步可以发送给专家审批。",
@@ -3961,6 +3970,7 @@ async def _flow_smart_survey_workflow(
                     "payload": {"moduleId": module_id, "action": "prepare_step4", "state": dict(state)},
                 }
             ],
+            card_id=guidance_card_id,
         )
         return {"ok": True, "next": "prepare_step4"}
 
@@ -3979,6 +3989,7 @@ async def _flow_smart_survey_workflow(
                     "payload": {"moduleId": module_id, "action": "cancel", "state": {}},
                 },
             ],
+            card_id=guidance_card_id,
         )
         return {"ok": True, "next": "run_step4_approve"}
 
@@ -3989,15 +4000,15 @@ async def _flow_smart_survey_workflow(
         await pusher.update_nodes(
             [
                 (SDUI_STEPPER_MAIN_ID, "Stepper", {"steps": _smart_survey_stepper_steps(3)}),
-                *_smart_survey_dashboard_nodes(
+            ]
+            + _smart_survey_dashboard_nodes(
                     cfg,
                     result,
                     completed=3,
                     pending=1,
                     center_value="待审批",
                     center_label="专家回执",
-                ),
-            ]
+                )
         )
         await mc.emit_guidance(
             context="专家审批邮件已发送。收到回执后，请点击“审批通过”继续分发。",
@@ -4008,6 +4019,7 @@ async def _flow_smart_survey_workflow(
                     "payload": {"moduleId": module_id, "action": "approval_pass", "state": dict(state)},
                 }
             ],
+            card_id=guidance_card_id,
         )
         return {"ok": True, "next": "approval_pass"}
 
@@ -4023,15 +4035,15 @@ async def _flow_smart_survey_workflow(
         await pusher.update_nodes(
             [
                 (SDUI_STEPPER_MAIN_ID, "Stepper", {"steps": _smart_survey_stepper_steps(4)}),
-                *_smart_survey_dashboard_nodes(
+            ]
+            + _smart_survey_dashboard_nodes(
                     cfg,
                     result,
                     completed=4,
                     pending=0,
                     center_value="100%",
                     center_label="流程闭环",
-                ),
-            ]
+                )
         )
         clear_module_session(thread_id, module_id)
         return {"ok": True, "done": True, "summary": str(result.get("summary") or "智慧工勘流程已完成")}

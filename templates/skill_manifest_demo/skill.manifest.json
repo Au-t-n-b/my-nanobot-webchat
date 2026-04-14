@@ -1,0 +1,90 @@
+{
+  "version": 1,
+  "entry": "prepare_inputs",
+  "stateNamespace": "skill-manifest-hitl-demo",
+  "steps": [
+    {
+      "id": "prepare_inputs",
+      "type": "file_gate",
+      "title": "请补齐输入文件",
+      "description": "需要同时上传到货表.xlsx 与 人员信息表.xlsx。每次上传后会自动重检。",
+      "files": [
+        {
+          "label": "到货表.xlsx",
+          "path": "workspace/skills/skill-manifest-hitl-demo/input/到货表.xlsx",
+          "match": "strict"
+        },
+        {
+          "label": "人员信息表.xlsx",
+          "path": "workspace/skills/skill-manifest-hitl-demo/input/人员信息表.xlsx",
+          "match": "strict"
+        }
+      ],
+      "upload": {
+        "saveDir": "skills/skill-manifest-hitl-demo/input",
+        "multiple": true,
+        "accept": ".xlsx"
+      },
+      "next": "choose_output"
+    },
+    {
+      "id": "choose_output",
+      "type": "choice_gate",
+      "title": "请选择输出类型",
+      "description": "两个文件已齐全，请选择要测试的固定输出分支。",
+      "options": [
+        {
+          "id": "html",
+          "label": "生成 HTML",
+          "description": "进入 HTML 固定测试动作。"
+        },
+        {
+          "id": "md",
+          "label": "生成 MD",
+          "description": "进入 MD 固定测试动作。"
+        },
+        {
+          "id": "other",
+          "label": "生成其他",
+          "description": "进入其他固定测试动作。"
+        }
+      ],
+      "storeAs": "output_type",
+      "nextByChoice": {
+        "html": "generate_html",
+        "md": "generate_md",
+        "other": "generate_other"
+      }
+    },
+    {
+      "id": "generate_html",
+      "type": "fixed_action",
+      "title": "HTML 固定动作",
+      "message": "两个文件已齐全，已进入 HTML 生成动作。",
+      "statePatch": {
+        "all_inputs_ready": true,
+        "output_type": "html"
+      }
+    },
+    {
+      "id": "generate_md",
+      "type": "fixed_action",
+      "title": "MD 固定动作",
+      "message": "两个文件已齐全，已进入 MD 生成动作。",
+      "statePatch": {
+        "all_inputs_ready": true,
+        "output_type": "md"
+      }
+    },
+    {
+      "id": "generate_other",
+      "type": "fixed_action",
+      "title": "其他固定动作",
+      "message": "两个文件已齐全，已进入其他生成动作。",
+      "statePatch": {
+        "all_inputs_ready": true,
+        "output_type": "other"
+      }
+    }
+  ]
+}

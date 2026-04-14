@@ -1197,6 +1197,37 @@ async def test_smart_survey_run_step4_approve_pauses_before_finish(
 
 
 @pytest.mark.asyncio
+async def test_smart_survey_run_step1_reuses_current_guidance_card(
+    skills_smart_survey_with_gongkan: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import nanobot.web.module_skill_runtime as module_skill_runtime
+
+    emit_guidance = AsyncMock(return_value=ChatCardHandle(card_id="guidance-card-1", doc_id="chat:t"))
+    monkeypatch.setattr(
+        "nanobot.web.mission_control.MissionControlManager.emit_guidance",
+        emit_guidance,
+    )
+    monkeypatch.setattr(
+        module_skill_runtime,
+        "_run_gongkan_step1",
+        AsyncMock(return_value={"ok": True, "summary": "step1 ok", "artifacts": []}),
+        raising=False,
+    )
+
+    r = await module_skill_runtime.run_module_action(
+        module_id="smart_survey_workbench",
+        action="run_step1",
+        state={"cardId": "guidance-card-1"},
+        thread_id="thread-smart-run1-reuse",
+        docman=None,
+    )
+    assert r.get("ok") is True
+    emit_guidance.assert_awaited_once()
+    assert emit_guidance.await_args.kwargs.get("card_id") == "smart_survey_workbench:guidance"
+
+
+@pytest.mark.asyncio
 async def test_run_gongkan_step1_invokes_scene_filter_skill_script(
     skills_smart_survey_with_gongkan: Path,
     monkeypatch: pytest.MonkeyPatch,

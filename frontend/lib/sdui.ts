@@ -406,7 +406,7 @@ export type SduiGuidanceCardNode = {
   flex?: number;
 };
 
-export type SduiChoiceOption = { id: string; label: string };
+export type SduiChoiceOption = { id: string; label: string; description?: string };
 
 export type SduiChoiceCardNode = {
   type: "ChoiceCard";
@@ -416,6 +416,9 @@ export type SduiChoiceCardNode = {
   /** 与 nextAction 一起用于 HITL 回传 module_action */
   moduleId?: string;
   nextAction?: string;
+  skillName?: string;
+  stateNamespace?: string;
+  stepId?: string;
   flex?: number;
 };
 
@@ -568,6 +571,9 @@ export type SduiFilePickerNode = SduiOptionalId & {
   multiple?: boolean;
   moduleId?: string;
   nextAction?: string;
+  skillName?: string;
+  stateNamespace?: string;
+  stepId?: string;
   /** workspace 相对目录，上传文件落盘为 ``<saveRelativeDir>/<净化后的原文件名>`` */
   saveRelativeDir?: string;
 };

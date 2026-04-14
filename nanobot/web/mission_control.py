@@ -93,6 +93,9 @@ class MissionControlManager:
         module_id: str | None = None,
         next_action: str | None = None,
         save_relative_dir: str | None = None,
+        skill_name: str | None = None,
+        state_namespace: str | None = None,
+        step_id: str | None = None,
     ) -> ChatCardHandle:
         """Emit a chat card that asks user to upload a file.
 
@@ -123,6 +126,15 @@ class MissionControlManager:
             fp_node["nextAction"] = na
         if save_dir:
             fp_node["saveRelativeDir"] = save_dir
+        skill = (skill_name or "").strip()
+        namespace = (state_namespace or "").strip()
+        sid = (step_id or "").strip()
+        if skill:
+            fp_node["skillName"] = skill
+        if namespace:
+            fp_node["stateNamespace"] = namespace
+        if sid:
+            fp_node["stepId"] = sid
         payload: dict[str, Any] = {
             "threadId": self.thread_id,
             "cardId": cid,
@@ -223,7 +235,7 @@ class MissionControlManager:
             "threadId": self.thread_id,
             "cardId": cid,
             "docId": did,
-            "mode": "append",
+            "mode": "replace" if card_id else "append",
             "node": node,
             "ts": _now_ms(),
         }
@@ -238,6 +250,9 @@ class MissionControlManager:
         card_id: str | None = None,
         module_id: str | None = None,
         next_action: str | None = None,
+        skill_name: str | None = None,
+        state_namespace: str | None = None,
+        step_id: str | None = None,
     ) -> ChatCardHandle:
         """Send a ChoiceCard to the chat stream.
 
@@ -260,6 +275,15 @@ class MissionControlManager:
             node["moduleId"] = mid
         if na:
             node["nextAction"] = na
+        skill = (skill_name or "").strip()
+        namespace = (state_namespace or "").strip()
+        sid = (step_id or "").strip()
+        if skill:
+            node["skillName"] = skill
+        if namespace:
+            node["stateNamespace"] = namespace
+        if sid:
+            node["stepId"] = sid
         payload: dict[str, Any] = {
             "threadId": self.thread_id,
             "cardId": cid,

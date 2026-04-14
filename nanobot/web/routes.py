@@ -887,11 +887,16 @@ async def handle_chat(request: web.Request) -> web.StreamResponse | web.Response
             try:
                 assert user_text is not None
                 from nanobot.web.module_skill_runtime import dispatch_chat_card_intent
+                from nanobot.web.skill_manifest_bridge import dispatch_skill_manifest_intent
 
                 intent = _try_parse_chat_card_intent(user_text)
                 handled, hitl_message = await dispatch_chat_card_intent(
                     intent, thread_id=thread_id, docman=None
                 )
+                if not handled:
+                    handled, hitl_message = await dispatch_skill_manifest_intent(
+                        intent, thread_id=thread_id, docman=None
+                    )
                 if handled:
                     if not client_disconnected and not run_finished_sent:
                         await safe_write(

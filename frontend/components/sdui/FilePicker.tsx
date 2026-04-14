@@ -45,6 +45,9 @@ export function SduiFilePicker({
   nextAction,
   cardId,
   saveRelativeDir,
+  skillName,
+  stateNamespace,
+  stepId,
 }: Props) {
   const { syncState, postToAgent } = useSkillUiRuntime();
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -125,22 +128,47 @@ export function SduiFilePicker({
         const mid = (moduleId ?? "").trim();
         const na = (nextAction ?? "").trim();
         const cid = (cardId ?? "").trim();
-        if (mid && na && cid && latest) {
-          postToAgent(
-            JSON.stringify({
-              type: "chat_card_intent",
-              verb: "module_action",
-              cardId: cid,
-              payload: {
-                moduleId: mid,
-                action: na,
-                state: {
-                  upload: latest,
-                  uploads: nextUploads,
+        if (latest) {
+          if (mid && na && cid) {
+            postToAgent(
+              JSON.stringify({
+                type: "chat_card_intent",
+                verb: "module_action",
+                cardId: cid,
+                payload: {
+                  moduleId: mid,
+                  action: na,
+                  state: {
+                    upload: latest,
+                    uploads: nextUploads,
+                  },
                 },
-              },
-            }),
-          );
+              }),
+            );
+            return;
+          }
+          const skill = (skillName ?? "").trim();
+          const namespace = (stateNamespace ?? "").trim();
+          const sid = (stepId ?? "").trim();
+          if (skill && sid) {
+            postToAgent(
+              JSON.stringify({
+                type: "chat_card_intent",
+                verb: "skill_manifest_action",
+                cardId: cid || undefined,
+                payload: {
+                  skillName: skill,
+                  action: "resume",
+                  stepId: sid,
+                  ...(namespace ? { stateNamespace: namespace } : {}),
+                  state: {
+                    upload: latest,
+                    uploads: nextUploads,
+                  },
+                },
+              }),
+            );
+          }
         }
       } catch (err) {
         setState({

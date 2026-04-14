@@ -571,11 +571,12 @@ export function useAgentChat() {
     async (
       text: string,
       modelName?: string,
-      options?: { showInTranscript?: boolean },
+      options?: { showInTranscript?: boolean, showCompletionMessage?: boolean },
     ) => {
       const trimmed = text.trim();
       if (!trimmed || !threadId || isLoading) return;
       const showInTranscript = options?.showInTranscript !== false;
+      const showCompletionMessage = options?.showCompletionMessage === true;
 
       abortRef.current?.abort();
       const ac = new AbortController();
@@ -713,13 +714,16 @@ export function useAgentChat() {
           } else if (event === "RunFinished") {
             sawRunFinished = true;
             const finishMsg = typeof data.message === "string" ? data.message.trim() : "";
-            if (showInTranscript && finishMsg) {
+            const allowSilentCompletionMessage = !showCompletionMessage || !/^已进入下一步[:：]/.test(finishMsg);
+            if ((showInTranscript || showCompletionMessage) && finishMsg && allowSilentCompletionMessage) {
               setMessages((prev) =>
-                prev.map((m) =>
-                  m.id === asstId
-                    ? { ...m, content: (m.content && m.content.trim()) ? m.content : finishMsg }
-                    : m,
-                ),
+                showInTranscript
+                  ? prev.map((m) =>
+                      m.id === asstId
+                        ? { ...m, content: (m.content && m.content.trim()) ? m.content : finishMsg }
+                        : m,
+                    )
+                  : [...prev, { id: newId(), role: "assistant", content: finishMsg }]
               );
             }
             // Persist tool-inferred file paths into the assistant message
@@ -933,7 +937,7 @@ export function useAgentChat() {
 
   const sendSilentMessage = useCallback(
     async (text: string, modelName?: string) => {
-      await sendChatRequest(text, modelName, { showInTranscript: false });
+      await sendChatRequest(text, modelName, { showInTranscript: false, showCompletionMessage: true });
     },
     [sendChatRequest],
   );

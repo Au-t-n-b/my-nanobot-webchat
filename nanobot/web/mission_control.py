@@ -294,3 +294,52 @@ class MissionControlManager:
         }
         await self._emit_chat_card(payload)
         return ChatCardHandle(card_id=cid, doc_id=did)
+
+    async def emit_confirm(
+        self,
+        title: str,
+        *,
+        confirm_label: str,
+        cancel_label: str,
+        card_id: str | None = None,
+        module_id: str | None = None,
+        next_action: str | None = None,
+        skill_name: str | None = None,
+        state_namespace: str | None = None,
+        step_id: str | None = None,
+    ) -> ChatCardHandle:
+        """Send a ConfirmCard to the chat stream."""
+        cid = card_id or str(uuid.uuid4())
+        did = await self._ensure_chat_doc()
+        node: dict[str, Any] = {
+            "type": "ConfirmCard",
+            "id": f"confirm-{cid}",
+            "title": str(title or "").strip() or "请确认",
+            "confirmLabel": str(confirm_label or "").strip() or "确认",
+            "cancelLabel": str(cancel_label or "").strip() or "取消",
+        }
+        mid = (module_id or "").strip()
+        na = (next_action or "").strip()
+        if mid:
+            node["moduleId"] = mid
+        if na:
+            node["nextAction"] = na
+        skill = (skill_name or "").strip()
+        namespace = (state_namespace or "").strip()
+        sid = (step_id or "").strip()
+        if skill:
+            node["skillName"] = skill
+        if namespace:
+            node["stateNamespace"] = namespace
+        if sid:
+            node["stepId"] = sid
+        payload: dict[str, Any] = {
+            "threadId": self.thread_id,
+            "cardId": cid,
+            "docId": did,
+            "mode": "append",
+            "node": node,
+            "ts": _now_ms(),
+        }
+        await self._emit_chat_card(payload)
+        return ChatCardHandle(card_id=cid, doc_id=did)

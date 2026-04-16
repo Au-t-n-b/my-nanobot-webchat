@@ -31,6 +31,8 @@ from nanobot.web.keys import (
     AGENT_LOOP_KEY,
     APPROVAL_REGISTRY_KEY,
     CONFIG_KEY,
+    PENDING_HITL_STORE_KEY,
+    SKILL_RESUME_RUNNER_KEY,
     REMOTE_CENTER_CLIENT_FACTORY_KEY,
     REMOTE_CENTER_SESSION_STORE_KEY,
     RUN_REGISTRY_KEY,
@@ -715,7 +717,10 @@ async def handle_chat(request: web.Request) -> web.StreamResponse | web.Response
         """Best-effort detect client disconnect earlier than write() errors."""
         try:
             transport = request.transport
-            return bool(transport is None or transport.is_closing())
+            # In aiohttp test servers, ``request.transport`` can be None even when the
+            # client is still actively reading the SSE body. Treat None as
+            # "unknown" (not closing) and rely on write() exceptions instead.
+            return bool(transport is not None and transport.is_closing())
         except Exception:
             return False
 
@@ -773,6 +778,9 @@ async def handle_chat(request: web.Request) -> web.StreamResponse | web.Response
 
             async def emit_skill_ui_patch(payload: dict[str, Any]) -> None:
                 await safe_write("SkillUiDataPatch", payload)
+
+            async def emit_skill_ui_bootstrap(payload: dict[str, Any]) -> None:
+                await safe_write("SkillUiBootstrap", payload)
 
             async def emit_skill_ui_chat_card(payload: dict[str, Any]) -> None:
                 await safe_write("SkillUiChatCard", payload)
@@ -862,8 +870,15 @@ async def handle_chat(request: web.Request) -> web.StreamResponse | web.Response
             token_skill_ui_patch = agent.set_skill_ui_patch_emitter(emit_skill_ui_patch)
             token_skill_ui_chat = agent.set_skill_ui_chat_card_emitter(emit_skill_ui_chat_card)
             token_module_focus = agent.set_module_session_focus_emitter(emit_module_session_focus)
-            token_task_status = agent.set_task_status_emitter(emit_task_status)
             token_thread_id = agent.set_current_thread_id(thread_id)
+            token_skill_ui_bootstrap = (
+                agent.set_skill_ui_bootstrap_emitter(emit_skill_ui_bootstrap)
+                if hasattr(agent, "set_skill_ui_bootstrap_emitter")
+                else None
+            )
+            token_task_status = (
+                agent.set_task_status_emitter(emit_task_status) if hasattr(agent, "set_task_status_emitter") else None
+            )
 
             async def _sse_heartbeat() -> None:
                 """Independent keepalive: fires every 10 s regardless of agent output.
@@ -887,12 +902,28 @@ async def handle_chat(request: web.Request) -> web.StreamResponse | web.Response
             try:
                 assert user_text is not None
                 from nanobot.web.module_skill_runtime import dispatch_chat_card_intent
+                from nanobot.web.skill_runtime_bridge import dispatch_skill_runtime_intent
                 from nanobot.web.skill_manifest_bridge import dispatch_skill_manifest_intent
 
                 intent = _try_parse_chat_card_intent(user_text)
                 handled, hitl_message = await dispatch_chat_card_intent(
                     intent, thread_id=thread_id, docman=None
                 )
+                if not handled:
+                    pending_store = request.app.get(PENDING_HITL_STORE_KEY)
+                    resume_runner = request.app.get(SKILL_RESUME_RUNNER_KEY)
+                    if pending_store is not None:
+                        try:
+                            await pending_store.init()
+                        except Exception:
+                            pass
+                    handled, hitl_message = await dispatch_skill_runtime_intent(
+                        intent,
+                        thread_id=thread_id,
+                        docman=None,
+                        pending_hitl_store=pending_store,
+                        resume_runner=resume_runner,
+                    )
                 if not handled:
                     handled, hitl_message = await dispatch_skill_manifest_intent(
                         intent, thread_id=thread_id, docman=None
@@ -996,8 +1027,11 @@ async def handle_chat(request: web.Request) -> web.StreamResponse | web.Response
                 agent.reset_skill_ui_patch_emitter(token_skill_ui_patch)
                 agent.reset_skill_ui_chat_card_emitter(token_skill_ui_chat)
                 agent.reset_module_session_focus_emitter(token_module_focus)
-                agent.reset_task_status_emitter(token_task_status)
                 agent.reset_current_thread_id(token_thread_id)
+                if token_skill_ui_bootstrap is not None and hasattr(agent, "reset_skill_ui_bootstrap_emitter"):
+                    agent.reset_skill_ui_bootstrap_emitter(token_skill_ui_bootstrap)
+                if token_task_status is not None and hasattr(agent, "reset_task_status_emitter"):
+                    agent.reset_task_status_emitter(token_task_status)
     except asyncio.CancelledError:
         client_disconnected = True
         if process_task is not None and not process_task.done():
@@ -1016,6 +1050,7 @@ async def handle_chat(request: web.Request) -> web.StreamResponse | web.Response
                         "code": "stream_closed",
                         "message": "Stream closed before terminal event.",
                     },
+                    "choices": run_choices,
                 },
             )
             run_finished_sent = True

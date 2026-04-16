@@ -11,6 +11,7 @@ import {
   type ReactNode,
 } from "react";
 import { expandInputPlaceholders } from "@/lib/sdui";
+import { useProjectOverviewStore } from "@/lib/projectOverviewStore";
 
 type SyncBehavior = "debounce" | "immediate";
 
@@ -208,6 +209,10 @@ export function SkillUiRuntimeProvider({
 }: Props) {
   const inputsRef = useRef<Record<string, string>>({});
   const [, force] = useState(0);
+  const legacyRegistry = useProjectOverviewStore((snapshot) => ({
+    loaded: snapshot.registryLoaded,
+    moduleIds: new Set(snapshot.registryItems.map((x) => x.moduleId)),
+  }));
   const canInternal = Boolean(docId && (enableInternalSync ?? true) && !syncStateRaw);
   // Keep hook arguments stable to avoid recreating syncState every render.
   const getDocId = useCallback(() => docId ?? "", [docId]);
@@ -223,9 +228,33 @@ export function SkillUiRuntimeProvider({
   const postToAgent = useCallback(
     (text: string) => {
       const expanded = expandInputPlaceholders(text, getInputValue);
+      // Option 1 (Skill-first): module_action is a legacy escape hatch and MUST be gated by registry whitelist.
+      try {
+        const parsed = JSON.parse(expanded) as unknown;
+        if (
+          parsed &&
+          typeof parsed === "object" &&
+          (parsed as { type?: unknown }).type === "chat_card_intent" &&
+          (parsed as { verb?: unknown }).verb === "module_action"
+        ) {
+          const payload = (parsed as { payload?: unknown }).payload as unknown;
+          const mid =
+            payload && typeof payload === "object" ? String((payload as { moduleId?: unknown }).moduleId ?? "") : "";
+          const moduleId = mid.trim();
+          if (!moduleId || !legacyRegistry.loaded || !legacyRegistry.moduleIds.has(moduleId)) {
+            console.warn("[SkillUiRuntime] blocked legacy module_action", {
+              moduleId,
+              loaded: legacyRegistry.loaded,
+            });
+            return;
+          }
+        }
+      } catch {
+        // Not a JSON envelope; allow passthrough.
+      }
       postToAgentRaw(expanded);
     },
-    [postToAgentRaw, getInputValue],
+    [postToAgentRaw, getInputValue, legacyRegistry.loaded, legacyRegistry.moduleIds],
   );
 
   const openPreview = useCallback(

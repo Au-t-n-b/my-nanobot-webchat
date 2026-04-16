@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import shutil
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -27,12 +29,26 @@ def _first_sse_data(body: str, event_name: str) -> dict | None:
     return None
 
 
+@pytest.fixture()
+def local_tmp_dir() -> Path:
+    root = Path(__file__).resolve().parents[2] / ".tmp" / "pytest-module-fastpath"
+    root.mkdir(parents=True, exist_ok=True)
+    path = root / "case"
+    if path.exists():
+        shutil.rmtree(path, ignore_errors=True)
+    path.mkdir(parents=True, exist_ok=True)
+    try:
+        yield path
+    finally:
+        shutil.rmtree(path, ignore_errors=True)
+
+
 @pytest.mark.asyncio
 async def test_chat_module_action_fastpath_skips_process_direct(
-    tmp_path,
+    local_tmp_dir: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    root = tmp_path / "skills" / "module_skill_demo"
+    root = local_tmp_dir / "skills" / "module_skill_demo"
     root.mkdir(parents=True)
     (root / "module.json").write_text(
         json.dumps(
@@ -46,7 +62,7 @@ async def test_chat_module_action_fastpath_skips_process_direct(
         ),
         encoding="utf-8",
     )
-    monkeypatch.setenv("NANOBOT_AGUI_SKILLS_ROOT", str(tmp_path / "skills"))
+    monkeypatch.setenv("NANOBOT_AGUI_SKILLS_ROOT", str(local_tmp_dir / "skills"))
 
     agent = MagicMock()
     agent.model = "m1"

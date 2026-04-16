@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import uuid
 from pathlib import Path
 from unittest.mock import AsyncMock
 
@@ -123,6 +124,18 @@ def capture_task_status_updates(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
 
     monkeypatch.setattr("nanobot.agent.loop.emit_task_status_event", capture)
     return payloads
+
+
+@pytest.fixture()
+def local_tmp_dir() -> Path:
+    root = Path(__file__).resolve().parents[1] / ".tmp" / "pytest-module-skill-runtime"
+    root.mkdir(parents=True, exist_ok=True)
+    path = root / f"case-{uuid.uuid4().hex}"
+    path.mkdir(parents=True)
+    try:
+        yield path
+    finally:
+        shutil.rmtree(path, ignore_errors=True)
 
 
 @pytest.fixture()
@@ -504,10 +517,10 @@ def skills_modeling_simulation_workbench(tmp_path: Path, monkeypatch: pytest.Mon
 
 
 @pytest.fixture()
-def skills_smart_survey_workbench(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+def skills_smart_survey_workbench(local_tmp_dir: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     repo_root = Path(__file__).resolve().parents[1]
     src = repo_root / "templates" / "smart_survey_workbench"
-    dst_root = tmp_path / "skills"
+    dst_root = local_tmp_dir / "skills"
     shutil.copytree(src, dst_root / "smart_survey_workbench")
     monkeypatch.setenv("NANOBOT_AGUI_SKILLS_ROOT", str(dst_root))
     return dst_root / "smart_survey_workbench"
@@ -534,9 +547,9 @@ def skills_job_management_with_plan_progress(
 
 
 @pytest.fixture()
-def skills_smart_survey_with_gongkan(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+def skills_smart_survey_with_gongkan(local_tmp_dir: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     repo_root = Path(__file__).resolve().parents[1]
-    dst_root = tmp_path / "skills"
+    dst_root = local_tmp_dir / "skills"
     shutil.copytree(repo_root / "templates" / "smart_survey_workbench", dst_root / "smart_survey_workbench")
     gongkan = dst_root / "gongkan_skill"
     (gongkan / "ProjectData" / "Start").mkdir(parents=True)
@@ -1225,6 +1238,113 @@ async def test_smart_survey_run_step1_reuses_current_guidance_card(
     assert r.get("ok") is True
     emit_guidance.assert_awaited_once()
     assert emit_guidance.await_args.kwargs.get("card_id") == "smart_survey_workbench:guidance"
+
+
+@pytest.mark.asyncio
+async def test_smart_survey_guide_routes_ui_through_skill_runtime_bridge(
+    skills_smart_survey_with_gongkan: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import nanobot.web.module_skill_runtime as module_skill_runtime
+
+    emitted: list[dict[str, Any]] = []
+
+    async def fake_emit_skill_runtime_event(*, envelope: dict[str, Any], thread_id: str, docman: Any = None) -> dict[str, Any]:
+        emitted.append({"envelope": envelope, "thread_id": thread_id})
+        return {"ok": True, "event": str(envelope.get("event") or ""), "summary": "ok"}
+
+    monkeypatch.setattr(
+        "nanobot.web.skill_runtime_bridge.emit_skill_runtime_event",
+        fake_emit_skill_runtime_event,
+    )
+
+    r = await module_skill_runtime.run_module_action(
+        module_id="smart_survey_workbench",
+        action="guide",
+        state={},
+        thread_id="thread-smart-guide-bridge",
+        docman=None,
+    )
+
+    assert r.get("ok") is True
+    events = [item["envelope"]["event"] for item in emitted]
+    assert events == ["task_progress.sync", "dashboard.patch", "chat.guidance"]
+
+
+@pytest.mark.asyncio
+async def test_smart_survey_prepare_step1_missing_inputs_routes_hitl_through_bridge(
+    skills_smart_survey_with_gongkan: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import nanobot.web.module_skill_runtime as module_skill_runtime
+
+    emitted: list[dict[str, Any]] = []
+
+    async def fake_emit_skill_runtime_event(*, envelope: dict[str, Any], thread_id: str, docman: Any = None) -> dict[str, Any]:
+        emitted.append({"envelope": envelope, "thread_id": thread_id})
+        return {"ok": True, "event": str(envelope.get("event") or ""), "summary": "ok"}
+
+    monkeypatch.setattr(
+        "nanobot.web.skill_runtime_bridge.emit_skill_runtime_event",
+        fake_emit_skill_runtime_event,
+    )
+
+    r = await module_skill_runtime.run_module_action(
+        module_id="smart_survey_workbench",
+        action="prepare_step1",
+        state={},
+        thread_id="thread-smart-step1-bridge",
+        docman=None,
+    )
+
+    assert r.get("ok") is True
+    events = [item["envelope"]["event"] for item in emitted]
+    assert events == ["hitl.file_request", "chat.guidance"]
+
+
+@pytest.mark.asyncio
+async def test_smart_survey_run_step1_routes_progress_and_dashboard_through_bridge(
+    skills_smart_survey_with_gongkan: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import nanobot.web.module_skill_runtime as module_skill_runtime
+
+    emitted: list[dict[str, Any]] = []
+
+    async def fake_emit_skill_runtime_event(*, envelope: dict[str, Any], thread_id: str, docman: Any = None) -> dict[str, Any]:
+        emitted.append({"envelope": envelope, "thread_id": thread_id})
+        return {"ok": True, "event": str(envelope.get("event") or ""), "summary": "ok"}
+
+    monkeypatch.setattr(
+        "nanobot.web.skill_runtime_bridge.emit_skill_runtime_event",
+        fake_emit_skill_runtime_event,
+    )
+    monkeypatch.setattr(
+        module_skill_runtime,
+        "_run_gongkan_step1",
+        AsyncMock(
+            return_value={
+                "ok": True,
+                "summary": "已识别液冷/A3/新址新建",
+                "uploaded_artifacts": [{"label": "sample_BOQ.xlsx"}],
+                "artifacts": [{"label": "定制工勘表.xlsx"}],
+                "metrics": {"completion": 25, "integrity": 25, "remaining": 0},
+            }
+        ),
+        raising=False,
+    )
+
+    r = await module_skill_runtime.run_module_action(
+        module_id="smart_survey_workbench",
+        action="run_step1",
+        state={},
+        thread_id="thread-smart-run1-bridge",
+        docman=None,
+    )
+
+    assert r.get("ok") is True
+    events = [item["envelope"]["event"] for item in emitted]
+    assert events == ["task_progress.sync", "dashboard.patch", "chat.guidance"]
 
 
 @pytest.mark.asyncio

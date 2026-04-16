@@ -3,6 +3,7 @@
 import { startTransition, useCallback, useEffect, useRef, useState } from "react";
 import { getLocalStorage } from "@/lib/browserStorage";
 import { applyTaskStatusSnapshot } from "@/lib/projectOverviewStore";
+import { parseSduiDocument } from "@/lib/sdui";
 import type { SduiNode, SduiPatch, SkillUiBootstrapEvent } from "@/lib/sdui";
 
 export type { SkillUiBootstrapEvent };
@@ -294,6 +295,7 @@ export function useAgentChat() {
   const [statusMessage, setStatusMessage] = useState("准备就绪");
   const [effectiveModel, setEffectiveModel] = useState<string | null>(null);
   const [skillUiPatchEvent, setSkillUiPatchEvent] = useState<SkillUiDataPatchEvent | null>(null);
+  const [skillUiBootstrapEvent, setSkillUiBootstrapEvent] = useState<SkillUiBootstrapEvent | null>(null);
   const [taskStatusEvent, setTaskStatusEvent] = useState<TaskStatusPayload | null>(null);
   /** 工具级模块焦点：仅由 SSE ModuleSessionFocus 维护，不用 Patch 超时猜测 */
   const [activeModuleIds, setActiveModuleIds] = useState<ReadonlySet<string>>(() => new Set());
@@ -347,12 +349,23 @@ export function useAgentChat() {
 
   useEffect(() => {
     if (!hydratedRef.current || !threadId) return;
-    const messageMap = loadMessageMap();
-    messageMap[threadId] = sanitizeMessages(messages);
-    saveMessageMap(messageMap);
-    const nextSessions = upsertSessionSummary(loadSessionSummaries(), deriveSessionSummary(threadId, messages));
-    saveSessionSummaries(nextSessions);
-    setSessions(nextSessions);
+    // Persisting + updating session list on every token can create extremely
+    // deep update chains in React dev/fast-refresh scenarios. Debounce to a
+    // single update per small window.
+    let cancelled = false;
+    const handle = window.setTimeout(() => {
+      if (cancelled) return;
+      const messageMap = loadMessageMap();
+      messageMap[threadId] = sanitizeMessages(messages);
+      saveMessageMap(messageMap);
+      const nextSessions = upsertSessionSummary(loadSessionSummaries(), deriveSessionSummary(threadId, messages));
+      saveSessionSummaries(nextSessions);
+      setSessions(nextSessions);
+    }, 180);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(handle);
+    };
   }, [messages, threadId]);
 
   const deleteMessage = useCallback(
@@ -787,6 +800,19 @@ export function useAgentChat() {
               applyTaskStatusSnapshot(snapshot);
               setTaskStatusEvent(snapshot);
             });
+          } else if (event === "SkillUiBootstrap") {
+            const syntheticPathRaw = typeof data.syntheticPath === "string" ? data.syntheticPath.trim() : "";
+            if (!syntheticPathRaw) return;
+            const parsed = parseSduiDocument(data.document);
+            if (!parsed.ok) return;
+            startTransition(() => {
+              setSkillUiBootstrapEvent({
+                id: newId(),
+                syntheticPath: syntheticPathRaw,
+                document: parsed.doc,
+                receivedAt: Date.now(),
+              });
+            });
           } else if (event === "SkillUiDataPatch") {
             // v3 生产契约：syntheticPath 必填；patch 含 docId、revision（整数）。
             const syntheticPathRaw = typeof data.syntheticPath === "string" ? data.syntheticPath.trim() : "";
@@ -955,8 +981,8 @@ export function useAgentChat() {
     statusMessage,
     effectiveModel,
     skillUiPatchEvent,
+    skillUiBootstrapEvent,
     taskStatusEvent,
-    skillUiBootstrapEvent: null as SkillUiBootstrapEvent | null,
     activeModuleIds,
     sendMessage,
     sendSilentMessage,

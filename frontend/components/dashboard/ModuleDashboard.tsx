@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronLeft, RotateCcw } from "lucide-react";
+import { ChevronLeft } from "lucide-react";
 import type { ModuleEntry } from "@/components/DashboardNavigator";
 import type { SkillUiDataPatchEvent } from "@/hooks/useAgentChat";
 import { SkillUiWrapper } from "@/components/SkillUiWrapper";
@@ -64,45 +64,7 @@ export function ModuleDashboard({
           );
         })}
 
-        {entry ? (
-          <button
-            type="button"
-            disabled={isAgentRunning}
-            onClick={() => {
-              postToAgent(
-                JSON.stringify({
-                  type: "chat_card_intent",
-                  verb: "module_action",
-                  payload: { moduleId: entry.moduleId, action: "guide", state: {} },
-                }),
-              );
-            }}
-            className="shrink-0 flex items-center gap-1.5 px-3 py-2 text-xs border-l border-[var(--border-subtle)] text-[var(--accent)] hover:bg-[var(--surface-2)] disabled:opacity-40 disabled:pointer-events-none transition-colors"
-          >
-            启动模块
-          </button>
-        ) : null}
-
-        {entry ? (
-          <button
-            type="button"
-            disabled={isAgentRunning}
-            title="清空本模块会话状态并重置大盘为初始引导（再次执行 guide，便于重复测试）"
-            onClick={() => {
-              postToAgent(
-                JSON.stringify({
-                  type: "chat_card_intent",
-                  verb: "module_action",
-                  payload: { moduleId: entry.moduleId, action: "guide", state: {} },
-                }),
-              );
-            }}
-            className="ml-auto shrink-0 flex items-center gap-1.5 px-3 py-2 text-xs border-l border-[var(--border-subtle)] ui-text-muted hover:text-[var(--warning)] hover:bg-[var(--surface-2)] disabled:opacity-40 disabled:pointer-events-none transition-colors"
-          >
-            <RotateCcw size={12} aria-hidden />
-            清空进度
-          </button>
-        ) : null}
+        {/* Skill-First (Option 1): entry/reset actions must be defined in the skill dashboard (SDUI). */}
       </div>
 
       <div className="dashboard-density-viewport flex-1 min-h-0 overflow-hidden">

@@ -5,6 +5,7 @@ import { Upload, CheckCircle2, AlertTriangle, Check } from "lucide-react";
 import type { SduiFilePickerNode } from "@/lib/sdui";
 import { useSkillUiRuntime } from "@/components/sdui/SkillUiRuntimeProvider";
 import { SduiArtifactGrid } from "@/components/sdui/SduiArtifactGrid";
+import { formatLegacyModuleActionBlockedMessage, useLegacyModuleActionAllowed } from "@/lib/legacyModuleGate";
 
 type Props = SduiFilePickerNode & { cardId?: string };
 
@@ -54,6 +55,7 @@ export function SduiFilePicker({
   const [state, setState] = useState<UploadState>({ status: "idle" });
   const [dragOver, setDragOver] = useState(false);
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFileRecord[]>([]);
+  const legacyGate = useLegacyModuleActionAllowed(moduleId);
 
   const uploadOne = useCallback(
     (file: File) =>
@@ -129,7 +131,44 @@ export function SduiFilePicker({
         const na = (nextAction ?? "").trim();
         const cid = (cardId ?? "").trim();
         if (latest) {
+          const skill = (skillName ?? "").trim();
+          const namespace = (stateNamespace ?? "").trim();
+          const sid = (stepId ?? "").trim();
+          // Skill-first: if the SDUI node is tied to a skill HITL request, always return via skill_runtime_result.
+          // (Option 1: platform must not depend on legacy module_action flow.)
+          if (skill && cid) {
+            postToAgent(
+              JSON.stringify({
+                type: "chat_card_intent",
+                verb: "skill_runtime_result",
+                payload: {
+                  type: "skill_runtime_result",
+                  skillName: skill,
+                  requestId: cid,
+                  status: "ok",
+                  // action can be omitted; backend will fall back to pending.resume_action
+                  ...(namespace ? { stateNamespace: namespace } : {}),
+                  ...(sid ? { stepId: sid } : {}),
+                  result: {
+                    upload: latest,
+                    uploads: nextUploads,
+                  },
+                },
+              }),
+            );
+            return;
+          }
+
+          // Legacy fallback: keep module_action only when no skill context is provided.
           if (mid && na && cid) {
+            if (!legacyGate.allowed) {
+              setState({
+                status: "error",
+                filename: latest?.name,
+                message: formatLegacyModuleActionBlockedMessage(mid, legacyGate.reason),
+              });
+              return;
+            }
             postToAgent(
               JSON.stringify({
                 type: "chat_card_intent",
@@ -147,28 +186,6 @@ export function SduiFilePicker({
             );
             return;
           }
-          const skill = (skillName ?? "").trim();
-          const namespace = (stateNamespace ?? "").trim();
-          const sid = (stepId ?? "").trim();
-          if (skill && sid) {
-            postToAgent(
-              JSON.stringify({
-                type: "chat_card_intent",
-                verb: "skill_manifest_action",
-                cardId: cid || undefined,
-                payload: {
-                  skillName: skill,
-                  action: "resume",
-                  stepId: sid,
-                  ...(namespace ? { stateNamespace: namespace } : {}),
-                  state: {
-                    upload: latest,
-                    uploads: nextUploads,
-                  },
-                },
-              }),
-            );
-          }
         }
       } catch (err) {
         setState({
@@ -178,7 +195,23 @@ export function SduiFilePicker({
         });
       }
     },
-    [uploadOne, syncState, purpose, moduleId, nextAction, cardId, postToAgent, multiple, saveRelativeDir, uploadedFiles],
+    [
+      uploadOne,
+      syncState,
+      purpose,
+      moduleId,
+      nextAction,
+      cardId,
+      postToAgent,
+      multiple,
+      saveRelativeDir,
+      uploadedFiles,
+      skillName,
+      stateNamespace,
+      stepId,
+      legacyGate.allowed,
+      legacyGate.reason,
+    ],
   );
 
   const onPick = () => {

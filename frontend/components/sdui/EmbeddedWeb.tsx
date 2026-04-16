@@ -8,6 +8,7 @@ const CLAW_PLATFORM = "claw-platform";
 const CLAW_IFRAME = "claw-iframe";
 const CLAW_UPDATE = "CLAW_UPDATE_STATE";
 const CLAW_EVENT = "CLAW_EVENT";
+const SKILL_WEB_INTENT = "skill_web_intent";
 
 type Props = {
   src: string;
@@ -64,6 +65,8 @@ export function EmbeddedWeb({
   const lastSentJsonRef = useRef<string | null>(null);
   const runtime = useSkillUiRuntime();
   const syncState = runtime.syncState;
+  const postToAgentRef = useRef(runtime.postToAgent);
+  postToAgentRef.current = runtime.postToAgent;
 
   const targetOrigin = useMemo(() => {
     try {
@@ -122,6 +125,20 @@ export function EmbeddedWeb({
       const data = event.data;
       if (!data || typeof data !== "object") return;
       const d = data as Record<string, unknown>;
+
+      // Skill-First: generic "web intent" bridge.
+      // iframe can send: { type: "skill_web_intent", text: "<string>" } and the host will
+      // forward the text to /api/chat through the injected postToAgent.
+      if (d.type === SKILL_WEB_INTENT) {
+        const text = typeof d.text === "string" ? d.text.trim() : "";
+        if (!text) return;
+        if (originAllowList.size > 0 && !originAllowList.has(event.origin)) return;
+        // Best-effort: avoid megabyte payloads freezing the UI.
+        if (text.length > 1_800_000) return;
+        postToAgentRef.current?.(text);
+        return;
+      }
+
       if (d.source !== CLAW_IFRAME || d.type !== CLAW_EVENT) return;
 
       if (originAllowList.size > 0 && !originAllowList.has(event.origin)) return;

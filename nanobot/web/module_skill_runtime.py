@@ -24,6 +24,7 @@ from nanobot.web.module_contract_schema import (
     validate_module_contract,
 )
 from nanobot.web.mission_control import MissionControlManager
+from nanobot.web import skill_runtime_bridge
 from nanobot.web.task_progress import load_task_status_payload, normalize_task_progress_payload, task_progress_file_path
 
 # 执行结束后发 idle。guide/start 不发 idle，让前端保持「模块进行中」并停在模块大盘，直到 finish/cancel。
@@ -3715,6 +3716,142 @@ def _smart_survey_dashboard_nodes(
     ]
 
 
+def _runtime_merge_ops_for_updates(updates: list[tuple[str, str, dict[str, Any]]]) -> list[dict[str, Any]]:
+    ops: list[dict[str, Any]] = []
+    for node_id, node_type, fields in updates:
+        nid = str(node_id or "").strip()
+        ntype = str(node_type or "").strip()
+        if not nid or not ntype:
+            continue
+        value = dict(fields)
+        value["type"] = ntype
+        value["id"] = nid
+        ops.append(
+            {
+                "op": "merge",
+                "target": {"by": "id", "nodeId": nid},
+                "value": value,
+            }
+        )
+    return ops
+
+
+def _task_progress_payload_for_names(
+    module_name: str,
+    completed_names: set[str],
+    module_cfg: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    definition = _task_progress_definition(module_name, module_cfg)
+    now = int(time.time())
+    return {
+        "schemaVersion": 1,
+        "updatedAt": now,
+        "progress": [
+            {
+                "moduleId": definition["module_id"],
+                "moduleName": definition["module_name"],
+                "updatedAt": now,
+                "tasks": [
+                    {"name": name, "completed": name in completed_names}
+                    for name in definition["tasks"]
+                    if name
+                ],
+            }
+        ],
+    }
+
+
+async def _emit_runtime_guidance(
+    *,
+    thread_id: str,
+    docman: Any,
+    context: str,
+    actions: list[dict[str, Any]],
+    card_id: str | None = None,
+) -> dict[str, Any]:
+    return await skill_runtime_bridge.emit_skill_runtime_event(
+        envelope={
+            "event": "chat.guidance",
+            "payload": {
+                "context": context,
+                "actions": actions,
+                "cardId": card_id,
+            },
+        },
+        thread_id=thread_id,
+        docman=docman,
+    )
+
+
+async def _emit_runtime_file_request(
+    *,
+    thread_id: str,
+    docman: Any,
+    purpose: str,
+    title: str,
+    accept: str | None,
+    multiple: bool,
+    save_relative_dir: str | None,
+    resume_action: str,
+    module_id: str | None = None,
+) -> dict[str, Any]:
+    return await skill_runtime_bridge.emit_skill_runtime_event(
+        envelope={
+            "event": "hitl.file_request",
+            "payload": {
+                "purpose": purpose,
+                "title": title,
+                "accept": accept,
+                "multiple": multiple,
+                "saveRelativeDir": save_relative_dir,
+                "resumeAction": resume_action,
+                "moduleId": module_id,
+            },
+        },
+        thread_id=thread_id,
+        docman=docman,
+    )
+
+
+async def _emit_runtime_dashboard_patch(
+    *,
+    thread_id: str,
+    docman: Any,
+    cfg: dict[str, Any],
+    updates: list[tuple[str, str, dict[str, Any]]],
+) -> dict[str, Any]:
+    return await skill_runtime_bridge.emit_skill_runtime_event(
+        envelope={
+            "event": "dashboard.patch",
+            "payload": {
+                "syntheticPath": synthetic_path_for_data_file(str(cfg.get("dataFile") or "").strip()),
+                "docId": str(cfg.get("docId") or "").strip() or "dashboard:runtime",
+                "ops": _runtime_merge_ops_for_updates(updates),
+            },
+        },
+        thread_id=thread_id,
+        docman=docman,
+    )
+
+
+async def _emit_runtime_task_progress(
+    *,
+    thread_id: str,
+    docman: Any,
+    module_name: str,
+    completed_names: set[str],
+    cfg: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    return await skill_runtime_bridge.emit_skill_runtime_event(
+        envelope={
+            "event": "task_progress.sync",
+            "payload": _task_progress_payload_for_names(module_name, completed_names, cfg),
+        },
+        thread_id=thread_id,
+        docman=docman,
+    )
+
+
 async def _flow_smart_survey_workflow(
     *,
     module_id: str,
@@ -3739,28 +3876,39 @@ async def _flow_smart_survey_workflow(
     if action == "guide":
         clear_module_session(thread_id, module_id)
         definition = _task_progress_definition("智慧工勘模块", cfg)
-        await _set_project_progress_and_emit(definition["module_name"], set(), cfg)
-        await pusher.update_nodes(
-            [
+        await _emit_runtime_task_progress(
+            thread_id=thread_id,
+            docman=docman,
+            module_name=definition["module_name"],
+            completed_names=set(),
+            cfg=cfg,
+        )
+        await _emit_runtime_dashboard_patch(
+            thread_id=thread_id,
+            docman=docman,
+            cfg=cfg,
+            updates=[
                 (SDUI_STEPPER_MAIN_ID, "Stepper", {"steps": _smart_survey_stepper_steps(0)}),
             ]
             + _smart_survey_dashboard_nodes(
-                    cfg,
-                    {
-                        "summary": "智慧工勘模块已就绪，请先检查并补齐 Step 1 输入件。",
-                        "uploaded_artifacts": [],
-                        "artifacts": [],
-                        "metrics": {"completion": 0, "integrity": 0, "remaining": 0},
-                        "alerts": [],
-                    },
-                    completed=0,
-                    pending=4,
-                    center_value="0%",
-                    center_label="勘测完成度",
-                )
+                cfg,
+                {
+                    "summary": "智慧工勘模块已就绪，请先检查并补齐 Step 1 输入件。",
+                    "uploaded_artifacts": [],
+                    "artifacts": [],
+                    "metrics": {"completion": 0, "integrity": 0, "remaining": 0},
+                    "alerts": [],
+                },
+                completed=0,
+                pending=4,
+                center_value="0%",
+                center_label="勘测完成度",
+            ),
         )
         # guide 直接下发可点击卡片（顶栏按钮触发 fast-path 时，避免回显 JSON 串）
-        await mc.emit_guidance(
+        await _emit_runtime_guidance(
+            thread_id=thread_id,
+            docman=docman,
             context="智慧工勘模块已初始化。请先准备/补齐 Step 1 输入件，然后开始执行「场景筛选与底表过滤」。",
             actions=[
                 {
@@ -3781,16 +3929,20 @@ async def _flow_smart_survey_workflow(
     if action == "prepare_step1":
         missing = _smart_survey_missing_step1_inputs(skill_root)
         if missing:
-            await mc.ask_for_file(
+            await _emit_runtime_file_request(
+                thread_id=thread_id,
+                docman=docman,
                 purpose="smart_survey_inputs",
                 title="请补齐工勘 Step 1 输入件",
                 accept=str(upload_cfg.get("accept") or ".xlsx,.docx"),
                 multiple=bool(upload_cfg.get("multiple", True)),
                 module_id=module_id,
-                next_action="run_step1",
                 save_relative_dir=str(upload_cfg.get("save_relative_dir") or "skills/gongkan_skill/ProjectData/Input"),
+                resume_action="run_step1",
             )
-            await mc.emit_guidance(
+            await _emit_runtime_guidance(
+                thread_id=thread_id,
+                docman=docman,
                 context=f"Step1 输入件缺失：{', '.join(missing)}。已下发上传卡片，请上传后继续。",
                 actions=[
                     {
@@ -3802,7 +3954,9 @@ async def _flow_smart_survey_workflow(
                 card_id=guidance_card_id,
             )
             return {"ok": True, "next": "run_step1"}
-        await mc.emit_guidance(
+        await _emit_runtime_guidance(
+            thread_id=thread_id,
+            docman=docman,
             context="Step1 输入件已齐备，可以开始执行场景筛选与底表过滤。",
             actions=[
                 {
@@ -3824,21 +3978,32 @@ async def _flow_smart_survey_workflow(
         result = await _run_gongkan_step1(skill_root)
         if not result.get("ok"):
             return result
-        await _sync_smart_survey_task_progress(skill_root, cfg, {"场景筛选与底表过滤"})
-        await pusher.update_nodes(
-            [
+        await _emit_runtime_task_progress(
+            thread_id=thread_id,
+            docman=docman,
+            module_name=_task_progress_definition("智慧工勘模块", cfg)["module_name"],
+            completed_names={"场景筛选与底表过滤"},
+            cfg=cfg,
+        )
+        await _emit_runtime_dashboard_patch(
+            thread_id=thread_id,
+            docman=docman,
+            cfg=cfg,
+            updates=[
                 (SDUI_STEPPER_MAIN_ID, "Stepper", {"steps": _smart_survey_stepper_steps(1)}),
             ]
             + _smart_survey_dashboard_nodes(
-                    cfg,
-                    result,
-                    completed=1,
-                    pending=3,
-                    center_value="25%",
-                    center_label="勘测完成度",
-                )
+                cfg,
+                result,
+                completed=1,
+                pending=3,
+                center_value="25%",
+                center_label="勘测完成度",
+            ),
         )
-        await mc.emit_guidance(
+        await _emit_runtime_guidance(
+            thread_id=thread_id,
+            docman=docman,
             context="场景筛选已完成。请补齐勘测结果与现场照片，然后进入勘测数据汇总。",
             actions=[
                 {

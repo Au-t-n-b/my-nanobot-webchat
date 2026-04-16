@@ -52,6 +52,13 @@ _SKILL_UI_PATCH_EMITTER: ContextVar[SkillUiPatchEmitter | None] = ContextVar(
     default=None,
 )
 
+# SSE SkillUiBootstrap: full-document mount for right-side dashboards.
+SkillUiBootstrapEmitter = Callable[[dict[str, Any]], Awaitable[None]]
+_SKILL_UI_BOOTSTRAP_EMITTER: ContextVar[SkillUiBootstrapEmitter | None] = ContextVar(
+    "nanobot_skill_ui_bootstrap_emitter",
+    default=None,
+)
+
 # SSE SkillUiChatCard: bound per /api/chat request (see routes.handle_chat).
 SkillUiChatCardEmitter = Callable[[dict[str, Any]], Awaitable[None]]
 _SKILL_UI_CHAT_CARD_EMITTER: ContextVar[SkillUiChatCardEmitter | None] = ContextVar(
@@ -115,6 +122,18 @@ async def emit_task_status_event(payload: dict[str, Any]) -> None:
         await cb(payload)
     except Exception:
         logger.exception("task_status_emit_failed")
+
+
+async def emit_skill_ui_bootstrap_event(payload: dict[str, Any]) -> None:
+    """Emit SkillUiBootstrap SSE for a full SDUI document mount."""
+    cb = _SKILL_UI_BOOTSTRAP_EMITTER.get()
+    if cb is None:
+        logger.info("skill_ui_bootstrap_emit_skipped | reason=no_sse_emitter")
+        return
+    try:
+        await cb(payload)
+    except Exception:
+        logger.exception("skill_ui_bootstrap_emit_failed")
 
 
 async def emit_skill_ui_data_patch_event(payload: dict[str, Any]) -> None:
@@ -351,6 +370,12 @@ class AgentLoop:
 
     def reset_skill_ui_patch_emitter(self, token: Token) -> None:
         _SKILL_UI_PATCH_EMITTER.reset(token)
+
+    def set_skill_ui_bootstrap_emitter(self, callback: SkillUiBootstrapEmitter | None) -> Token:
+        return _SKILL_UI_BOOTSTRAP_EMITTER.set(callback)
+
+    def reset_skill_ui_bootstrap_emitter(self, token: Token) -> None:
+        _SKILL_UI_BOOTSTRAP_EMITTER.reset(token)
 
     def set_skill_ui_chat_card_emitter(self, callback: SkillUiChatCardEmitter | None) -> Token:
         return _SKILL_UI_CHAT_CARD_EMITTER.set(callback)

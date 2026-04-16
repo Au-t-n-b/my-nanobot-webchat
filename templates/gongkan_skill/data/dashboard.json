@@ -1,0 +1,60 @@
+{
+  "schemaVersion": 1,
+  "type": "SduiDocument",
+  "meta": {
+    "docId": "dashboard:smart-survey-workbench",
+    "provenance": "gongkan_skill"
+  },
+  "root": {
+    "type": "Stack",
+    "gap": "lg",
+    "children": [
+      {
+        "type": "Text",
+        "variant": "heading",
+        "content": "智慧工勘模块 · 当前进展 / 产物总结"
+      },
+      {
+        "type": "Row",
+        "gap": "md",
+        "align": "center",
+        "children": [
+          {
+            "type": "Button",
+            "id": "btn-start-skill",
+            "label": "开始工勘（Step 1：场景筛选）",
+            "variant": "primary",
+            "color": "accent",
+            "action": {
+              "kind": "post_user_message",
+              "text": "{\"type\":\"chat_card_intent\",\"verb\":\"skill_runtime_start\",\"payload\":{\"type\":\"skill_runtime_start\",\"skillName\":\"gongkan_skill\",\"requestId\":\"req-start-zhgk\",\"action\":\"zhgk_step1_scene_filter\"}}"
+            }
+          }
+        ]
+      },
+      { "type": "Stepper", "id": "stepper-main", "steps": [] },
+      {
+        "type": "Text",
+        "id": "summary-text",
+        "variant": "body",
+        "color": "subtle",
+        "content": "进入模块后将在此展示工勘阶段摘要。"
+      },
+      {
+        "type": "ArtifactGrid",
+        "id": "uploaded-files",
+        "title": "已上传文件",
+        "mode": "input",
+        "artifacts": []
+      },
+      {
+        "type": "ArtifactGrid",
+        "id": "artifacts",
+        "title": "作业结果",
+        "mode": "output",
+        "artifacts": []
+      }
+    ]
+  }
+}
+

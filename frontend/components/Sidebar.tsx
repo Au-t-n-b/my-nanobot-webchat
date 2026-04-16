@@ -1,11 +1,20 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Building2, Check, ChevronRight, Copy, FileText, FolderOpen, Globe, Plus, RefreshCw, Settings, Trash2, Zap } from "lucide-react";
+import { Building2, Check, ChevronRight, Copy, FileText, FolderOpen, Globe, LogOut, Plus, RefreshCw, Settings, Trash2, Zap } from "lucide-react";
+import { CenteredConfirmModal, CenteredModal } from "@/components/CenteredModal";
 import { SessionList } from "@/components/SessionList";
 import type { AgentMessage, SessionSummary } from "@/hooks/useAgentChat";
 import { extractIndexedFiles } from "@/lib/fileIndex";
 import { openLocation } from "@/lib/apiFile";
+import { SIDEBAR_SECTION_LABEL_CLASS } from "@/lib/sidebarTokens";
+import {
+  createLocalProjectWithMeta,
+  ensureAtLeastOneLocalProject,
+  listLocalProjects,
+  setSelectedLocalProjectId,
+  type LocalProject,
+} from "@/lib/localProjects";
 
 type Props = {
   threadId: string;
@@ -28,6 +37,10 @@ type Props = {
   /** When true the sidebar is in 64 px icon-only mode */
   isCollapsed?: boolean;
   onToggleCollapse?: () => void;
+  /** Opens quick settings (e.g. control center settings tab). */
+  onOpenQuickSettings?: () => void;
+  /** Local demo auth: sign out and return to login. */
+  onLogout?: () => void;
 };
 
 type SkillItem = {
@@ -61,6 +74,13 @@ type SkillPublishModalState = {
   target: SkillPublishTarget;
 };
 
+type ProjectScenarioPreset = "" | "风冷" | "液冷" | "混合" | "其他";
+function asScenarioPreset(v: string): ProjectScenarioPreset {
+  const t = v.trim();
+  if (t === "风冷" || t === "液冷" || t === "混合" || t === "其他") return t;
+  return "";
+}
+
 function apiPath(path: string, apiBase: string): string {
   if (process.env.NEXT_PUBLIC_AGUI_DIRECT === "1") {
     return `${apiBase.replace(/\/$/, "")}${path}`;
@@ -86,6 +106,8 @@ export function Sidebar({
   refreshNonce = 0,
   isCollapsed = false,
   onToggleCollapse,
+  onOpenQuickSettings,
+  onLogout,
 }: Props) {
   const readApiError = useCallback(
     (body: { error?: { message?: string; detail?: string } }, fallback: string) => {
@@ -133,6 +155,21 @@ export function Sidebar({
   const [orgAssetsLoading, setOrgAssetsLoading] = useState(false);
   const [orgAssetsError, setOrgAssetsError] = useState<string | null>(null);
   const [orgAssetsConnected, setOrgAssetsConnected] = useState(true);
+  const [projects, setProjects] = useState<LocalProject[]>([]);
+  const [selectedProjectId, setSelectedProjectId] = useState<string>("");
+  const [projectCreateOpen, setProjectCreateOpen] = useState(false);
+  const [newProjectName, setNewProjectName] = useState("");
+  const [newProjectCode, setNewProjectCode] = useState("");
+  const [newProjectBidCode, setNewProjectBidCode] = useState("");
+  const [newProjectScenario, setNewProjectScenario] = useState("");
+  const [newProjectScenarioPreset, setNewProjectScenarioPreset] = useState<ProjectScenarioPreset>("");
+  const [newProjectScenarioDetail, setNewProjectScenarioDetail] = useState("");
+  const [newProjectScale, setNewProjectScale] = useState("");
+  const [newProjectDeliveryFeatures, setNewProjectDeliveryFeatures] = useState("");
+  const [newProjectLanguage, setNewProjectLanguage] = useState("");
+  const [newProjectGroup, setNewProjectGroup] = useState("");
+  const [newProjectStakeholders, setNewProjectStakeholders] = useState("");
+  const [projectMetaOpen, setProjectMetaOpen] = useState(false);
   const stableIndexedFilesRef = useRef<ReturnType<typeof extractIndexedFiles>>([]);
   const indexedFiles = useMemo(() => {
     // During streaming, freeze file-index recomputation to avoid input lag.
@@ -199,12 +236,34 @@ export function Sidebar({
     void loadOrgAssets();
   }, [loadOrgAssets, refreshNonce]);
 
+  useEffect(() => {
+    const { projects, selectedId } = ensureAtLeastOneLocalProject();
+    setProjects(projects);
+    setSelectedProjectId(selectedId);
+  }, []);
+
   const copyPath = useCallback((path: string) => {
     void navigator.clipboard.writeText(path).then(() => {
       setCopiedPath(path);
       setTimeout(() => setCopiedPath(null), 1400);
     });
   }, []);
+
+  const refreshProjects = useCallback(() => {
+    const next = listLocalProjects();
+    setProjects(next);
+    setSelectedProjectId((cur) => {
+      if (cur && next.some((p) => p.id === cur)) return cur;
+      const fallback = next[0]?.id ?? "";
+      if (fallback) setSelectedLocalProjectId(fallback);
+      return fallback;
+    });
+  }, []);
+
+  const selectedProjectName = useMemo(() => {
+    const p = projects.find((x) => x.id === selectedProjectId);
+    return p?.name ?? "未选择项目";
+  }, [projects, selectedProjectId]);
 
   const handleOpenLocation = useCallback(async (path: string) => {
     try {
@@ -294,42 +353,53 @@ export function Sidebar({
 
   // ── Mini sidebar (collapsed mode) ──────────────────────────────────────
   if (isCollapsed) {
-    const iconBtn = "rounded-lg p-2 text-zinc-500 hover:bg-zinc-900/40 hover:text-zinc-200 transition-colors w-10 h-10 flex items-center justify-center";
+    const iconBtn =
+      "rounded-lg p-2 text-zinc-500 hover:bg-zinc-900/40 hover:text-zinc-200 transition-colors w-10 h-10 flex items-center justify-center";
     return (
-      <aside className="h-full min-h-0 rounded-none flex flex-col items-center py-3 gap-1 overflow-hidden bg-zinc-100 dark:bg-[#121214] border-r border-zinc-200/90 dark:border-white/[0.06] shadow-none">
-        {/* Logo */}
-        <span className="text-lg leading-none mb-0.5" aria-hidden="true">🦞</span>
-        <span className="w-1.5 h-1.5 rounded-full mb-2" style={{ background: "var(--success)" }} title="已连接" />
+      <aside className="flex h-full min-h-0 flex-col items-center gap-1 overflow-hidden rounded-2xl bg-zinc-100 py-3 shadow-[var(--shadow-card)] ring-1 ring-black/[0.05] dark:bg-[#121214] dark:ring-white/10">
+        <span className="text-lg leading-none mb-0.5" aria-hidden="true">
+          🦞
+        </span>
+        <span className="mb-2 h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: "var(--success)" }} title="已连接" />
 
-        {/* New session */}
         <button type="button" onClick={onCreateSession} title="新建会话" className={iconBtn}>
           <Plus size={18} />
         </button>
 
-        {/* Artifacts — click to expand sidebar */}
         <div className="relative" title={`产物 (${artifacts.length})，点击展开`}>
           <button type="button" onClick={onToggleCollapse} className={iconBtn}>
             <FileText size={18} />
           </button>
           {artifacts.length > 0 && (
-            <span className="absolute top-1 right-1 w-3.5 h-3.5 rounded-full text-[8px] font-bold flex items-center justify-center text-white pointer-events-none" style={{ background: "var(--accent)" }}>
+            <span
+              className="pointer-events-none absolute right-1 top-1 flex h-3.5 min-w-3.5 items-center justify-center rounded-full text-[8px] font-bold text-white"
+              style={{ background: "var(--accent)" }}
+            >
               {artifacts.length > 9 ? "9+" : artifacts.length}
             </span>
           )}
         </div>
 
-        {/* Skills — click to expand sidebar */}
         <button type="button" title="技能，点击展开" onClick={onToggleCollapse} className={iconBtn}>
           <Zap size={18} />
         </button>
 
-        {/* Org Assets — click to expand sidebar */}
         <button type="button" title="组织资产，点击展开" onClick={onToggleCollapse} className={iconBtn}>
           <Building2 size={18} />
         </button>
 
-        {/* Bottom：仅保留展开（设置/主题/预览等与会话顶栏一致） */}
         <div className="mt-auto flex flex-col items-center gap-1">
+          {onOpenQuickSettings ? (
+            <button
+              type="button"
+              onClick={onOpenQuickSettings}
+              title="设置"
+              className={iconBtn}
+              aria-label="设置"
+            >
+              <Settings size={18} />
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={onToggleCollapse}
@@ -344,33 +414,177 @@ export function Sidebar({
     );
   }
 
-  const sectionLabelClass =
-    "text-[10px] font-medium uppercase tracking-[0.22em] text-zinc-500 dark:text-white/40";
+  const settingsBtnClass =
+    "w-full min-w-0 inline-flex items-center justify-center gap-2 rounded-xl border border-zinc-200/80 bg-white/40 px-3 py-2.5 text-sm font-medium text-zinc-700 shadow-sm transition-colors hover:bg-white/70 dark:border-white/10 dark:bg-zinc-900/40 dark:text-zinc-100 dark:hover:bg-zinc-900/70";
+
+  const portalTrashModal = (
+    <CenteredConfirmModal
+      open={trashModal.open}
+      title="移入回收站"
+      variant="warning"
+      loading={trashBusy}
+      description={
+        <div className="space-y-2">
+          <p>
+            {trashModal.mode === "all"
+              ? `确认将 ${trashModal.targets.length} 个产物移入回收站？`
+              : "确认将该产物移入回收站？"}
+          </p>
+          {trashError ? <p style={{ color: "var(--danger)" }}>{trashError}</p> : null}
+        </div>
+      }
+      onCancel={() => {
+        if (trashBusy) return;
+        setTrashModal({ open: false, mode: "one", targets: [] });
+        setTrashError(null);
+      }}
+      onConfirm={() => void submitTrash()}
+    />
+  );
+
+  const portalSkillModal = skillPublishModal.open && skillPublishModal.skill ? (
+    <CenteredModal
+      open
+      onClose={() => {
+        if (skillPublishBusy) return;
+        setSkillPublishModal({ open: false, skill: null, target: "personal" });
+      }}
+      title={skillPublishModal.skill.source === "remote-imported" ? "回收 Skill" : "上传 Skill"}
+      disableDismiss={skillPublishBusy}
+      panelClassName="w-full max-w-md"
+    >
+      <div className="space-y-3 text-xs">
+        <p className="ui-text-muted break-all">{skillPublishModal.skill.name}</p>
+        <div className="flex flex-col gap-2">
+          <label className="flex items-center gap-2">
+            <input
+              type="radio"
+              name="skill-publish-target"
+              checked={skillPublishModal.target === "personal"}
+              onChange={() => setSkillPublishModal((prev) => ({ ...prev, target: "personal" }))}
+            />
+            上传为个人资产
+          </label>
+          <label className="flex items-center gap-2">
+            <input
+              type="radio"
+              name="skill-publish-target"
+              checked={skillPublishModal.target === "backflow"}
+              disabled={skillPublishModal.skill.source !== "remote-imported"}
+              onChange={() => setSkillPublishModal((prev) => ({ ...prev, target: "backflow" }))}
+            />
+            提交组织中心回流申请
+          </label>
+        </div>
+        {skillPublishModal.skill.source !== "remote-imported" && (
+          <p className="ui-text-muted">仅从远端导入的 skill 支持按 demo 语义回收到远端项目资产。</p>
+        )}
+        {skillPublishModal.skill.source === "remote-imported" && skillPublishModal.skill.remoteTitle ? (
+          <p className="ui-text-muted">
+            远端来源：{skillPublishModal.skill.remoteTitle}
+            {skillPublishModal.skill.organizationName ? ` / ${skillPublishModal.skill.organizationName}` : ""}
+          </p>
+        ) : null}
+        {skillPublishError ? (
+          <p className="rounded-lg px-2 py-1" style={{ background: "rgba(239,107,115,0.12)", color: "var(--danger)" }}>
+            {skillPublishError}
+          </p>
+        ) : null}
+        <div className="flex gap-2 pt-1">
+          <button
+            type="button"
+            disabled={skillPublishBusy}
+            onClick={() => void submitSkillPublish()}
+            className="rounded-lg px-3 py-1.5 text-white disabled:opacity-50"
+            style={{ background: "var(--accent)" }}
+          >
+            {skillPublishBusy ? "处理中..." : "确认"}
+          </button>
+          <button
+            type="button"
+            disabled={skillPublishBusy}
+            onClick={() => setSkillPublishModal({ open: false, skill: null, target: "personal" })}
+            className="ui-btn-ghost rounded-lg px-3 py-1.5"
+          >
+            取消
+          </button>
+        </div>
+      </div>
+    </CenteredModal>
+  ) : null;
 
   return (
-    <aside className="h-full min-h-0 overflow-y-auto rounded-none p-4 flex flex-col gap-0 bg-zinc-100 dark:bg-[#121214] border-r border-zinc-200/90 dark:border-white/[0.06] shadow-none">
-      <div className="flex items-center gap-2">
-        <span className="text-base leading-none shrink-0" aria-hidden="true">🦞</span>
-        <span className="font-semibold text-sm ui-text-primary leading-tight">
-          AI应用使能 <span className="text-[var(--accent)]">交付claw</span>
-        </span>
-        <span className="ml-auto w-2 h-2 rounded-full shrink-0" style={{ background: "var(--success)" }} title="已连接" />
-      </div>
-      <p className="font-mono text-[9px] opacity-40 truncate -mt-2 select-all text-zinc-200" title={threadId || "尚未建立会话"}>
-        {threadId ? threadId.slice(0, 8) + "…" + threadId.slice(-4) : "—"}
-      </p>
+    <>
+      <aside className="flex h-full min-h-0 flex-col gap-0 overflow-hidden rounded-2xl bg-zinc-100 pl-4 pt-4 pb-4 pr-1.5 shadow-[var(--shadow-card)] ring-1 ring-black/[0.05] dark:bg-[#121214] dark:ring-white/10">
+        <div className="flex shrink-0 items-center gap-2.5 min-w-0 px-0 pr-1.5">
+          <span className="text-xl leading-none shrink-0 select-none" aria-hidden="true">
+            🦞
+          </span>
+          <span className="min-w-0 flex-1 truncate font-semibold text-base leading-tight tracking-tight ui-text-primary">
+            AI应用使能 <span className="text-[var(--accent)]">交付claw</span>
+          </span>
+          <span className="ml-auto h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: "var(--success)" }} title="已连接" />
+        </div>
 
-      <SessionList
-        currentThreadId={threadId}
-        sessions={sessions}
-        onCreate={onCreateSession}
-        onSelect={onSelectSession}
-        onDelete={onDeleteSession}
-      />
+        <div className="min-h-0 flex-1 touch-pan-y overflow-y-auto overflow-x-hidden pr-0 [overscroll-behavior-y:auto]">
+          <div className="flex flex-col gap-3 pb-2 pt-3 pr-1.5">
+            <section className="rounded-xl border border-[var(--border-subtle)] bg-white/40 dark:bg-black/10 px-3 py-2 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.06)]">
+              <div className="flex items-center justify-between gap-2">
+                <span className={`${SIDEBAR_SECTION_LABEL_CLASS} whitespace-nowrap`}>当前项目</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setNewProjectName("");
+                    setNewProjectCode("");
+                    setNewProjectBidCode("");
+                    setNewProjectScenario("");
+                    setNewProjectScenarioPreset("");
+                    setNewProjectScenarioDetail("");
+                    setNewProjectScale("");
+                    setNewProjectDeliveryFeatures("");
+                    setNewProjectLanguage("");
+                    setNewProjectGroup("");
+                    setNewProjectStakeholders("");
+                    setProjectMetaOpen(false);
+                    setProjectCreateOpen(true);
+                  }}
+                  className="inline-flex items-center justify-center rounded-lg p-1.5 text-zinc-500 transition-colors hover:bg-zinc-900/40 hover:text-zinc-200"
+                  aria-label="新建项目"
+                  title="新建项目"
+                >
+                  <Plus size={18} strokeWidth={2} aria-hidden />
+                </button>
+              </div>
+              <div className="mt-2 flex items-center gap-2">
+                <select
+                  value={selectedProjectId}
+                  onChange={(e) => {
+                    const id = e.target.value;
+                    setSelectedProjectId(id);
+                    setSelectedLocalProjectId(id);
+                  }}
+                  className="ui-input ui-input-focusable w-full rounded-lg px-2.5 py-2 text-xs"
+                  aria-label="选择项目"
+                >
+                  {projects.map((p) => (
+                    <option key={p.id} value={p.id}>{p.name}</option>
+                  ))}
+                </select>
+              </div>
+              <p className="mt-1 text-[10px] ui-text-muted truncate" title={selectedProjectName}>{selectedProjectName}</p>
+            </section>
 
-      <section className="mt-8 flex flex-col gap-2 min-h-0">
+            <SessionList
+              currentThreadId={threadId}
+              sessions={sessions}
+              onCreate={onCreateSession}
+              onSelect={onSelectSession}
+              onDelete={onDeleteSession}
+            />
+
+            <section className="flex flex-col gap-2 min-h-0">
         <div className="flex items-center justify-between gap-2">
-          <span className={`${sectionLabelClass} whitespace-nowrap`}>Artifacts</span>
+          <span className={`${SIDEBAR_SECTION_LABEL_CLASS} whitespace-nowrap`}>Artifacts</span>
           <button
             type="button"
             disabled={artifacts.length === 0}
@@ -378,11 +592,11 @@ export function Sidebar({
               setTrashError(null);
               setTrashModal({ open: true, mode: "all", targets: artifacts.map((f) => f.path) });
             }}
-            className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-[11px] font-bold uppercase tracking-wide text-zinc-500 hover:text-zinc-200 hover:bg-zinc-900/40 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            className="inline-flex items-center justify-center rounded-lg p-2 text-zinc-500 transition-colors hover:bg-zinc-900/40 hover:text-zinc-200 disabled:cursor-not-allowed disabled:opacity-40"
             aria-label="清空最近产物并移入回收站"
+            title="清空最近产物"
           >
-            <Trash2 size={18} />
-            Clear
+            <Trash2 size={20} strokeWidth={2} aria-hidden />
           </button>
         </div>
 
@@ -457,14 +671,13 @@ export function Sidebar({
         </div>
       </section>
 
-      <section className="mt-8 flex flex-col gap-2 min-h-0">
+            <section className="flex flex-col gap-2 min-h-0">
         <div className="flex items-center justify-between gap-2">
-          <span className={`${sectionLabelClass} whitespace-nowrap`}>Skills</span>
+          <span className={`${SIDEBAR_SECTION_LABEL_CLASS} whitespace-nowrap`}>Skills</span>
           <div className="flex items-center gap-1">
             <button
               type="button"
               onClick={() => {
-                // If a browser panel is already open, toggle it closed
                 if (currentPreviewPath?.startsWith("browser://")) {
                   onClosePreview?.();
                   return;
@@ -482,12 +695,11 @@ export function Sidebar({
             <button
               type="button"
               onClick={() => void loadSkills()}
-              className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-[11px] font-bold uppercase tracking-wide text-zinc-500 hover:text-zinc-200 hover:bg-zinc-900/40 transition-colors"
+              className="inline-flex items-center justify-center rounded-lg p-2 text-zinc-500 transition-colors hover:bg-zinc-900/40 hover:text-zinc-200"
               aria-label="刷新技能列表"
               title="刷新技能列表"
             >
-              <RefreshCw size={18} className={skillsLoading ? "animate-spin" : ""} />
-              Refresh
+              <RefreshCw size={20} strokeWidth={2} className={skillsLoading ? "animate-spin" : ""} aria-hidden />
             </button>
           </div>
         </div>
@@ -555,7 +767,7 @@ export function Sidebar({
                       onSkillSelect?.(s.name);
                     }
                   }}
-                  className="w-full text-left pl-3 pr-6 py-2 text-sm ui-text-secondary group-hover:pr-28 flex items-center gap-1.5 min-w-0 transition-[padding]"
+                  className="w-full text-left pl-3 pr-6 py-2 text-sm font-medium ui-text-primary group-hover:pr-28 flex items-center gap-1.5 min-w-0 transition-[padding]"
                 >
                   <span className="truncate">{s.name}</span>
                   {s.source === "remote-imported" ? (
@@ -613,21 +825,20 @@ export function Sidebar({
           })}
         </div>
 
-      </section>
+            </section>
 
-      {/* ── 组织资产 Organization Assets（幽灵卡片，降低视觉重量）── */}
-      <section className="mt-8 flex flex-col gap-2 min-h-0 rounded-xl border border-dashed border-zinc-400/55 dark:border-white/15 bg-white/[0.04] dark:bg-white/[0.03] p-3">
+            {/* ── 组织资产 Organization Assets（幽灵卡片，降低视觉重量）── */}
+            <section className="flex flex-col gap-2 min-h-0 rounded-xl border border-dashed border-zinc-400/55 dark:border-white/15 bg-white/[0.04] dark:bg-white/[0.03] p-3">
         <div className="flex items-center justify-between gap-2">
-          <span className={`${sectionLabelClass} whitespace-nowrap`}>Org Assets</span>
+          <span className={`${SIDEBAR_SECTION_LABEL_CLASS} whitespace-nowrap`}>Org Assets</span>
           <button
             type="button"
             onClick={() => void loadOrgAssets()}
-            className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-[11px] font-bold uppercase tracking-wide text-zinc-500 hover:text-zinc-200 hover:bg-zinc-900/40 transition-colors"
+            className="inline-flex items-center justify-center rounded-lg p-2 text-zinc-500 transition-colors hover:bg-zinc-900/40 hover:text-zinc-200"
             aria-label="刷新组织资产"
             title="刷新组织资产"
           >
-            <RefreshCw size={18} className={orgAssetsLoading ? "animate-spin" : ""} />
-            Refresh
+            <RefreshCw size={20} strokeWidth={2} className={orgAssetsLoading ? "animate-spin" : ""} aria-hidden />
           </button>
         </div>
         {!orgAssetsConnected ? (
@@ -688,99 +899,208 @@ export function Sidebar({
             )}
           </div>
         )}
-      </section>
-
-      {trashModal.open && (
-        <div className="mt-4 rounded-xl p-3 text-xs space-y-2 shadow-sm border border-amber-500/25 dark:border-amber-400/20 bg-amber-500/[0.08] dark:bg-amber-400/[0.06]">
-          <p className="ui-text-primary">
-            {trashModal.mode === "all"
-              ? `确认将 ${trashModal.targets.length} 个产物移入回收站？`
-              : "确认将该产物移入回收站？"}
-          </p>
-          {trashError && <p style={{ color: "var(--danger)" }}>{trashError}</p>}
-          <div className="flex gap-2">
-            <button
-              type="button"
-              disabled={trashBusy}
-              onClick={() => void submitTrash()}
-              className="rounded-lg px-3 py-1.5 text-white disabled:opacity-50"
-              style={{ background: "var(--warning)" }}
-            >
-              {trashBusy ? "处理中..." : "确认"}
-            </button>
-            <button
-              type="button"
-              disabled={trashBusy}
-              onClick={() => setTrashModal({ open: false, mode: "one", targets: [] })}
-              className="ui-btn-ghost rounded-lg px-3 py-1.5"
-            >
-              取消
-            </button>
+            </section>
           </div>
         </div>
-      )}
 
-      {skillPublishModal.open && skillPublishModal.skill && (
-        <div className="mt-4 rounded-xl p-3 text-xs space-y-3 shadow-sm border border-blue-500/25 dark:border-blue-400/20 bg-blue-500/[0.08] dark:bg-blue-400/[0.06]">
-          <div className="space-y-1">
-            <p className="ui-text-primary font-medium">
-              {skillPublishModal.skill.source === "remote-imported" ? "回收 Skill" : "上传 Skill"}
-            </p>
-            <p className="ui-text-muted break-all">{skillPublishModal.skill.name}</p>
+        {(onOpenQuickSettings || onLogout) && (
+          <div className="mt-2 flex shrink-0 flex-col gap-2 pr-1.5 pt-1">
+            {onOpenQuickSettings ? (
+              <button type="button" onClick={onOpenQuickSettings} className={settingsBtnClass} title="设置">
+                <Settings size={18} className="shrink-0 opacity-90" />
+                <span className="min-w-0 truncate">设置</span>
+              </button>
+            ) : null}
+            {onLogout ? (
+              <button
+                type="button"
+                onClick={onLogout}
+                className={`${settingsBtnClass} border-red-200/50 text-red-700 hover:bg-red-50 dark:border-red-900/40 dark:text-red-300 dark:hover:bg-red-950/40`}
+                title="退出登录"
+              >
+                <LogOut size={18} className="shrink-0 opacity-90" />
+                <span className="min-w-0 truncate">退出登录</span>
+              </button>
+            ) : null}
           </div>
-          <div className="flex flex-col gap-2">
-            <label className="flex items-center gap-2">
-              <input
-                type="radio"
-                name="skill-publish-target"
-                checked={skillPublishModal.target === "personal"}
-                onChange={() => setSkillPublishModal((prev) => ({ ...prev, target: "personal" }))}
-              />
-              上传为个人资产
-            </label>
-            <label className="flex items-center gap-2">
-              <input
-                type="radio"
-                name="skill-publish-target"
-                checked={skillPublishModal.target === "backflow"}
-                disabled={skillPublishModal.skill.source !== "remote-imported"}
-                onChange={() => setSkillPublishModal((prev) => ({ ...prev, target: "backflow" }))}
-              />
-              提交组织中心回流申请
-            </label>
+        )}
+      </aside>
+
+      {portalTrashModal}
+      {portalSkillModal}
+
+      <CenteredModal
+        open={projectCreateOpen}
+        onClose={() => setProjectCreateOpen(false)}
+        title="新建项目"
+        panelClassName="w-full max-w-md"
+        footer={(
+          <div className="flex justify-end gap-2">
+            <button type="button" className="ui-btn-ghost rounded-lg px-3 py-1.5 text-xs font-medium" onClick={() => setProjectCreateOpen(false)}>
+              取消
+            </button>
+            <button
+              type="button"
+              className="ui-btn-accent rounded-lg px-3 py-1.5 text-xs font-medium"
+              onClick={() => {
+                const scenario =
+                  newProjectScenarioPreset && newProjectScenarioPreset !== "其他"
+                    ? (newProjectScenarioDetail.trim()
+                        ? `${newProjectScenarioPreset}：${newProjectScenarioDetail.trim()}`
+                        : newProjectScenarioPreset)
+                    : (newProjectScenario.trim() || newProjectScenarioDetail.trim());
+                const p = createLocalProjectWithMeta({
+                  name: newProjectName,
+                  code: newProjectCode,
+                  bidCode: newProjectBidCode,
+                  scenario,
+                  scale: newProjectScale,
+                  deliveryFeatures: newProjectDeliveryFeatures,
+                  language: newProjectLanguage,
+                  projectGroup: newProjectGroup,
+                  stakeholders: newProjectStakeholders,
+                });
+                setProjectCreateOpen(false);
+                setNewProjectName("");
+                refreshProjects();
+                setSelectedProjectId(p.id);
+              }}
+            >
+              创建
+            </button>
           </div>
-          {skillPublishModal.skill.source !== "remote-imported" && (
-            <p className="ui-text-muted">仅从远端导入的 skill 支持按 demo 语义回收到远端项目资产。</p>
-          )}
-          {skillPublishModal.skill.source === "remote-imported" && skillPublishModal.skill.remoteTitle ? (
-            <p className="ui-text-muted">
-              远端来源：{skillPublishModal.skill.remoteTitle}
-              {skillPublishModal.skill.organizationName ? ` / ${skillPublishModal.skill.organizationName}` : ""}
-            </p>
+        )}
+      >
+        <div className="space-y-2">
+          <label className="block text-xs font-medium ui-text-secondary">项目名称</label>
+          <input
+            value={newProjectName}
+            onChange={(e) => setNewProjectName(e.target.value)}
+            placeholder="例如：宁波电网智慧工勘"
+            className="ui-input ui-input-focusable w-full rounded-xl px-4 py-3 text-sm"
+            autoFocus
+          />
+          <div className="pt-1">
+            <button
+              type="button"
+              onClick={() => setProjectMetaOpen((v) => !v)}
+              className="text-[11px] ui-text-muted hover:ui-text-primary underline-offset-4 hover:underline"
+            >
+              {projectMetaOpen ? "收起更多项目信息" : "填写更多项目信息（可选）"}
+            </button>
+          </div>
+
+          {projectMetaOpen ? (
+            <div className="grid grid-cols-1 gap-3 pt-2">
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-[11px] ui-text-muted mb-1">项目编码</label>
+                  <input
+                    value={newProjectCode}
+                    onChange={(e) => setNewProjectCode(e.target.value)}
+                    placeholder="例如：NB-DW-001"
+                    className="ui-input ui-input-focusable w-full rounded-lg px-3 py-2 text-xs"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] ui-text-muted mb-1">投标编码</label>
+                  <input
+                    value={newProjectBidCode}
+                    onChange={(e) => setNewProjectBidCode(e.target.value)}
+                    placeholder="例如：TB-2026-xx"
+                    className="ui-input ui-input-focusable w-full rounded-lg px-3 py-2 text-xs"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-[11px] ui-text-muted mb-1">场景</label>
+                  <select
+                    value={newProjectScenarioPreset}
+                    onChange={(e) => setNewProjectScenarioPreset(asScenarioPreset(e.target.value))}
+                    className="ui-input ui-input-focusable w-full rounded-lg px-3 py-2 text-xs"
+                    aria-label="选择项目场景"
+                  >
+                    <option value="">（可选）请选择</option>
+                    <option value="风冷">风冷</option>
+                    <option value="液冷">液冷</option>
+                    <option value="混合">混合</option>
+                    <option value="其他">其他</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[11px] ui-text-muted mb-1">规模</label>
+                  <input
+                    value={newProjectScale}
+                    onChange={(e) => setNewProjectScale(e.target.value)}
+                    placeholder="如：省级/地市级/xx 条线路"
+                    className="ui-input ui-input-focusable w-full rounded-lg px-3 py-2 text-xs"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[11px] ui-text-muted mb-1">场景补充（可选）</label>
+                <input
+                  value={newProjectScenarioPreset === "其他" ? newProjectScenario : newProjectScenarioDetail}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    if (newProjectScenarioPreset === "其他") setNewProjectScenario(v);
+                    else setNewProjectScenarioDetail(v);
+                  }}
+                  placeholder={newProjectScenarioPreset === "其他" ? "如：智慧工勘/建模仿真/…（自由填写）" : "如：分区、机房类型、约束等"}
+                  className="ui-input ui-input-focusable w-full rounded-lg px-3 py-2 text-xs"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] ui-text-muted mb-1">交付特点</label>
+                <input
+                  value={newProjectDeliveryFeatures}
+                  onChange={(e) => setNewProjectDeliveryFeatures(e.target.value)}
+                  placeholder="如：多端联动/现场闭环/高安全要求"
+                  className="ui-input ui-input-focusable w-full rounded-lg px-3 py-2 text-xs"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-[11px] ui-text-muted mb-1">语言</label>
+                  <input
+                    value={newProjectLanguage}
+                    onChange={(e) => setNewProjectLanguage(e.target.value)}
+                    placeholder="如：中文/中英双语"
+                    className="ui-input ui-input-focusable w-full rounded-lg px-3 py-2 text-xs"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] ui-text-muted mb-1">项目群</label>
+                  <input
+                    value={newProjectGroup}
+                    onChange={(e) => setNewProjectGroup(e.target.value)}
+                    placeholder="如：电网数字化一期"
+                    className="ui-input ui-input-focusable w-full rounded-lg px-3 py-2 text-xs"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[11px] ui-text-muted mb-1">相关人</label>
+                <input
+                  value={newProjectStakeholders}
+                  onChange={(e) => setNewProjectStakeholders(e.target.value)}
+                  placeholder="如：甲方张三/实施李四/监理王五"
+                  className="ui-input ui-input-focusable w-full rounded-lg px-3 py-2 text-xs"
+                />
+              </div>
+            </div>
           ) : null}
-          <div className="flex gap-2">
-            <button
-              type="button"
-              disabled={skillPublishBusy}
-              onClick={() => void submitSkillPublish()}
-              className="rounded-lg px-3 py-1.5 text-white disabled:opacity-50"
-              style={{ background: "var(--accent)" }}
-            >
-              {skillPublishBusy ? "处理中..." : "确认"}
-            </button>
-            <button
-              type="button"
-              disabled={skillPublishBusy}
-              onClick={() => setSkillPublishModal({ open: false, skill: null, target: "personal" })}
-              className="ui-btn-ghost rounded-lg px-3 py-1.5"
-            >
-              取消
-            </button>
-          </div>
-        </div>
-      )}
 
-      {/* Fixed-position skill description tooltip — unaffected by overflow clipping */}
+          <p className="pt-1 text-[11px] ui-text-muted">项目用于区分工作区上下文（本地演示，仅存于浏览器）。</p>
+        </div>
+      </CenteredModal>
+
       {hoveredSkill?.description && tooltipPos && (
         <div
           className="pointer-events-none fixed z-[9999] w-60 rounded-lg px-3 py-2.5 text-[11px] leading-relaxed shadow-xl animate-in fade-in duration-100"
@@ -798,6 +1118,6 @@ export function Sidebar({
           <p className="ui-text-secondary leading-snug">{hoveredSkill.description}</p>
         </div>
       )}
-    </aside>
+    </>
   );
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import React, { Component, memo, useEffect, useMemo, useRef, useState } from "react";
 import { Bot, Check, Copy, FileText, Trash2, User } from "lucide-react";
 import type { AgentMessage } from "@/hooks/useAgentChat";
 import { AgentMarkdown } from "@/components/AgentMarkdown";
@@ -165,7 +165,7 @@ function Avatar({ role }: { role: "user" | "assistant" }) {
   );
 }
 
-class ChatCardErrorBoundary extends (require("react").Component as typeof import("react").Component)<
+class ChatCardErrorBoundary extends Component<
   { children: React.ReactNode },
   { hasError: boolean }
 > {

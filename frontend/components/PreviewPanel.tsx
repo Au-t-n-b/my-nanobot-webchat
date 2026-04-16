@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
-import { Check, Copy, FileQuestion, FileSearch, FolderOpen, Loader2, Play, Sparkles, X as XIcon } from "lucide-react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { Check, Copy, FileQuestion, FileSearch, Loader2, Play, Sparkles, X as XIcon } from "lucide-react";
 import * as XLSX from "xlsx";
 import mammoth from "mammoth/mammoth.browser.js";
 import mermaid from "mermaid";
@@ -9,22 +9,14 @@ import { ensurePrismLanguagesRegistered, PRISM_LANGUAGE_IDS, SyntaxHighlighter }
 import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { AgentMarkdown } from "@/components/AgentMarkdown";
 import { RemoteBrowser } from "@/components/RemoteBrowser";
-import { buildProxiedFileUrl, openLocation } from "@/lib/apiFile";
+import { buildProxiedFileUrl } from "@/lib/apiFile";
 import { previewKindFromPath, type PreviewKind } from "@/lib/previewKind";
-import { parseSkillUiPath } from "@/lib/skillUiRegistry";
-import { SkillUiWrapper } from "@/components/SkillUiWrapper";
-import type { SkillUiDataPatchEvent } from "@/hooks/useAgentChat";
 
 export type PreviewTabItem = { id: string; path: string; label: string };
 
 type Props = {
   onClose: () => void;
-  /** 底层常驻：大模块看板（dataFile 含 `-master/data/dashboard.json` 或 `-pipeline/data/dashboard.json`） */
-  baseDashboardUrl: string | null;
-  /** 强阻断：非大盘约定的 Action SDUI，全幅盖在右栏最前 */
-  blockingActionPath: string | null;
-  onCloseBlockingAction: () => void;
-  /** 预览类 Tab（文件 / browser / 非阻断 skill-ui），与大盘上下分栏 */
+  /** 预览类 Tab（文件 / browser），与中栏模块大盘互不抢焦点 */
   previewTabs: PreviewTabItem[];
   activeTabId: string | null;
   onSelectTab: (id: string) => void;
@@ -32,12 +24,6 @@ type Props = {
   onOpenPath: (path: string) => void;
   activeSkillName?: string | null;
   onFillInput?: (text: string) => void;
-  /** SDUI：回传用户 Intent 到 Agent（通常封装自 sendMessage） */
-  postToAgent?: (text: string) => void;
-  /** SDUI：Agent 运行态，用于预览面板文件热更新 */
-  isAgentRunning?: boolean;
-  /** v3：SDUI patch 实时事件（来自 SSE） */
-  skillUiPatchEvent?: SkillUiDataPatchEvent | null;
 };
 
 type PreviewState =
@@ -67,20 +53,6 @@ const EXT_TO_LANG: Record<string, string> = {
 function getLangFromPath(p: string): string | undefined {
   const ext = p.split(".").pop()?.toLowerCase() ?? "";
   return EXT_TO_LANG[ext];
-}
-
-function displayPreviewPath(fullPath: string): string {
-  if (fullPath.startsWith("skill-ui://")) {
-    const p = parseSkillUiPath(fullPath);
-    if (p?.component) {
-      return p.dataFile ? `Skill UI · ${p.component} ← ${p.dataFile}` : `Skill UI · ${p.component}`;
-    }
-  }
-  const normalized = fullPath.replace(/\\/g, "/");
-  const marker = "/.nanobot/workspace/";
-  const idx = normalized.toLowerCase().indexOf(marker);
-  if (idx >= 0) return `./workspace/${normalized.slice(idx + marker.length)}`;
-  return normalized;
 }
 
 // ─── Gantt hover tooltip ────────────────────────────────────────────────────
@@ -410,18 +382,12 @@ function FilePreviewBody({
   activeSkillName,
   onFillInput,
   onClosePanel,
-  postToAgent,
-  isAgentRunning,
-  skillUiPatchEvent,
 }: {
   path: string;
   onOpenPath: (path: string) => void;
   activeSkillName?: string | null;
   onFillInput?: (text: string) => void;
   onClosePanel?: () => void;
-  postToAgent?: (text: string) => void;
-  isAgentRunning?: boolean;
-  skillUiPatchEvent?: SkillUiDataPatchEvent | null;
 }) {
   const [state, setState] = useState<PreviewState>({ status: "loading" });
   const url = useMemo(() => buildProxiedFileUrl(path), [path]);
@@ -512,13 +478,15 @@ function FilePreviewBody({
 
   if (kind === "skill-ui") {
     return (
-      <SkillUiWrapper
-        syntheticPath={path}
-        postToAgent={postToAgent}
-        isAgentRunning={isAgentRunning}
-        onOpenPreview={onOpenPath}
-        incomingPatchEvent={skillUiPatchEvent ?? null}
-      />
+      <div
+        className="rounded-xl p-4 text-sm ui-text-secondary"
+        style={{
+          border: "1px solid rgba(245,158,11,0.30)",
+          background: "rgba(245,158,11,0.06)",
+        }}
+      >
+        右侧预览栏仅用于产物参考（文件 / 网页 / 表格）。模块大盘（SDUI）请在中栏打开。
+      </div>
     );
   }
 
@@ -627,9 +595,6 @@ function FilePreviewBody({
 
 export function PreviewPanel({
   onClose,
-  baseDashboardUrl,
-  blockingActionPath,
-  onCloseBlockingAction,
   previewTabs,
   activeTabId,
   onSelectTab,
@@ -637,60 +602,24 @@ export function PreviewPanel({
   onOpenPath,
   activeSkillName,
   onFillInput,
-  postToAgent,
-  isAgentRunning,
-  skillUiPatchEvent,
 }: Props) {
-  const [copiedPath, setCopiedPath] = useState(false);
-
-  const DASHBOARD_TAB_ID = "__dashboard__";
-  const BLOCKING_TAB_ID = "__blocking__";
-
   const tabs = useMemo(() => {
-    const out: Array<{ id: string; label: string; path: string; kind: "dashboard" | "blocking" | "preview" }> = [];
-    if (baseDashboardUrl) out.push({ id: DASHBOARD_TAB_ID, label: "全局大盘", path: baseDashboardUrl, kind: "dashboard" });
-    if (blockingActionPath) {
-      out.push({ id: BLOCKING_TAB_ID, label: "待办任务", path: blockingActionPath, kind: "blocking" });
-    }
+    const out: Array<{ id: string; label: string; path: string; kind: "preview" }> = [];
     for (const t of previewTabs) out.push({ id: t.id, label: t.label, path: t.path, kind: "preview" });
     return out;
-  }, [baseDashboardUrl, blockingActionPath, previewTabs]);
+  }, [previewTabs]);
 
   const effectiveActiveTabId = useMemo(() => {
     if (activeTabId && tabs.some((t) => t.id === activeTabId)) return activeTabId;
-    // 默认优先级：阻断任务 > 大盘 > 第一个预览
-    if (blockingActionPath) return BLOCKING_TAB_ID;
-    if (baseDashboardUrl) return DASHBOARD_TAB_ID;
     return previewTabs[0]?.id ?? null;
-  }, [activeTabId, baseDashboardUrl, blockingActionPath, previewTabs, tabs]);
+  }, [activeTabId, previewTabs, tabs]);
 
   const activeTab = useMemo(
     () => (effectiveActiveTabId ? tabs.find((t) => t.id === effectiveActiveTabId) ?? null : null),
     [tabs, effectiveActiveTabId],
   );
 
-  const pathForChrome = activeTab?.path ?? null;
-
-  const copyPath = useCallback(() => {
-    if (!pathForChrome) return;
-    void navigator.clipboard.writeText(pathForChrome).then(() => {
-      setCopiedPath(true);
-      setTimeout(() => setCopiedPath(false), 1200);
-    });
-  }, [pathForChrome]);
-
-  const handleOpenLocation = useCallback(() => {
-    if (!pathForChrome) return;
-    if (pathForChrome.startsWith("skill-ui://") || pathForChrome.startsWith("browser://")) return;
-    void openLocation(pathForChrome);
-  }, [pathForChrome]);
-
-  const showFileActions =
-    !!pathForChrome &&
-    !pathForChrome.startsWith("skill-ui://") &&
-    !pathForChrome.startsWith("browser://");
-
-  const showPathRow = Boolean(activeTab?.kind === "dashboard" && baseDashboardUrl);
+  const showPathRow = false;
 
   return (
     <aside className="h-full min-h-0 flex flex-col gap-3 p-0 bg-transparent border-0 shadow-none text-[var(--text-primary)]">
@@ -708,37 +637,7 @@ export function PreviewPanel({
         </button>
       </div>
 
-      {showPathRow && baseDashboardUrl && (
-        <div className="flex items-center gap-1.5 shrink-0 min-w-0">
-          <p className="text-xs ui-text-muted truncate min-w-0 flex-1" title={baseDashboardUrl}>
-            {displayPreviewPath(baseDashboardUrl)}
-          </p>
-          <div className="flex items-center gap-1 shrink-0">
-            <button
-              type="button"
-              onClick={copyPath}
-              aria-label="复制完整路径"
-              title={copiedPath ? "已复制！" : "复制完整路径"}
-              className="inline-flex items-center rounded-md border border-[var(--border-subtle)] p-1 ui-text-secondary hover:bg-[var(--surface-3)] transition-colors dark:border-white/10"
-            >
-              {copiedPath
-                ? <Check size={11} style={{ color: "var(--success)" }} />
-                : <Copy size={11} />}
-            </button>
-            {showFileActions && (
-            <button
-              type="button"
-              onClick={handleOpenLocation}
-              aria-label="在文件管理器中显示"
-              title="打开所在位置"
-              className="inline-flex items-center rounded-md border border-[var(--border-subtle)] p-1 ui-text-secondary hover:bg-[var(--surface-3)] transition-colors dark:border-white/10"
-            >
-              <FolderOpen size={11} />
-            </button>
-            )}
-          </div>
-        </div>
-      )}
+      {showPathRow && null}
 
       <div className="flex flex-col flex-1 min-h-0 overflow-hidden rounded-2xl bg-[var(--paper-card)] border border-[var(--border-subtle)] text-[var(--text-primary)] shadow-[var(--shadow-panel)]">
         <div
@@ -748,7 +647,7 @@ export function PreviewPanel({
         >
           {tabs.map((tab) => {
             const selected = tab.id === effectiveActiveTabId;
-            const closable = tab.kind === "preview" || tab.kind === "blocking";
+            const closable = tab.kind === "preview";
             return (
               <div
                 key={tab.id}
@@ -775,8 +674,7 @@ export function PreviewPanel({
                     aria-label={`关闭 ${tab.label}`}
                     onClick={(e) => {
                       e.stopPropagation();
-                      if (tab.kind === "blocking") onCloseBlockingAction();
-                      else onClosePreviewTab(tab.id);
+                      onClosePreviewTab(tab.id);
                     }}
                   >
                     <XIcon size={12} />
@@ -788,34 +686,13 @@ export function PreviewPanel({
         </div>
 
         <div className="flex-1 min-h-0 overflow-auto p-5 bg-[var(--paper-card)]">
-          {activeTab?.kind === "blocking" && activeTab.path ? (
-            <SkillUiWrapper
-              key={activeTab.path}
-              syntheticPath={activeTab.path}
-              postToAgent={postToAgent}
-              isAgentRunning={isAgentRunning}
-              onOpenPreview={onOpenPath}
-              incomingPatchEvent={skillUiPatchEvent ?? null}
-            />
-          ) : activeTab?.kind === "dashboard" && activeTab.path ? (
-            <SkillUiWrapper
-              key={activeTab.path}
-              syntheticPath={activeTab.path}
-              postToAgent={postToAgent}
-              isAgentRunning={isAgentRunning}
-              onOpenPreview={onOpenPath}
-              incomingPatchEvent={skillUiPatchEvent ?? null}
-            />
-          ) : activeTab?.kind === "preview" && activeTab.path ? (
+          {activeTab?.kind === "preview" && activeTab.path ? (
             <FilePreviewBody
               key={activeTab.path}
               path={activeTab.path}
               onOpenPath={onOpenPath}
               activeSkillName={activeSkillName}
               onFillInput={onFillInput}
-              postToAgent={postToAgent}
-              isAgentRunning={isAgentRunning}
-              skillUiPatchEvent={skillUiPatchEvent ?? null}
             />
           ) : (
             <div className="flex h-full items-center justify-center">

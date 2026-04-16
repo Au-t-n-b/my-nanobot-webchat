@@ -4,9 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { SkillUiBootstrapEvent, SkillUiDataPatchEvent } from "@/hooks/useAgentChat";
 import { ProjectOverview } from "@/components/dashboard/ProjectOverview";
 import { ModuleDashboard } from "@/components/dashboard/ModuleDashboard";
-import { shouldSuppressAutoGuide } from "@/lib/dashboardAutoGuidePolicy";
 import {
-  markProjectModuleAutoGuided,
   selectProjectModule,
   selectProjectOverviewModules,
   useProjectOverviewStore,
@@ -33,14 +31,20 @@ type Props = {
   skillUiBootstrapEvent: SkillUiBootstrapEvent | null | undefined;
   onOpenPreview: (path: string) => void;
   postToAgent: (text: string) => void;
-  postToAgentSilently?: (text: string) => void;
   isAgentRunning: boolean;
   activeSkillName?: string | null;
 };
 
 function extractModuleId(syntheticPath: string): string | null {
-  const m = syntheticPath.match(/\/skills\/([^/]+)\//);
-  return m ? m[1] : null;
+  const raw = String(syntheticPath || "");
+  // Support both:
+  // - skill-ui://SduiView?dataFile=/skills/<id>/data/dashboard.json
+  // - skill-ui://SduiView?dataFile=skills/<id>/data/dashboard.json
+  // - (fallback) any ".../skills/<id>/..." substring
+  const m1 = raw.match(/(?:\?|&)dataFile=\/?skills\/([^/&?#]+)\//);
+  if (m1?.[1]) return m1[1];
+  const m2 = raw.match(/\/skills\/([^/]+)\//);
+  return m2?.[1] ?? null;
 }
 
 function moduleLabel(id: string): string {
@@ -59,7 +63,6 @@ export function DashboardNavigator({
   skillUiBootstrapEvent,
   onOpenPreview,
   postToAgent,
-  postToAgentSilently,
   isAgentRunning,
   activeSkillName,
 }: Props) {
@@ -72,7 +75,6 @@ export function DashboardNavigator({
   const autoOpenedSkillRef = useRef<string | null>(null);
   const overviewModules = useProjectOverviewStore(selectProjectOverviewModules);
   const activeModuleId = useProjectOverviewStore((snapshot) => snapshot.activeModuleId);
-  const autoGuidedModuleIds = useProjectOverviewStore((snapshot) => snapshot.autoGuidedModuleIds);
 
   useEffect(() => {
     setModules(new Map());
@@ -135,7 +137,7 @@ export function DashboardNavigator({
     if (userOverrideRef.current) return;
     if (view === "module" && activeModuleId === moduleId) return;
     switchToModule(moduleId, false);
-  }, [skillUiPatchEvent?.id, skillUiPatchEvent?.syntheticPath, view, activeModuleId, switchToModule]);
+  }, [skillUiPatchEvent, view, activeModuleId, switchToModule]);
 
   /** 侧栏/会话已锁定模块且仍在总览时，自动打开对应模块大盘 */
   useEffect(() => {
@@ -150,34 +152,10 @@ export function DashboardNavigator({
     switchToModule(name, false);
   }, [activeSkillName, modules, overviewModules, view, switchToModule]);
 
-  const activeTaskModuleStatus = activeModuleId
-    ? overviewModules.find((m) => m.moduleId === activeModuleId)?.status ?? null
-    : null;
+  // activeTaskModuleStatus kept for legacy auto-guide policy (disabled in skill-first option 1).
 
-  /** 模块大盘首次激活时，静默自动握手 guide，避免长时间停留在全灰基线态 */
-  useEffect(() => {
-    if (view !== "module") return;
-    const moduleId = activeModuleId?.trim();
-    if (!moduleId) return;
-    if (isAgentRunning) return;
-    if (autoGuidedModuleIds.includes(moduleId)) return;
-    if (shouldSuppressAutoGuide(moduleId, activeTaskModuleStatus)) return;
-
-    const handle = window.setTimeout(() => {
-      if (autoGuidedModuleIds.includes(moduleId)) return;
-      markProjectModuleAutoGuided(moduleId);
-      const sender = postToAgentSilently ?? postToAgent;
-      sender(
-        JSON.stringify({
-          type: "chat_card_intent",
-          verb: "module_action",
-          payload: { moduleId, action: "guide", state: {} },
-        }),
-      );
-    }, 450);
-
-    return () => window.clearTimeout(handle);
-  }, [view, activeModuleId, activeTaskModuleStatus, autoGuidedModuleIds, isAgentRunning, postToAgent, postToAgentSilently]);
+  // Skill-First (Option 1): platform MUST NOT auto-trigger any module flow.
+  // Entry actions must be defined by the skill dashboard itself (e.g., skill_runtime_start).
 
   const switchToOverview = useCallback(() => {
     userOverrideRef.current = false;

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { FileText, Focus, Menu, PanelRightClose, PanelRightOpen, Plus, Settings, Sidebar as SidebarIcon, Trash2, X, Zap } from "lucide-react";
 import { ChatArea } from "@/components/ChatArea";
 import { ErrorToast } from "@/components/ErrorToast";
@@ -21,12 +22,15 @@ import {
   hydrateProjectOverview,
   resetProjectOverviewSessionState,
 } from "@/lib/projectOverviewStore";
-import { previewKindFromPath } from "@/lib/previewKind";
 import {
   isBaseLayerDashboardSkillUi,
-  isBlockingActionSkillUi,
   normalizeSyntheticSkillUiPath,
 } from "@/lib/skillUiRegistry";
+import {
+  clearGlobalProjectContext,
+  hasWorkspaceAccess,
+  readGlobalProjectContext,
+} from "@/lib/globalProjectContext";
 
 const RIGHT_PANEL_MAX = typeof window !== "undefined"
   ? Math.floor(window.innerWidth * 0.62)
@@ -55,6 +59,8 @@ const headerIconButtonClass =
   "border-[var(--border-subtle)] bg-[var(--surface-1)] ui-text-secondary hover:bg-[var(--surface-3)] hover:ui-text-primary";
 
 export default function Home() {
+  const router = useRouter();
+  const [authChecked, setAuthChecked] = useState(false);
   const {
     threadId,
     sessions,
@@ -84,10 +90,8 @@ export default function Home() {
   } = useAgentChat();
   const { setTheme } = useTheme();
   const [inputPrefill, setInputPrefill] = useState("");
-  /** 右栏业务视窗：预览类 Tab + 强阻断 Action SDUI */
-  const [blockingActionPath, setBlockingActionPath] = useState<string | null>(null);
   const [previewTabs, setPreviewTabs] = useState<Array<{ id: string; path: string; label: string }>>([]);
-  /** 右栏当前激活 Tab：__blocking__ / 具体 previewTab.id(path) */
+  /** 右栏当前激活 Tab：具体 previewTab.id(path) */
   const [activeRightTabId, setActiveRightTabId] = useState<string | null>(null);
   const [systemModal, setSystemModal] = useState<SystemModal>(null);
   const [controlCenterTab, setControlCenterTab] = useState<ControlCenterTab>("config");
@@ -181,6 +185,18 @@ export default function Home() {
   }, [loadModelFromConfig]);
 
   useEffect(() => {
+    const ctx = readGlobalProjectContext();
+    const ok = Boolean(ctx) && hasWorkspaceAccess();
+    if (ok) {
+      setAuthChecked(true);
+      return;
+    }
+    // Avoid flash: let the initial paint happen, then navigate.
+    const t = window.setTimeout(() => router.replace("/pd-onboarding"), 60);
+    return () => window.clearTimeout(t);
+  }, [router]);
+
+  useEffect(() => {
     void hydrateProjectOverview();
   }, []);
 
@@ -240,36 +256,24 @@ export default function Home() {
     [agentProfiles, configUrl],
   );
 
-  const closeBlockingAction = useCallback(() => {
-    setBlockingActionPath(null);
-    setActiveRightTabId((cur) => {
-      if (cur !== "__blocking__") return cur;
-      return previewTabs[0]?.id ?? null;
-    });
-  }, [previewTabs]);
-
   const closePreviewTab = useCallback((id: string) => {
     setPreviewTabs((prev) => {
       const next = prev.filter((t) => t.id !== id);
       setActiveRightTabId((cur) => {
         if (cur !== id) return cur;
-        if (blockingActionPath) return "__blocking__";
         return next[0]?.id ?? null;
       });
       return next;
     });
-  }, [blockingActionPath]);
+  }, []);
 
   const openFilePreview = useCallback((path: string) => {
     const p = normalizeSyntheticSkillUiPath(path);
     if (isBaseLayerDashboardSkillUi(p)) {
       return;
     }
-    if (isBlockingActionSkillUi(p)) {
-      setBlockingActionPath(p);
-      setActiveRightTabId("__blocking__");
-      return;
-    }
+    // B 宪法：右侧预览栏禁止渲染 skill-ui://（模块大盘只在中栏）
+    if (p.startsWith("skill-ui://")) return;
     const id = p;
     setPreviewTabs((prev) => {
       const exists = prev.some((t) => t.id === id);
@@ -318,24 +322,7 @@ export default function Home() {
     }
   }, [messages, wakePreview]);
 
-  // ── RENDER_UI detector (skill-ui://...) ─────────────────────────────────
-  const renderUiOpenedRef = useRef(new Set<string>());
-  useEffect(() => {
-    const RENDER_UI_RE = /\[RENDER_UI\]\((skill-ui:\/\/[^)]+)\)/g;
-    for (const msg of messages) {
-      if (msg.role !== "assistant") continue;
-      RENDER_UI_RE.lastIndex = 0;
-      let match: RegExpExecArray | null;
-      while ((match = RENDER_UI_RE.exec(msg.content)) !== null) {
-        const uri = match[1].trim();
-        const dedupeKey = `${msg.id}::${uri}`;
-        if (!renderUiOpenedRef.current.has(dedupeKey)) {
-          renderUiOpenedRef.current.add(dedupeKey);
-          wakePreview(uri);
-        }
-      }
-    }
-  }, [messages, wakePreview]);
+  // B 宪法：skill-ui:// 不通过右侧预览栏打开（模块大盘在中栏）
   // ─────────────────────────────────────────────────────────────────────────
 
   const closeSystemModal = useCallback(() => {
@@ -384,7 +371,46 @@ export default function Home() {
     return null;
   }, [messages]);
 
-  const dashboardActiveSkillName = activeSkillName?.trim() || moduleIdInferredFromMessages;
+  /** 从会话文本解析 skillName（skill-first fast-path/卡片按钮会携带 skillName） */
+  const skillNameInferredFromMessages = useMemo(() => {
+    const re = /"skillName"\s*:\s*"([^"]+)"/g;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const raw = messages[i]?.content ?? "";
+      if (!raw.includes("skillName")) continue;
+      re.lastIndex = 0;
+      let m: RegExpExecArray | null;
+      while ((m = re.exec(raw)) !== null) {
+        const t = m[1]?.trim();
+        if (t) return t;
+      }
+    }
+    return null;
+  }, [messages]);
+
+  /** 从消息里的 RENDER_UI / skill-ui syntheticPath 推断模块名（不依赖 moduleId/skillName 字段存在） */
+  const skillNameInferredFromSkillUiPath = useMemo(() => {
+    // Examples:
+    // [RENDER_UI](skill-ui://SduiView?dataFile=skills/text_organizer_showcase/data/dashboard.json)
+    // skill-ui://SduiView?dataFile=skills/gongkan_skill/data/dashboard.json
+    const re = /dataFile=\/?skills\/([^/]+)\//g;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const raw = messages[i]?.content ?? "";
+      if (!raw.includes("skills/") || !raw.includes("dataFile=")) continue;
+      re.lastIndex = 0;
+      let m: RegExpExecArray | null;
+      while ((m = re.exec(raw)) !== null) {
+        const t = m[1]?.trim();
+        if (t) return t;
+      }
+    }
+    return null;
+  }, [messages]);
+
+  const dashboardActiveSkillName =
+    activeSkillName?.trim() ||
+    moduleIdInferredFromMessages ||
+    skillNameInferredFromMessages ||
+    skillNameInferredFromSkillUiPath;
 
   const handleFillInput = useCallback((text: string) => {
     setInputPrefill(text);
@@ -447,7 +473,7 @@ export default function Home() {
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
     };
-  }, []);
+  }, [CHAT_MIN]);
 
   useEffect(() => {
     const clamp = () => {
@@ -456,7 +482,7 @@ export default function Home() {
     window.addEventListener("resize", clamp);
     clamp();
     return () => window.removeEventListener("resize", clamp);
-  }, []);
+  }, [CHAT_MIN]);
 
   // Track header width for compact mode.
   // IMPORTANT: only update state when the compact threshold (760 px) is crossed,
@@ -483,7 +509,6 @@ export default function Home() {
     setPreviewWidth(32);
     setTimeout(() => {
       setPreviewAnimating(false);
-      setBlockingActionPath(null);
       setPreviewTabs([]);
       setActiveRightTabId(null);
     }, PREVIEW_ANIM_MS);
@@ -521,11 +546,6 @@ export default function Home() {
       }
       if (e.key === "Escape") {
         if (commandPaletteOpenRef.current) return;
-        if (blockingActionPath) {
-          e.preventDefault();
-          closeBlockingAction();
-          return;
-        }
         if (systemModal) {
           e.preventDefault();
           closeSystemModal();
@@ -542,20 +562,24 @@ export default function Home() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [blockingActionPath, systemModal, zenMode, closeBlockingAction, closeSystemModal, openCommandPalette]);
+  }, [systemModal, zenMode, closeSystemModal, openCommandPalette]);
 
   const activePreviewTabPath = useMemo(() => {
     if (!activeRightTabId) return null;
-    if (activeRightTabId === "__blocking__") return blockingActionPath;
     return previewTabs.find((t) => t.id === activeRightTabId)?.path ?? null;
-  }, [activeRightTabId, blockingActionPath, previewTabs]);
+  }, [activeRightTabId, previewTabs]);
+
+  const handleLogout = useCallback(() => {
+    clearGlobalProjectContext();
+    router.replace("/pd-onboarding");
+  }, [router]);
 
   const sidebarProps = {
     threadId,
     apiBase,
     onPreviewPath: openFilePreview,
     currentPreviewPath: previewWidth > 32
-      ? blockingActionPath ?? activePreviewTabPath
+      ? activePreviewTabPath
       : null,
     onClosePreview: closePreview,
     messages,
@@ -565,6 +589,8 @@ export default function Home() {
     onSelectSession: switchSession,
     onDeleteSession: deleteSession,
     onOpenSettings: openSettings,
+    onOpenQuickSettings: openSettings,
+    onLogout: handleLogout,
     onSkillSelect: handleSkillSelect,
     onOpenOrgAssetDetail: openRemoteAssetDetail,
     refreshNonce: sidebarRefreshNonce,
@@ -743,6 +769,17 @@ export default function Home() {
     return () => window.clearTimeout(t);
   }, [clearUndoToast]);
 
+  if (!authChecked) {
+    return (
+      <main
+        className="flex h-dvh items-center justify-center p-4"
+        style={{ background: "var(--surface-0)", color: "var(--text-primary)" }}
+      >
+        <p className="text-sm ui-text-muted">正在跳转登录页…</p>
+      </main>
+    );
+  }
+
   return (
     <main className="h-dvh overflow-hidden p-4" style={{ background: "var(--surface-0)", color: "var(--text-primary)" }}>
       {runtimeMode === "unconfigured" ? (
@@ -895,6 +932,9 @@ export default function Home() {
                 <span className="w-1.5 h-1.5 rounded-full mb-2" style={{ background: "var(--success)" }} />
                 <button type="button" onClick={createSession} title="新建会话" className="nav-icon-btn">
                   <Plus size={18} />
+                </button>
+                <button type="button" onClick={openSettings} title="设置" className="nav-icon-btn" aria-label="设置">
+                  <Settings size={18} />
                 </button>
                 <div className="mt-auto" />
               </div>
@@ -1084,7 +1124,6 @@ export default function Home() {
                   skillUiBootstrapEvent={skillUiBootstrapEvent}
                   onOpenPreview={wakePreview}
                   postToAgent={(text) => void sendSilentMessage(text, selectedModel)}
-                  postToAgentSilently={(text) => void sendSilentMessage(text, selectedModel)}
                   isAgentRunning={isAgentRunning}
                   activeSkillName={dashboardActiveSkillName}
                 />
@@ -1122,9 +1161,6 @@ export default function Home() {
             <div className="min-h-0 flex-1 overflow-hidden">
               <PreviewPanel
                 onClose={closePreview}
-                baseDashboardUrl={null}
-                blockingActionPath={blockingActionPath}
-                onCloseBlockingAction={closeBlockingAction}
                 previewTabs={previewTabs}
                 activeTabId={activeRightTabId}
                 onSelectTab={setActiveRightTabId}

@@ -1,0 +1,60 @@
+{
+  "schemaVersion": 1,
+  "type": "SduiDocument",
+  "meta": {
+    "docId": "dashboard:text-organizer-showcase",
+    "provenance": "text_organizer_showcase"
+  },
+  "root": {
+    "type": "Stack",
+    "gap": "lg",
+    "children": [
+      {
+        "type": "Text",
+        "variant": "heading",
+        "content": "文本内容整理 · 全能力展示（HITL + SDUI + Artifact + Progress）"
+      },
+      {
+        "type": "Row",
+        "gap": "md",
+        "align": "center",
+        "children": [
+          {
+            "type": "Button",
+            "id": "btn-start-skill",
+            "label": "开始整理（Skill-First）",
+            "variant": "primary",
+            "color": "accent",
+            "action": {
+              "kind": "post_user_message",
+              "text": "{\"type\":\"chat_card_intent\",\"verb\":\"skill_runtime_start\",\"payload\":{\"type\":\"skill_runtime_start\",\"skillName\":\"text_organizer_showcase\",\"requestId\":\"req-start-txo\",\"action\":\"txo_step1_collect_inputs\"}}"
+            }
+          }
+        ]
+      },
+      { "type": "Stepper", "id": "stepper-main", "steps": [] },
+      {
+        "type": "Text",
+        "id": "summary-text",
+        "variant": "body",
+        "color": "subtle",
+        "content": "进入模块后将在此展示运行摘要与下一步操作。"
+      },
+      {
+        "type": "ArtifactGrid",
+        "id": "uploaded-files",
+        "title": "已上传材料",
+        "mode": "input",
+        "artifacts": []
+      },
+      {
+        "type": "ArtifactGrid",
+        "id": "artifacts",
+        "title": "整理结果",
+        "mode": "output",
+        "artifacts": []
+      }
+    ]
+  }
+}
+

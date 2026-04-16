@@ -16,7 +16,7 @@ test("page routes chat-card and dashboard intents through sendSilentMessage", ()
   );
   assert.match(
     pageSource,
-    /postToAgent=\{\(text\) => void sendSilentMessage\(text, selectedModel\)\}\s*postToAgentSilently=\{\(text\) => void sendSilentMessage\(text, selectedModel\)\}/,
+    /postToAgent=\{\(text\) => void sendSilentMessage\(text, selectedModel\)\}/,
   );
   assert.match(
     pageSource,

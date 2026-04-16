@@ -4,6 +4,7 @@ import { useState } from "react";
 import { CheckCircle2 } from "lucide-react";
 import { useSkillUiRuntime } from "@/components/sdui/SkillUiRuntimeProvider";
 import type { SduiChoiceOption } from "@/lib/sdui";
+import { formatLegacyModuleActionBlockedMessage, useLegacyModuleActionAllowed } from "@/lib/legacyModuleGate";
 
 type Props = {
   title: string;
@@ -29,13 +30,47 @@ export function SduiChoiceCard({
   const runtime = useSkillUiRuntime();
   const [selected, setSelected] = useState<string | null>(null);
   const [confirmed, setConfirmed] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const legacyGate = useLegacyModuleActionAllowed(moduleId);
 
   const confirm = () => {
     if (!selected) return;
-    setConfirmed(true);
+    setError(null);
+    const skill = (skillName ?? "").trim();
+    const namespace = (stateNamespace ?? "").trim();
+    const sid = (stepId ?? "").trim();
+    // Skill-first: if the SDUI node is tied to a skill HITL request, always return via skill_runtime_result.
+    // (Option 1: platform must not depend on legacy module_action flow.)
+    if (skill && cardId) {
+      setConfirmed(true);
+      runtime.postToAgent?.(
+        JSON.stringify({
+          type: "chat_card_intent",
+          verb: "skill_runtime_result",
+          payload: {
+            type: "skill_runtime_result",
+            skillName: skill,
+            requestId: cardId,
+            status: "ok",
+            // action can be omitted; backend will fall back to pending.resume_action
+            ...(namespace ? { stateNamespace: namespace } : {}),
+            ...(sid ? { stepId: sid } : {}),
+            result: { standard: selected },
+          },
+        }),
+      );
+      return;
+    }
+
+    // Legacy fallback: keep module_action only when no skill context is provided.
     const mid = (moduleId ?? "").trim();
     const na = (nextAction ?? "").trim();
     if (mid && na) {
+      if (!legacyGate.allowed) {
+        setError(formatLegacyModuleActionBlockedMessage(mid, legacyGate.reason));
+        return;
+      }
+      setConfirmed(true);
       runtime.postToAgent?.(
         JSON.stringify({
           type: "chat_card_intent",
@@ -46,26 +81,10 @@ export function SduiChoiceCard({
             action: na,
             state: { standard: selected },
           },
-        })
+        }),
       );
       return;
     }
-    const skill = (skillName ?? "").trim();
-    const namespace = (stateNamespace ?? "").trim();
-    const sid = (stepId ?? "").trim();
-    runtime.postToAgent?.(
-      JSON.stringify({
-        type: "chat_card_intent",
-        verb: "choice_selected",
-        cardId,
-        payload: {
-          optionId: selected,
-          ...(skill ? { skillName: skill } : {}),
-          ...(namespace ? { stateNamespace: namespace } : {}),
-          ...(sid ? { stepId: sid } : {}),
-        },
-      })
-    );
   };
 
   return (
@@ -87,6 +106,18 @@ export function SduiChoiceCard({
       </div>
       <div className="px-3 py-2.5 space-y-2.5">
         <p className="text-xs ui-text-secondary">{title}</p>
+        {error ? (
+          <div
+            className="rounded-md px-2.5 py-2 text-[11px] leading-relaxed"
+            style={{
+              background: "rgba(239,107,115,0.12)",
+              border: "1px solid rgba(239,107,115,0.22)",
+              color: "var(--danger)",
+            }}
+          >
+            {error}
+          </div>
+        ) : null}
         <div className="space-y-1.5">
           {options.map((opt) => {
             const isSelected = selected === opt.id;

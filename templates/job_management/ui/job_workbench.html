@@ -1,0 +1,1135 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Job Management · Workbench (Fig2)</title>
+    <style>
+      :root {
+        --bg: transparent;
+        --panel: rgba(255, 255, 255, 0.06);
+        --border: rgba(255, 255, 255, 0.1);
+        --text: rgba(255, 255, 255, 0.92);
+        --muted: rgba(255, 255, 255, 0.62);
+        --plan: #4f8cff;
+        --actual: #22c55e;
+        --warn: #f59e0b;
+      }
+      html,
+      body {
+        height: 100%;
+        background: var(--bg);
+      }
+      body {
+        margin: 0;
+        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+        color: var(--text);
+      }
+      .wrap {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        padding: 12px;
+        box-sizing: border-box;
+        min-height: 680px;
+      }
+      .card {
+        border: 1px solid var(--border);
+        background: var(--panel);
+        border-radius: 14px;
+        padding: 12px;
+      }
+      .h {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        margin-bottom: 10px;
+      }
+      .h strong {
+        font-size: 13px;
+      }
+      .sub {
+        font-size: 11px;
+        color: var(--muted);
+        line-height: 1.45;
+      }
+      .row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+      .btn {
+        appearance: none;
+        border: 1px solid var(--border);
+        background: rgba(255, 255, 255, 0.06);
+        color: var(--text);
+        border-radius: 10px;
+        padding: 8px 10px;
+        font-size: 12px;
+        cursor: pointer;
+      }
+      .btn.primary {
+        background: rgba(79, 140, 255, 0.18);
+        border-color: rgba(79, 140, 255, 0.35);
+      }
+      .btn.warn {
+        background: rgba(245, 158, 11, 0.14);
+        border-color: rgba(245, 158, 11, 0.35);
+      }
+
+      /* Top flow: circles */
+      .topFlow {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 10px;
+        align-items: start;
+      }
+      .tfItem {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 8px;
+        min-width: 0;
+      }
+      .tfLine {
+        position: absolute;
+        left: calc(50% + 18px);
+        right: calc(-50% + 18px);
+        top: 18px;
+        height: 2px;
+        background: rgba(255, 255, 255, 0.12);
+        pointer-events: none;
+      }
+      .tfLine.active {
+        background: linear-gradient(90deg, rgba(245, 158, 11, 0.95), rgba(79, 140, 255, 0.75));
+      }
+      .circleNode {
+        width: 36px;
+        height: 36px;
+        border-radius: 999px;
+        display: grid;
+        place-items: center;
+        border: 2px solid rgba(255, 255, 255, 0.18);
+        background: rgba(0, 0, 0, 0.18);
+        font-size: 12px;
+        font-weight: 750;
+        flex: 0 0 auto;
+      }
+      .circleNode.done {
+        border-color: rgba(34, 197, 94, 0.55);
+        background: rgba(34, 197, 94, 0.12);
+      }
+      .circleNode.active {
+        border-color: rgba(79, 140, 255, 0.65);
+        background: rgba(79, 140, 255, 0.14);
+        box-shadow: 0 0 0 4px rgba(79, 140, 255, 0.12);
+      }
+      .circleNode.waiting {
+        opacity: 0.55;
+      }
+      .tfLabel {
+        font-size: 12px;
+        text-align: center;
+        line-height: 1.25;
+        color: rgba(255, 255, 255, 0.86);
+        padding: 0 6px;
+      }
+
+      /* dashed inner box + square nodes */
+      .dashBox {
+        border: 2px dashed rgba(245, 158, 11, 0.55);
+        border-radius: 14px;
+        padding: 10px;
+        background: rgba(0, 0, 0, 0.12);
+      }
+      .dashTitle {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        margin-bottom: 10px;
+      }
+      .pctPill {
+        font-size: 11px;
+        color: rgba(245, 158, 11, 0.95);
+        border: 1px solid rgba(245, 158, 11, 0.35);
+        background: rgba(245, 158, 11, 0.1);
+        padding: 4px 10px;
+        border-radius: 999px;
+        white-space: nowrap;
+      }
+      .subFlow {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 10px;
+        align-items: start;
+      }
+      .sfItem {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 8px;
+        min-width: 0;
+      }
+      .sfLine {
+        position: absolute;
+        left: calc(50% + 22px);
+        right: calc(-50% + 22px);
+        top: 18px;
+        height: 2px;
+        background: rgba(255, 255, 255, 0.12);
+        pointer-events: none;
+      }
+      .sfLine.active {
+        background: linear-gradient(90deg, rgba(34, 197, 94, 0.85), rgba(79, 140, 255, 0.75));
+      }
+      .sqNode {
+        width: 44px;
+        height: 34px;
+        border-radius: 10px;
+        border: 2px solid rgba(255, 255, 255, 0.16);
+        background: rgba(255, 255, 255, 0.06);
+        display: grid;
+        place-items: center;
+        font-size: 11px;
+        font-weight: 750;
+      }
+      .sqNode.active {
+        border-color: rgba(79, 140, 255, 0.65);
+        background: rgba(79, 140, 255, 0.14);
+      }
+      .sqNode.done {
+        border-color: rgba(34, 197, 94, 0.55);
+        background: rgba(34, 197, 94, 0.12);
+      }
+      .sqNode.waiting {
+        opacity: 0.55;
+      }
+      .sfLabel {
+        font-size: 12px;
+        text-align: center;
+        line-height: 1.25;
+        color: rgba(255, 255, 255, 0.86);
+        padding: 0 6px;
+      }
+
+      /* milestone timeline */
+      .legend {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        margin: 8px 0 10px;
+      }
+      .lg {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 11px;
+        color: var(--muted);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        background: rgba(0, 0, 0, 0.14);
+        padding: 4px 8px;
+        border-radius: 999px;
+      }
+      .sw {
+        width: 10px;
+        height: 10px;
+        border-radius: 3px;
+        border: 1px solid rgba(255, 255, 255, 0.18);
+      }
+      .sw.plan {
+        background: rgba(79, 140, 255, 0.75);
+      }
+      .sw.actual {
+        background: rgba(34, 197, 94, 0.75);
+      }
+      .axis {
+        position: relative;
+        height: 64px;
+        border-radius: 12px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        background: rgba(0, 0, 0, 0.16);
+        overflow: hidden;
+      }
+      .axisCap {
+        position: absolute;
+        left: 10px;
+        right: 10px;
+        top: 10px;
+        height: 2px;
+        background: rgba(255, 255, 255, 0.12);
+      }
+      .mk {
+        position: absolute;
+        top: 22px;
+        transform: translateX(-50%);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 6px;
+        cursor: default;
+      }
+      .shape {
+        width: 14px;
+        height: 14px;
+        border: 2px solid rgba(255, 255, 255, 0.22);
+        box-sizing: border-box;
+      }
+      .shape.diamond {
+        transform: rotate(45deg);
+        border-radius: 3px;
+      }
+      .shape.circle {
+        border-radius: 999px;
+      }
+      .shape.rect {
+        border-radius: 4px;
+      }
+      .shape.plan {
+        border-color: rgba(79, 140, 255, 0.65);
+        background: rgba(79, 140, 255, 0.18);
+      }
+      .shape.actual {
+        border-color: rgba(34, 197, 94, 0.65);
+        background: rgba(34, 197, 94, 0.16);
+      }
+      .mkCap {
+        font-size: 10px;
+        color: rgba(255, 255, 255, 0.72);
+        max-width: 120px;
+        text-align: center;
+        line-height: 1.15;
+      }
+
+      /* critical path rows */
+      .cpGrid {
+        display: grid;
+        gap: 10px;
+      }
+      .cpRow {
+        display: grid;
+        grid-template-columns: 120px 1fr;
+        gap: 10px;
+        align-items: center;
+      }
+      .cpName {
+        font-size: 12px;
+        color: rgba(255, 255, 255, 0.86);
+      }
+      .cpAxis {
+        position: relative;
+        height: 44px;
+        border-radius: 12px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        background: rgba(0, 0, 0, 0.14);
+        overflow: hidden;
+      }
+      .cpBase {
+        position: absolute;
+        left: 10px;
+        right: 10px;
+        top: 20px;
+        height: 2px;
+        background: rgba(255, 255, 255, 0.12);
+      }
+      .cpMark {
+        position: absolute;
+        top: 12px;
+        transform: translateX(-50%);
+        width: 18px;
+        height: 18px;
+        border-radius: 6px;
+        border: 2px solid rgba(255, 255, 255, 0.22);
+        background: rgba(245, 158, 11, 0.14);
+        display: grid;
+        place-items: center;
+        font-size: 11px;
+      }
+
+      /* gantt */
+      .gantt {
+        border-radius: 12px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        background: rgba(0, 0, 0, 0.14);
+        padding: 10px;
+        overflow: auto;
+      }
+      .ganttHeader {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        margin-bottom: 10px;
+      }
+      .ganttHeader .left {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        min-width: 0;
+      }
+      .ganttHeader .left .t {
+        font-size: 12px;
+        color: rgba(255, 255, 255, 0.86);
+      }
+      .ganttHeader .left .d {
+        font-size: 11px;
+        color: var(--muted);
+      }
+      .ganttHeader .right {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+      }
+      .ganttGrid {
+        display: grid;
+        grid-template-columns: 220px 1fr;
+        gap: 10px;
+        min-height: 260px;
+      }
+      .taskList {
+        border-right: 1px solid rgba(255, 255, 255, 0.1);
+        padding-right: 10px;
+        overflow: auto;
+      }
+      .tcard {
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        background: rgba(255, 255, 255, 0.04);
+        border-radius: 12px;
+        padding: 10px;
+        margin-bottom: 10px;
+      }
+      .tcard strong {
+        font-size: 12px;
+      }
+      .tmeta {
+        margin-top: 6px;
+        font-size: 11px;
+        color: var(--muted);
+        line-height: 1.35;
+      }
+      .lane {
+        position: relative;
+        min-width: 760px;
+        height: 40px;
+        border-radius: 10px;
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.03));
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        overflow: hidden;
+      }
+      .lane::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background-image: repeating-linear-gradient(
+          90deg,
+          rgba(255, 255, 255, 0.06) 0px,
+          rgba(255, 255, 255, 0.06) 1px,
+          transparent 1px,
+          transparent 64px
+        );
+        opacity: 0.35;
+        pointer-events: none;
+      }
+      .bar {
+        position: absolute;
+        top: 7px;
+        bottom: 7px;
+        border-radius: 8px;
+        background: linear-gradient(90deg, rgba(79, 140, 255, 0.90), rgba(79, 140, 255, 0.55));
+        border: 1px solid rgba(79, 140, 255, 0.55);
+        cursor: grab;
+        display: flex;
+        align-items: center;
+        padding: 0 10px;
+        box-sizing: border-box;
+        user-select: none;
+      }
+      .bar:hover {
+        border-color: rgba(79, 140, 255, 0.75);
+        box-shadow: 0 0 0 4px rgba(79, 140, 255, 0.10);
+      }
+      .bar:active {
+        cursor: grabbing;
+      }
+      .bar .label {
+        font-size: 12px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .handle {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        width: 10px;
+        background: rgba(255, 255, 255, 0.18);
+        cursor: ew-resize;
+        opacity: 0;
+      }
+      .bar:hover .handle {
+        opacity: 0.55;
+      }
+      .handle.left {
+        left: 0;
+        border-top-left-radius: 8px;
+        border-bottom-left-radius: 8px;
+      }
+      .handle.right {
+        right: 0;
+        border-top-right-radius: 8px;
+        border-bottom-right-radius: 8px;
+      }
+      .status {
+        margin-top: 8px;
+        font-size: 11px;
+        color: var(--muted);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="card">
+        <div class="h">
+          <div>
+            <strong>作业管理工作台（图二风格）</strong>
+            <div class="sub" id="subtitle">等待宿主注入 state…</div>
+          </div>
+          <div class="row">
+            <button class="btn" id="btnReloadTop">重新加载</button>
+          </div>
+        </div>
+
+        <div id="topMount"></div>
+      </div>
+
+      <div class="card">
+        <div class="h">
+          <strong>里程碑（悬停查看时间）</strong>
+          <div class="sub">◇ 到货 · ○ 上电 · □ 上线；蓝=计划，绿=实际</div>
+        </div>
+        <div class="legend">
+          <div class="lg"><span class="sw plan"></span>计划</div>
+          <div class="lg"><span class="sw actual"></span>实际</div>
+          <div class="lg">提示：同一里程碑会并排显示计划/实际两个标记</div>
+        </div>
+        <div class="axis" id="msAxis"></div>
+      </div>
+
+      <div class="card">
+        <div class="h">
+          <strong>关键路径（悬停查看时间）</strong>
+          <div class="sub">每行对应一条关键路径；标记点对应关联任务的中间时刻</div>
+        </div>
+        <div class="cpGrid" id="cpMount"></div>
+      </div>
+
+      <div class="card">
+        <div class="h">
+          <strong>初排计划甘特图（拖拽）</strong>
+          <div class="sub">拖拽移动/拉伸；确认后通过 skill_web_intent 回传 skill_runtime_resume（直通恢复，不走 HITL store）</div>
+        </div>
+        <div class="gantt">
+          <div class="ganttHeader">
+            <div class="left">
+              <div class="t">拖拽条块调整时间窗口</div>
+              <div class="d">确认按钮位于右下角；点击后写回 schedule_draft.json</div>
+            </div>
+            <div class="right">
+              <button class="btn" id="btnReload">重新加载</button>
+            </div>
+          </div>
+          <div class="ganttGrid">
+            <div class="taskList" id="taskList"></div>
+            <div>
+              <div class="lane" id="lane"></div>
+              <div class="row" style="justify-content:space-between; margin-top:10px;">
+                <div class="status" id="ganttStatus"></div>
+                <button class="btn primary" id="btnConfirm">确认甘特并写回 JSON</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const CLAW_PLATFORM = "claw-platform";
+      const CLAW_UPDATE = "CLAW_UPDATE_STATE";
+      const SKILL_WEB_INTENT = "skill_web_intent";
+
+      let injected = null;
+      let schedule = null;
+      let uiState = null;
+
+      const elSubtitle = document.getElementById("subtitle");
+      const elTop = document.getElementById("topMount");
+      const elMs = document.getElementById("msAxis");
+      const elCp = document.getElementById("cpMount");
+      const elTasks = document.getElementById("taskList");
+      const elLane = document.getElementById("lane");
+      const elGStatus = document.getElementById("ganttStatus");
+
+      function postWebIntent(text) {
+        window.parent.postMessage({ type: SKILL_WEB_INTENT, text }, "*");
+      }
+
+      function parseISODate(s) {
+        if (!s) return null;
+        const t = String(s).trim();
+        if (!t) return null;
+        if (/^\d{4}-\d{2}-\d{2}$/.test(t)) return new Date(t + "T00:00:00Z");
+        const d = new Date(t);
+        return isNaN(d.getTime()) ? null : d;
+      }
+
+      function formatDate(d) {
+        const y = d.getUTCFullYear();
+        const m = String(d.getUTCMonth() + 1).padStart(2, "0");
+        const day = String(d.getUTCDate()).padStart(2, "0");
+        return `${y}-${m}-${day}`;
+      }
+
+      function addDays(d, days) {
+        const out = new Date(d.getTime());
+        out.setUTCDate(out.getUTCDate() + days);
+        return out;
+      }
+
+      function clamp(n, a, b) {
+        return Math.max(a, Math.min(b, n));
+      }
+
+      function dayDiff(a, b) {
+        const ms = 24 * 3600 * 1000;
+        return Math.round((b.getTime() - a.getTime()) / ms);
+      }
+
+      async function fetchJson(path) {
+        const url = `/api/file?path=${encodeURIComponent(path)}&t=${Date.now()}`;
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const txt = await res.text();
+        if (!txt.trim()) return null;
+        return JSON.parse(txt);
+      }
+
+      async function hydrateFromDisk() {
+        const sp = injected && injected.schedulePath ? String(injected.schedulePath) : "";
+        const up = injected && injected.uiStatePath ? String(injected.uiStatePath) : "";
+        if (sp) {
+          try {
+            schedule = (await fetchJson(sp)) || schedule;
+          } catch {
+            /* keep */
+          }
+        }
+        if (up) {
+          try {
+            const j = await fetchJson(up);
+            if (j && typeof j === "object") uiState = j;
+          } catch {
+            /* keep */
+          }
+        }
+      }
+
+      function defaultSchedule() {
+        const base = new Date();
+        base.setUTCHours(0, 0, 0, 0);
+        return {
+          schemaVersion: 1,
+          updatedAt: new Date().toISOString(),
+          tasks: [
+            { id: "t1", name: "规划设计排期", group: "计划初排", start: formatDate(addDays(base, 0)), end: formatDate(addDays(base, 3)) },
+            { id: "t2", name: "工程安装排期", group: "计划初排", start: formatDate(addDays(base, 3)), end: formatDate(addDays(base, 8)) },
+            { id: "t3", name: "集群联调排期", group: "计划初排", start: formatDate(addDays(base, 8)), end: formatDate(addDays(base, 12)) },
+          ],
+          milestones: [
+            { id: "m1", name: "到货", kind: "diamond", planDate: formatDate(addDays(base, 1)), actualDate: formatDate(addDays(base, 2)) },
+            { id: "m2", name: "上电", kind: "circle", planDate: formatDate(addDays(base, 5)), actualDate: formatDate(addDays(base, 6)) },
+            { id: "m3", name: "上线", kind: "rect", planDate: formatDate(addDays(base, 11)), actualDate: formatDate(addDays(base, 12)) },
+          ],
+          criticalPaths: [
+            { id: "cp1", name: "关键路径一", tasks: ["t1", "t2", "t3"] },
+            { id: "cp2", name: "关键路径二", tasks: ["t2"] },
+            { id: "cp3", name: "关键路径三", tasks: ["t3"] },
+          ],
+        };
+      }
+
+      function defaultUiState() {
+        return {
+          schemaVersion: 1,
+          updatedAt: new Date().toISOString(),
+          execPct: 40,
+          dashBoxOpen: false,
+          dashBoxForTopId: "first",
+          topFlow: [
+            { id: "prep", label: "数据准备", status: "done" },
+            { id: "first", label: "计划初排", status: "active" },
+            { id: "adjust", label: "计划调整", status: "waiting" },
+            { id: "dispatch", label: "任务下发", status: "waiting" },
+          ],
+          subFlowsByTopId: {
+            prep: [
+              { id: "prep_in", label: "资料收集", status: "done" },
+              { id: "prep_check", label: "资料校验", status: "done" },
+              { id: "prep_ready", label: "就绪", status: "done" },
+            ],
+            first: [
+              { id: "plan", label: "规划设计排期", status: "active" },
+              { id: "eng", label: "工程安装排期", status: "waiting" },
+              { id: "cluster", label: "集群联调排期", status: "waiting" },
+            ],
+            adjust: [
+              { id: "adj_review", label: "评审", status: "waiting" },
+              { id: "adj_opt", label: "优化", status: "waiting" },
+              { id: "adj_confirm", label: "确认", status: "waiting" },
+            ],
+            dispatch: [
+              { id: "dis_pkg", label: "打包下发", status: "waiting" },
+              { id: "dis_track", label: "跟踪执行", status: "waiting" },
+              { id: "dis_done", label: "闭环", status: "waiting" },
+            ],
+          },
+        };
+      }
+
+      function renderTop() {
+        elTop.innerHTML = "";
+        const ui = uiState && typeof uiState === "object" ? uiState : defaultUiState();
+        const pct = typeof ui.execPct === "number" ? ui.execPct : 40;
+        const open = ui.dashBoxOpen !== false;
+        const dashFor = typeof ui.dashBoxForTopId === "string" && ui.dashBoxForTopId ? ui.dashBoxForTopId : "first";
+        const subMap = ui.subFlowsByTopId && typeof ui.subFlowsByTopId === "object" ? ui.subFlowsByTopId : null;
+
+        const wrap = document.createElement("div");
+
+        const flow = document.createElement("div");
+        flow.className = "topFlow";
+        const tops = Array.isArray(ui.topFlow) && ui.topFlow.length ? ui.topFlow : defaultUiState().topFlow;
+        tops.forEach((n, idx) => {
+          const item = document.createElement("div");
+          item.className = "tfItem";
+          if (idx < tops.length - 1) {
+            const line = document.createElement("div");
+            const a = String(n.status || "");
+            const b = String(tops[idx + 1].status || "");
+            line.className = "tfLine" + (a === "done" || a === "active" || b === "active" ? " active" : "");
+            item.appendChild(line);
+          }
+          const node = document.createElement("div");
+          const st = String(n.status || "waiting");
+          node.className = "circleNode" + (st === "done" ? " done" : st === "active" ? " active" : " waiting");
+          node.textContent = String(idx + 1);
+          node.title = `${n.label || ""}（${st}）`;
+          node.style.cursor = "pointer";
+          node.addEventListener("click", () => {
+            const topId = String(n.id || "");
+            if (!topId) return;
+            const cur = uiState && typeof uiState === "object" ? uiState : defaultUiState();
+            const curFor = typeof cur.dashBoxForTopId === "string" && cur.dashBoxForTopId ? cur.dashBoxForTopId : "first";
+            const curOpen = cur.dashBoxOpen !== false;
+            const next = topId === curFor ? { dashBoxOpen: !curOpen, dashBoxForTopId: curFor } : { dashBoxOpen: true, dashBoxForTopId: topId };
+            // Optimistic UI update for instant feedback.
+            try {
+              uiState = Object.assign({}, cur, next, { updatedAt: new Date().toISOString() });
+              renderTop();
+            } catch {
+              /* ignore */
+            }
+            postWebIntent(buildUiIntent(next));
+          });
+          const lab = document.createElement("div");
+          lab.className = "tfLabel";
+          lab.textContent = n.label || "";
+          item.appendChild(node);
+          item.appendChild(lab);
+          flow.appendChild(item);
+        });
+        wrap.appendChild(flow);
+
+        const dash = document.createElement("div");
+        dash.className = "dashBox";
+        dash.style.marginTop = "12px";
+        dash.style.display = open ? "block" : "none";
+
+        const dt = document.createElement("div");
+        dt.className = "dashTitle";
+        dt.innerHTML = `<div class="sub" style="color:rgba(245,158,11,.95);font-weight:650;">执行进度：${pct}%</div><div class="pctPill">执行进度：${pct}%</div>`;
+        dash.appendChild(dt);
+
+        const sf = document.createElement("div");
+        sf.className = "subFlow";
+        const subsRaw = subMap && dashFor in subMap ? subMap[dashFor] : null;
+        const subs = Array.isArray(subsRaw) && subsRaw.length ? subsRaw : defaultUiState().subFlowsByTopId[dashFor] || [];
+        subs.forEach((n, idx) => {
+          const item = document.createElement("div");
+          item.className = "sfItem";
+          if (idx < subs.length - 1) {
+            const line = document.createElement("div");
+            const a = String(n.status || "");
+            const b = String(subs[idx + 1].status || "");
+            line.className = "sfLine" + (a === "done" || a === "active" || b === "active" ? " active" : "");
+            item.appendChild(line);
+          }
+          const node = document.createElement("div");
+          const st = String(n.status || "waiting");
+          node.className = "sqNode" + (st === "done" ? " done" : st === "active" ? " active" : " waiting");
+          node.textContent = String(idx + 1);
+          node.title = `${n.label || ""}（${st}）`;
+          const lab = document.createElement("div");
+          lab.className = "sfLabel";
+          lab.textContent = n.label || "";
+          item.appendChild(node);
+          item.appendChild(lab);
+          sf.appendChild(item);
+        });
+        dash.appendChild(sf);
+
+        const db = document.createElement("div");
+        db.className = "dashTitle";
+        db.style.marginTop = "10px";
+        db.innerHTML = `<div></div><div class="pctPill">执行进度：${pct}%</div>`;
+        dash.appendChild(db);
+
+        wrap.appendChild(dash);
+        elTop.appendChild(wrap);
+      }
+
+      function collectDatesForRange() {
+        const dates = [];
+        const sch = schedule && typeof schedule === "object" ? schedule : defaultSchedule();
+        const tasks = Array.isArray(sch.tasks) ? sch.tasks : [];
+        for (const t of tasks) {
+          const s = parseISODate(t.start);
+          const e = parseISODate(t.end);
+          if (s) dates.push(s);
+          if (e) dates.push(e);
+        }
+        const ms = Array.isArray(sch.milestones) ? sch.milestones : [];
+        for (const m of ms) {
+          const p = parseISODate(m.planDate || m.date);
+          const a = parseISODate(m.actualDate);
+          if (p) dates.push(p);
+          if (a) dates.push(a);
+        }
+        if (!dates.length) {
+          const now = new Date();
+          now.setUTCHours(0, 0, 0, 0);
+          return [now, addDays(now, 14)];
+        }
+        let min = dates[0],
+          max = dates[0];
+        for (const d of dates) {
+          if (d < min) min = d;
+          if (d > max) max = d;
+        }
+        return [addDays(min, -1), addDays(max, 1)];
+      }
+
+      function pctForDate(d, minDt, maxDt) {
+        const total = Math.max(1, dayDiff(minDt, maxDt));
+        const dd = clamp(dayDiff(minDt, d), 0, total);
+        return (dd / total) * 100;
+      }
+
+      function renderMilestones() {
+        elMs.innerHTML = "";
+        const sch = schedule && typeof schedule === "object" ? schedule : defaultSchedule();
+        const ms = Array.isArray(sch.milestones) ? sch.milestones : [];
+        const [minDt, maxDt] = collectDatesForRange();
+
+        const cap = document.createElement("div");
+        cap.className = "axisCap";
+        elMs.appendChild(cap);
+
+        const addMark = (dt, m, kind, planOrActual) => {
+          if (!dt) return;
+          const pct = pctForDate(dt, minDt, maxDt);
+          const wrap = document.createElement("div");
+          wrap.className = "mk";
+          wrap.style.left = `calc(10px + (100% - 20px) * ${pct / 100})`;
+          const sh = document.createElement("div");
+          const k = kind === "circle" ? "circle" : kind === "rect" ? "rect" : "diamond";
+          sh.className = `shape ${k} ${planOrActual === "actual" ? "actual" : "plan"}`;
+          sh.title = `${m.name || m.id}｜${planOrActual === "actual" ? "实际" : "计划"}｜${formatDate(dt)}`;
+          const cap2 = document.createElement("div");
+          cap2.className = "mkCap";
+          cap2.textContent = `${m.name || ""}`;
+          wrap.appendChild(sh);
+          wrap.appendChild(cap2);
+          elMs.appendChild(wrap);
+        };
+
+        for (const m of ms) {
+          if (!m || typeof m !== "object") continue;
+          const kind = String(m.kind || "diamond");
+          const p = parseISODate(m.planDate || m.date);
+          const a = parseISODate(m.actualDate);
+          addMark(p, m, kind, "plan");
+          addMark(a, m, kind, "actual");
+        }
+      }
+
+      function taskMidDate(t) {
+        const s = parseISODate(t.start);
+        const e = parseISODate(t.end);
+        if (!s || !e) return null;
+        const mid = new Date((s.getTime() + e.getTime()) / 2);
+        return mid;
+      }
+
+      function renderCritical() {
+        elCp.innerHTML = "";
+        const sch = schedule && typeof schedule === "object" ? schedule : defaultSchedule();
+        const cps = Array.isArray(sch.criticalPaths) ? sch.criticalPaths : [];
+        const tasks = Array.isArray(sch.tasks) ? sch.tasks : [];
+        const byId = new Map(tasks.filter((t) => t && t.id).map((t) => [String(t.id), t]));
+        const [minDt, maxDt] = collectDatesForRange();
+
+        const mkRow = (cp) => {
+          const row = document.createElement("div");
+          row.className = "cpRow";
+          const name = document.createElement("div");
+          name.className = "cpName";
+          name.textContent = cp.name || cp.id || "关键路径";
+          const axis = document.createElement("div");
+          axis.className = "cpAxis";
+          const base = document.createElement("div");
+          base.className = "cpBase";
+          axis.appendChild(base);
+
+          const ids = Array.isArray(cp.tasks) ? cp.tasks : [];
+          for (const tid of ids) {
+            const t = byId.get(String(tid));
+            if (!t) continue;
+            const dt = taskMidDate(t);
+            if (!dt) continue;
+            const pct = pctForDate(dt, minDt, maxDt);
+            const mark = document.createElement("div");
+            mark.className = "cpMark";
+            mark.style.left = `calc(10px + (100% - 20px) * ${pct / 100})`;
+            mark.title = `${cp.name || ""}·${t.name || t.id}｜${String(t.start)}→${String(t.end)}`;
+            mark.textContent = "▲";
+            axis.appendChild(mark);
+          }
+
+          row.appendChild(name);
+          row.appendChild(axis);
+          return row;
+        };
+
+        for (const cp of cps) {
+          if (!cp || typeof cp !== "object") continue;
+          elCp.appendChild(mkRow(cp));
+        }
+      }
+
+      function renderGantt() {
+        elTasks.innerHTML = "";
+        elLane.innerHTML = "";
+        const sch = schedule && typeof schedule === "object" ? schedule : defaultSchedule();
+        const tasks = Array.isArray(sch.tasks) ? sch.tasks : [];
+
+        const [minDt, maxDt] = (() => {
+          const pairs = [];
+          for (const t of tasks) {
+            const s = parseISODate(t.start);
+            const e = parseISODate(t.end);
+            if (s && e) pairs.push([s, e]);
+          }
+          if (!pairs.length) {
+            const now = new Date();
+            now.setUTCHours(0, 0, 0, 0);
+            return [now, addDays(now, 14)];
+          }
+          let min = pairs[0][0],
+            max = pairs[0][1];
+          for (const [s, e] of pairs) {
+            if (s < min) min = s;
+            if (e > max) max = e;
+          }
+          return [addDays(min, -1), addDays(max, 1)];
+        })();
+
+        const totalDays = Math.max(1, dayDiff(minDt, maxDt));
+        const pxPerDay = 28;
+        elLane.style.minWidth = `${Math.max(760, totalDays * pxPerDay + 60)}px`;
+
+        function toLeftPct(d) {
+          const dd = clamp(dayDiff(minDt, d), 0, totalDays);
+          return (dd / totalDays) * 100.0;
+        }
+        function toWidthPct(s, e) {
+          const ds = clamp(dayDiff(minDt, s), 0, totalDays);
+          const de = clamp(dayDiff(minDt, e), 0, totalDays);
+          return (Math.max(0, de - ds) / totalDays) * 100.0;
+        }
+
+        tasks.forEach((t, idx) => {
+          const s = parseISODate(t.start) || minDt;
+          const e = parseISODate(t.end) || addDays(s, 1);
+
+          const card = document.createElement("div");
+          card.className = "tcard";
+          card.innerHTML = `<strong>${t.name || t.id || "task-" + idx}</strong>
+            <div class="tmeta">${formatDate(s)} → ${formatDate(e)} · ${t.group || "未分组"}</div>`;
+          elTasks.appendChild(card);
+
+          const bar = document.createElement("div");
+          bar.className = "bar";
+          bar.style.left = `${toLeftPct(s)}%`;
+          bar.style.width = `${Math.max(1.2, toWidthPct(s, e))}%`;
+          bar.title = `${t.name || t.id}｜${formatDate(s)}→${formatDate(e)}`;
+          bar.innerHTML = `<div class="handle left"></div><div class="label">${t.name || t.id || "task-" + idx}</div><div class="handle right"></div>`;
+          elLane.appendChild(bar);
+
+          const leftHandle = bar.querySelector(".handle.left");
+          const rightHandle = bar.querySelector(".handle.right");
+          let dragMode = null;
+          let startX = 0;
+          let startS = s,
+            startE = e;
+
+          const onDown =
+            (mode) =>
+            (ev) => {
+              ev.preventDefault();
+              dragMode = mode;
+              startX = ev.clientX;
+              startS = parseISODate(t.start) || s;
+              startE = parseISODate(t.end) || e;
+              bar.setPointerCapture(ev.pointerId);
+            };
+          const onMove = (ev) => {
+            if (!dragMode) return;
+            const dx = ev.clientX - startX;
+            const days = Math.round(dx / pxPerDay);
+            if (days === 0) return;
+            let nextS = startS,
+              nextE = startE;
+            if (dragMode === "move") {
+              nextS = addDays(startS, days);
+              nextE = addDays(startE, days);
+            } else if (dragMode === "left") {
+              nextS = addDays(startS, days);
+              if (nextS >= nextE) nextS = addDays(nextE, -1);
+            } else if (dragMode === "right") {
+              nextE = addDays(startE, days);
+              if (nextE <= nextS) nextE = addDays(nextS, 1);
+            }
+            t.start = formatDate(nextS);
+            t.end = formatDate(nextE);
+            bar.style.left = `${toLeftPct(nextS)}%`;
+            bar.style.width = `${Math.max(1.2, toWidthPct(nextS, nextE))}%`;
+            bar.title = `${t.name || t.id}｜${formatDate(nextS)}→${formatDate(nextE)}`;
+            card.querySelector(".tmeta").textContent = `${formatDate(nextS)} → ${formatDate(nextE)} · ${t.group || "未分组"}`;
+          };
+          const onUp = () => {
+            dragMode = null;
+          };
+
+          bar.addEventListener("pointerdown", onDown("move"));
+          leftHandle.addEventListener("pointerdown", onDown("left"));
+          rightHandle.addEventListener("pointerdown", onDown("right"));
+          bar.addEventListener("pointermove", onMove);
+          bar.addEventListener("pointerup", onUp);
+          bar.addEventListener("pointercancel", onUp);
+        });
+
+        elGStatus.textContent = `Range: ${formatDate(minDt)} → ${formatDate(maxDt)} · tasks=${tasks.length} · updatedAt=${sch.updatedAt || "-"}`;
+      }
+
+      function renderAll() {
+        if (!schedule || typeof schedule !== "object") schedule = defaultSchedule();
+        if (!uiState || typeof uiState !== "object") uiState = defaultUiState();
+        renderTop();
+        renderMilestones();
+        renderCritical();
+        renderGantt();
+      }
+
+      function buildScheduleIntent() {
+        const tid = injected && injected.threadId ? String(injected.threadId) : "";
+        const skillName = injected && injected.skillName ? String(injected.skillName) : "job_management";
+        const ridBase = injected && injected.requestIdBase ? String(injected.requestIdBase) : "req";
+        const requestId = `${ridBase}:schedule:${Date.now()}`;
+        schedule.updatedAt = new Date().toISOString();
+        return JSON.stringify({
+          type: "chat_card_intent",
+          verb: "skill_runtime_resume",
+          payload: {
+            type: "skill_runtime_resume",
+            threadId: tid,
+            skillName,
+            requestId,
+            status: "ok",
+            action: "jm_apply_schedule_draft",
+            result: { scheduleDraft: schedule },
+          },
+        });
+      }
+
+      function buildUiIntent(patch) {
+        const tid = injected && injected.threadId ? String(injected.threadId) : "";
+        const skillName = injected && injected.skillName ? String(injected.skillName) : "job_management";
+        const ridBase = injected && injected.requestIdBase ? String(injected.requestIdBase) : "req";
+        const requestId = `${ridBase}:ui:${Date.now()}`;
+        return JSON.stringify({
+          type: "chat_card_intent",
+          verb: "skill_runtime_resume",
+          payload: {
+            type: "skill_runtime_resume",
+            threadId: tid,
+            skillName,
+            requestId,
+            status: "ok",
+            action: "jm_workbench_ui",
+            result: { uiStatePatch: patch },
+          },
+        });
+      }
+
+      document.getElementById("btnReload").addEventListener("click", async () => {
+        await hydrateFromDisk();
+        renderAll();
+      });
+      document.getElementById("btnConfirm").addEventListener("click", () => postWebIntent(buildScheduleIntent()));
+      // 虚线框仅允许通过点击顶层圆圈展开/收起（不提供独立按钮）
+
+      document.getElementById("btnReloadTop").addEventListener("click", async () => {
+        await hydrateFromDisk();
+        renderAll();
+      });
+
+      window.addEventListener("message", async (event) => {
+        const data = event.data;
+        if (!data || typeof data !== "object") return;
+        if (data.source !== CLAW_PLATFORM || data.type !== CLAW_UPDATE) return;
+        injected = data.payload || null;
+
+        if (injected && typeof injected.schedule === "object") schedule = injected.schedule;
+        if (injected && typeof injected.uiState === "object") uiState = injected.uiState;
+
+        const sp = injected && injected.schedulePath ? String(injected.schedulePath) : "";
+        const up = injected && injected.uiStatePath ? String(injected.uiStatePath) : "";
+        elSubtitle.textContent = [sp ? `schedule: ${sp}` : null, up ? `ui: ${up}` : null].filter(Boolean).join(" · ") || "已注入 state";
+
+        await hydrateFromDisk();
+        renderAll();
+      });
+
+      // boot
+      schedule = defaultSchedule();
+      uiState = defaultUiState();
+      renderAll();
+    </script>
+  </body>
+</html>

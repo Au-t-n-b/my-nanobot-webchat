@@ -219,6 +219,35 @@ body {
   filter: brightness(1.05);
 }
 
+/* Accent button sheen sweep (for onboarding login button). */
+.ui-btn-sheen {
+  position: relative;
+  isolation: isolate;
+}
+.ui-btn-sheen::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-120%) skewX(-18deg);
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.24) 35%,
+    rgba(255, 255, 255, 0.12) 55%,
+    transparent 100%
+  );
+  opacity: 0;
+  z-index: 0;
+}
+.ui-btn-sheen:hover::after {
+  opacity: 1;
+  animation: ui-btn-sheen-sweep 820ms ease-out forwards;
+}
+@keyframes ui-btn-sheen-sweep {
+  0% { transform: translateX(-120%) skewX(-18deg); }
+  100% { transform: translateX(120%) skewX(-18deg); }
+}
+
 .ui-text-primary {
   color: var(--text-primary);
 }

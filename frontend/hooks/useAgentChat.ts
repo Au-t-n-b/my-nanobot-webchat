@@ -256,7 +256,11 @@ function parseSseRecord(raw: string): { event: string; data: Record<string, unkn
 }
 
 function newId(): string {
-  return crypto.randomUUID();
+  // Some environments (older browsers / non-secure contexts) may not support crypto.randomUUID.
+  // Always provide a stable fallback to avoid client runtime crashes.
+  const c = (globalThis as unknown as { crypto?: Crypto }).crypto;
+  if (c && typeof (c as any).randomUUID === "function") return (c as any).randomUUID();
+  return `id_${Date.now()}_${Math.random().toString(16).slice(2)}`;
 }
 
 function applySseBlocks(
@@ -329,7 +333,7 @@ export function useAgentChat() {
     const messageMap = loadMessageMap();
     let tid = ls?.getItem(CURRENT_THREAD_STORAGE_KEY) ?? null;
     const initialSessions = loadSessionSummaries();
-    if (!tid) tid = crypto.randomUUID();
+    if (!tid) tid = newId();
     if (!messageMap[tid]) {
       const legacy = loadLegacyMessages();
       if (legacy.length > 0) {
@@ -460,7 +464,7 @@ export function useAgentChat() {
   const createSession = useCallback(() => {
     abortRef.current?.abort();
     setActiveModuleIds(new Set());
-    const nextThreadId = crypto.randomUUID();
+    const nextThreadId = newId();
     if (typeof window !== "undefined") {
       getLocalStorage()?.setItem(CURRENT_THREAD_STORAGE_KEY, nextThreadId);
       const nextSessions = upsertSessionSummary(loadSessionSummaries(), deriveSessionSummary(nextThreadId, []));
@@ -495,7 +499,7 @@ export function useAgentChat() {
       // If deleting the active session, switch to a remaining one (or create a new empty session)
       if (deleteThreadId === threadId) {
         setActiveModuleIds(new Set());
-        const nextThreadId = nextSessions[0]?.id ?? crypto.randomUUID();
+        const nextThreadId = nextSessions[0]?.id ?? newId();
         getLocalStorage()?.setItem(CURRENT_THREAD_STORAGE_KEY, nextThreadId);
 
         if (!messageMap[nextThreadId]) {
@@ -620,7 +624,7 @@ export function useAgentChat() {
         ]);
       }
 
-      const runId = crypto.randomUUID();
+      const runId = newId();
 
       const rollbackNewTurn = () => {
         if (!showInTranscript) return;

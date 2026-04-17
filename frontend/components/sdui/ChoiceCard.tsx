@@ -6,10 +6,20 @@ import { useSkillUiRuntime } from "@/components/sdui/SkillUiRuntimeProvider";
 import type { SduiChoiceOption } from "@/lib/sdui";
 import { formatLegacyModuleActionBlockedMessage, useLegacyModuleActionAllowed } from "@/lib/legacyModuleGate";
 
+function optionValue(opt: SduiChoiceOption): string {
+  const id = String(opt.id ?? "").trim();
+  if (id) return id;
+  const v = String(opt.value ?? "").trim();
+  if (v) return v;
+  return String(opt.label ?? "").trim();
+}
+
 type Props = {
   title: string;
   options: SduiChoiceOption[];
   cardId?: string;
+  /** Matches PendingHitlStore row id (HITL envelope payload.requestId). */
+  hitlRequestId?: string;
   moduleId?: string;
   nextAction?: string;
   skillName?: string;
@@ -21,6 +31,7 @@ export function SduiChoiceCard({
   title,
   options,
   cardId,
+  hitlRequestId,
   moduleId,
   nextAction,
   skillName,
@@ -39,9 +50,11 @@ export function SduiChoiceCard({
     const skill = (skillName ?? "").trim();
     const namespace = (stateNamespace ?? "").trim();
     const sid = (stepId ?? "").trim();
+    const hitlRid = (hitlRequestId ?? "").trim();
+    const pendingRequestId = hitlRid || (cardId ?? "").trim();
     // Skill-first: if the SDUI node is tied to a skill HITL request, always return via skill_runtime_result.
     // (Option 1: platform must not depend on legacy module_action flow.)
-    if (skill && cardId) {
+    if (skill && pendingRequestId) {
       setConfirmed(true);
       runtime.postToAgent?.(
         JSON.stringify({
@@ -50,12 +63,12 @@ export function SduiChoiceCard({
           payload: {
             type: "skill_runtime_result",
             skillName: skill,
-            requestId: cardId,
+            requestId: pendingRequestId,
             status: "ok",
             // action can be omitted; backend will fall back to pending.resume_action
             ...(namespace ? { stateNamespace: namespace } : {}),
             ...(sid ? { stepId: sid } : {}),
-            result: { standard: selected },
+            result: { value: selected, standard: selected },
           },
         }),
       );
@@ -79,7 +92,7 @@ export function SduiChoiceCard({
           payload: {
             moduleId: mid,
             action: na,
-            state: { standard: selected },
+            state: { standard: selected, value: selected },
           },
         }),
       );
@@ -119,14 +132,15 @@ export function SduiChoiceCard({
           </div>
         ) : null}
         <div className="space-y-1.5">
-          {options.map((opt) => {
-            const isSelected = selected === opt.id;
+          {options.map((opt, idx) => {
+            const val = optionValue(opt);
+            const isSelected = selected === val;
             return (
               <button
-                key={opt.id}
+                key={`${cardId ?? "choice"}-${idx}-${val || "opt"}`}
                 type="button"
                 disabled={confirmed}
-                onClick={() => setSelected(opt.id)}
+                onClick={() => setSelected(val)}
                 className={[
                   "w-full text-left flex items-center gap-2.5 rounded-md px-3 py-2 text-xs transition-colors border",
                   isSelected

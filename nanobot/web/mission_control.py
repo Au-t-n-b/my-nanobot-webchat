@@ -90,6 +90,7 @@ class MissionControlManager:
         multiple: bool = False,
         mode: str = "append",
         card_id: str | None = None,
+        hitl_request_id: str | None = None,
         module_id: str | None = None,
         next_action: str | None = None,
         save_relative_dir: str | None = None,
@@ -135,6 +136,10 @@ class MissionControlManager:
             fp_node["stateNamespace"] = namespace
         if sid:
             fp_node["stepId"] = sid
+        hr = (hitl_request_id or "").strip()
+        if hr:
+            # Must match PendingHitlStore primary key (HITL envelope payload.requestId).
+            fp_node["hitlRequestId"] = hr
         payload: dict[str, Any] = {
             "threadId": self.thread_id,
             "cardId": cid,
@@ -248,6 +253,7 @@ class MissionControlManager:
         options: list[dict[str, str]],
         *,
         card_id: str | None = None,
+        hitl_request_id: str | None = None,
         module_id: str | None = None,
         next_action: str | None = None,
         skill_name: str | None = None,
@@ -284,6 +290,9 @@ class MissionControlManager:
             node["stateNamespace"] = namespace
         if sid:
             node["stepId"] = sid
+        hr = (hitl_request_id or "").strip()
+        if hr:
+            node["hitlRequestId"] = hr
         payload: dict[str, Any] = {
             "threadId": self.thread_id,
             "cardId": cid,
@@ -302,6 +311,7 @@ class MissionControlManager:
         confirm_label: str,
         cancel_label: str,
         card_id: str | None = None,
+        hitl_request_id: str | None = None,
         module_id: str | None = None,
         next_action: str | None = None,
         skill_name: str | None = None,
@@ -333,6 +343,9 @@ class MissionControlManager:
             node["stateNamespace"] = namespace
         if sid:
             node["stepId"] = sid
+        hr = (hitl_request_id or "").strip()
+        if hr:
+            node["hitlRequestId"] = hr
         payload: dict[str, Any] = {
             "threadId": self.thread_id,
             "cardId": cid,

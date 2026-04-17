@@ -58,6 +58,24 @@ const headerIconButtonClass =
   "inline-flex h-9 w-9 items-center justify-center rounded-xl border transition-colors " +
   "border-[var(--border-subtle)] bg-[var(--surface-1)] ui-text-secondary hover:bg-[var(--surface-3)] hover:ui-text-primary";
 
+/** HITL SkillUiChatCard 的 SDUI 节点上挂有 skillName/moduleId，但对应消息的 content 往往为空，需在节点树上推断大盘模块。 */
+function extractSkillHintFromSduiNode(node: unknown): string | null {
+  if (!node || typeof node !== "object") return null;
+  const o = node as Record<string, unknown>;
+  const skillName = o.skillName;
+  if (typeof skillName === "string" && skillName.trim()) return skillName.trim();
+  const moduleId = o.moduleId;
+  if (typeof moduleId === "string" && moduleId.trim()) return moduleId.trim();
+  const children = o.children;
+  if (Array.isArray(children)) {
+    for (const c of children) {
+      const hint = extractSkillHintFromSduiNode(c);
+      if (hint) return hint;
+    }
+  }
+  return null;
+}
+
 export default function Home() {
   const router = useRouter();
   const [authChecked, setAuthChecked] = useState(false);
@@ -387,6 +405,17 @@ export default function Home() {
     return null;
   }, [messages]);
 
+  /** 从最近一条聊天卡片（HITL）的 SDUI 节点推断当前 Skill，避免大盘一直停在 PLAN */
+  const skillNameInferredFromChatCards = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i];
+      if (m?.kind !== "chat_card" || !m.chatCard?.node) continue;
+      const hint = extractSkillHintFromSduiNode(m.chatCard.node);
+      if (hint) return hint;
+    }
+    return null;
+  }, [messages]);
+
   /** 从消息里的 RENDER_UI / skill-ui syntheticPath 推断模块名（不依赖 moduleId/skillName 字段存在） */
   const skillNameInferredFromSkillUiPath = useMemo(() => {
     // Examples:
@@ -410,6 +439,7 @@ export default function Home() {
     activeSkillName?.trim() ||
     moduleIdInferredFromMessages ||
     skillNameInferredFromMessages ||
+    skillNameInferredFromChatCards ||
     skillNameInferredFromSkillUiPath;
 
   const handleFillInput = useCallback((text: string) => {

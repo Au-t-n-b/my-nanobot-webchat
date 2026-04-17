@@ -188,7 +188,8 @@ async def test_consume_result_error_uses_fallback_routing_ignoring_client_action
 
 
 @pytest.mark.asyncio
-async def test_consume_result_rejects_thread_or_skill_mismatch(tmp_path: Path) -> None:
+async def test_consume_result_heals_stale_thread_id_when_pending(tmp_path: Path) -> None:
+    """Pending rows created with a wrong thread_id (legacy driver/setdefault) align on consume."""
     from nanobot.web.pending_hitl_store import PendingHitlStore
 
     db_path = tmp_path / "hitl.db"
@@ -211,9 +212,9 @@ async def test_consume_result_rejects_thread_or_skill_mismatch(tmp_path: Path) -
         }
     )
 
-    bad = {
+    result = {
         "type": "skill_runtime_result",
-        "threadId": "t-2",  # mismatch
+        "threadId": "t-2",
         "skillName": "s1",
         "skillRunId": "run-2",
         "requestId": "req-confirm-1",
@@ -222,8 +223,60 @@ async def test_consume_result_rejects_thread_or_skill_mismatch(tmp_path: Path) -
         "result": {"confirmed": True},
     }
 
+    out = await store.consume_result(result)
+    assert out["ok"] is True
+    assert out["duplicate"] is False
+    assert out["terminal_status"] == "consumed"
+    got = await store.get_pending_request("req-confirm-1")
+    assert got is not None
+    assert got["thread_id"] == "t-2"
+    assert got["status"] == "consumed"
+
+
+@pytest.mark.asyncio
+async def test_consume_result_rejects_thread_mismatch_when_not_pending(tmp_path: Path) -> None:
+    from nanobot.web.pending_hitl_store import PendingHitlStore
+
+    db_path = tmp_path / "hitl.db"
+    store = PendingHitlStore(db_path)
+    await store.init()
+
+    await store.create_pending_request(
+        {
+            "event": "hitl.confirm_request",
+            "threadId": "t-1",
+            "skillName": "s1",
+            "skillRunId": "run-1",
+            "payload": {
+                "requestId": "req-confirm-2",
+                "resumeAction": "approval_pass",
+                "onCancelAction": "approval_defer",
+                "expiresAt": _now_ms() + 60_000,
+                "title": "确认继续",
+            },
+        }
+    )
+
+    ok = {
+        "type": "skill_runtime_result",
+        "threadId": "t-1",
+        "skillName": "s1",
+        "requestId": "req-confirm-2",
+        "status": "ok",
+        "result": {"confirmed": True},
+    }
+    await store.consume_result(ok)
+
+    bad_thread = {
+        "type": "skill_runtime_result",
+        "threadId": "t-9",
+        "skillName": "s1",
+        "requestId": "req-confirm-2",
+        "status": "ok",
+        "result": {"confirmed": True},
+    }
     with pytest.raises(ValueError, match="thread_id mismatch"):
-        await store.consume_result(bad)
+        await store.consume_result(bad_thread)
 
 
 @pytest.mark.asyncio

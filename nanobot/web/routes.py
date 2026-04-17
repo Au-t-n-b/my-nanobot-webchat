@@ -8,6 +8,7 @@ import io
 import json
 import mimetypes
 import os
+import re
 import traceback
 import uuid
 import zipfile
@@ -649,6 +650,25 @@ def _try_parse_chat_card_intent(text: str) -> dict[str, Any] | None:
         if isinstance(obj, dict) and obj.get("type") == "chat_card_intent":
             return obj
         search_from = i + 1
+
+    # Fallback fast-path: allow natural language "开启/打开/启动 <moduleId>" to start a module skill.
+    # This avoids relying on the LLM to emit the JSON envelope.
+    m = re.match(r"^(?:开启|打开|启动)\s*([A-Za-z0-9_-]+)\s*$", t)
+    if m:
+        module_id = m.group(1).strip()
+        # platform_capability_lab expects action=pcs_start (see its dashboard button).
+        action = "pcs_start" if module_id == "platform_capability_lab" else "start"
+        return {
+            "type": "chat_card_intent",
+            "verb": "skill_runtime_start",
+            "payload": {
+                "type": "skill_runtime_start",
+                "skillName": module_id,
+                "requestId": f"req-start-{module_id}",
+                "action": action,
+            },
+        }
+
     return None
 
 
@@ -1099,12 +1119,52 @@ async def handle_approve(request: web.Request) -> web.Response:
     return web.json_response({"ok": True})
 
 
+def _default_skills_root_path() -> Path:
+    return (Path.home() / ".nanobot" / "workspace" / "skills").resolve()
+
+
 def _agui_workspace_root(config: Any | None) -> Path:
+    """Root directory for ``/api/upload`` and ``GET /api/file``.
+
+    ``FilePicker`` sends ``targetDir`` like ``skills/<module>/ProjectData/Input``. That must resolve
+    under the same directory tree as ``get_skills_root()`` (skill subprocess cwd). If Nanobot config
+    points ``agents.defaults.workspace`` somewhere else while skills still default to
+    ``~/.nanobot/workspace/skills``, uploads used to land only under the config path and the folder
+    you open under ``.nanobot/workspace/skills/...`` stayed empty.
+    """
+    for key in ("NANOBOT_AGUI_WORKSPACE", "NANOBOT_AGUI_WORKSPACE_ROOT"):
+        raw = os.environ.get(key, "").strip()
+        if raw:
+            return Path(raw).expanduser().resolve()
+
+    skills_root = get_skills_root().resolve()
+    skills_parent = skills_root.parent.resolve()
+    default_skills = _default_skills_root_path()
+    skills_env_set = bool(os.environ.get("NANOBOT_AGUI_SKILLS_ROOT", "").strip())
+
     if config is not None:
-        return Path(config.workspace_path).resolve()
-    env = os.environ.get("NANOBOT_AGUI_WORKSPACE", "").strip()
-    if env:
-        return Path(env).expanduser().resolve()
+        cfg_ws = Path(config.workspace_path).resolve()
+        cfg_skills = (cfg_ws / "skills").resolve()
+        try:
+            if cfg_skills == skills_root:
+                return cfg_ws
+        except Exception:
+            pass
+        if (
+            not skills_env_set
+            and skills_root == default_skills
+            and cfg_ws.resolve() != skills_parent.resolve()
+        ):
+            logger.warning(
+                "AGUI: agents.defaults.workspace ({}) does not contain get_skills_root() ({}); "
+                "using {} for /api/upload and /api/file so uploads match the default skills tree.",
+                cfg_ws,
+                skills_root,
+                skills_parent,
+            )
+            return skills_parent
+        return cfg_ws
+
     return Path.cwd().resolve()
 
 

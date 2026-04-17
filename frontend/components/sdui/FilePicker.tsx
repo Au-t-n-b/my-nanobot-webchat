@@ -49,6 +49,7 @@ export function SduiFilePicker({
   skillName,
   stateNamespace,
   stepId,
+  hitlRequestId,
 }: Props) {
   const { syncState, postToAgent } = useSkillUiRuntime();
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -130,13 +131,16 @@ export function SduiFilePicker({
         const mid = (moduleId ?? "").trim();
         const na = (nextAction ?? "").trim();
         const cid = (cardId ?? "").trim();
+        const hitlRid = (hitlRequestId ?? "").trim();
         if (latest) {
           const skill = (skillName ?? "").trim();
           const namespace = (stateNamespace ?? "").trim();
           const sid = (stepId ?? "").trim();
           // Skill-first: if the SDUI node is tied to a skill HITL request, always return via skill_runtime_result.
           // (Option 1: platform must not depend on legacy module_action flow.)
-          if (skill && cid) {
+          // PendingHitlStore keys by HITL payload.requestId; MissionControl injects it as hitlRequestId on the node.
+          const pendingRequestId = hitlRid || cid;
+          if (skill && pendingRequestId) {
             postToAgent(
               JSON.stringify({
                 type: "chat_card_intent",
@@ -144,7 +148,7 @@ export function SduiFilePicker({
                 payload: {
                   type: "skill_runtime_result",
                   skillName: skill,
-                  requestId: cid,
+                  requestId: pendingRequestId,
                   status: "ok",
                   // action can be omitted; backend will fall back to pending.resume_action
                   ...(namespace ? { stateNamespace: namespace } : {}),
@@ -209,6 +213,7 @@ export function SduiFilePicker({
       skillName,
       stateNamespace,
       stepId,
+      hitlRequestId,
       legacyGate.allowed,
       legacyGate.reason,
     ],

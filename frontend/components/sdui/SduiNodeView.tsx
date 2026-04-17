@@ -5,6 +5,7 @@ import type {
   SduiNode,
   SduiGuidanceCardNode,
   SduiChoiceCardNode,
+  SduiConfirmCardNode,
   SduiGanttChartNode,
   SduiEmbeddedWebNode,
 } from "@/lib/sdui";
@@ -34,6 +35,7 @@ import { SduiFileKindBadge } from "@/components/sdui/SduiFileKindBadge";
 import { SduiArtifactGrid } from "@/components/sdui/SduiArtifactGrid";
 import { SduiGuidanceCard } from "@/components/sdui/GuidanceCard";
 import { SduiChoiceCard } from "@/components/sdui/ChoiceCard";
+import { SduiConfirmCard } from "@/components/sdui/ConfirmCard";
 import { SduiStatisticRow } from "@/components/sdui/SduiStatisticRow";
 import { SduiGanttLane } from "@/components/sdui/SduiGanttLane";
 import { EmbeddedWeb } from "@/components/sdui/EmbeddedWeb";
@@ -227,10 +229,32 @@ export function SduiNodeView({ node, pathPrefix = "root" }: Props) {
           title={node.title}
           options={node.options}
           cardId={(node as SduiChoiceCardNode & { cardId?: string }).cardId}
+          hitlRequestId={node.hitlRequestId}
           moduleId={node.moduleId}
           nextAction={node.nextAction}
+          skillName={node.skillName}
+          stateNamespace={node.stateNamespace}
+          stepId={node.stepId}
         />
       );
+
+    case "ConfirmCard": {
+      const cn = node as SduiConfirmCardNode & { cardId?: string };
+      return (
+        <SduiConfirmCard
+          title={cn.title}
+          confirmLabel={cn.confirmLabel}
+          cancelLabel={cn.cancelLabel}
+          cardId={cn.cardId}
+          hitlRequestId={cn.hitlRequestId}
+          moduleId={cn.moduleId}
+          nextAction={cn.nextAction}
+          skillName={cn.skillName}
+          stateNamespace={cn.stateNamespace}
+          stepId={cn.stepId}
+        />
+      );
+    }
 
     case "StatisticRow":
       return <SduiStatisticRow items={node.items} />;

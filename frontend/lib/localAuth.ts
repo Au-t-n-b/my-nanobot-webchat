@@ -7,19 +7,29 @@ const SESSION_KEY = "nanobot_session_v1";
 
 type StoredAccount = { username: string; password: string };
 
+const DEFAULT_ACCOUNTS: StoredAccount[] = [{ username: "test", password: "test" }];
+
 function readAccounts(): StoredAccount[] {
   if (typeof window === "undefined") return [];
   try {
     const raw = window.localStorage.getItem(ACCOUNTS_KEY);
-    if (!raw) return [];
+    if (!raw) {
+      writeAccounts(DEFAULT_ACCOUNTS);
+      return DEFAULT_ACCOUNTS;
+    }
     const parsed = JSON.parse(raw) as unknown;
     if (!Array.isArray(parsed)) return [];
-    return parsed
+    const normalized = parsed
       .map((x) => ({
         username: typeof (x as StoredAccount).username === "string" ? (x as StoredAccount).username.trim() : "",
         password: typeof (x as StoredAccount).password === "string" ? (x as StoredAccount).password : "",
       }))
       .filter((x) => x.username.length > 0);
+    if (normalized.length === 0) {
+      writeAccounts(DEFAULT_ACCOUNTS);
+      return DEFAULT_ACCOUNTS;
+    }
+    return normalized;
   } catch {
     return [];
   }

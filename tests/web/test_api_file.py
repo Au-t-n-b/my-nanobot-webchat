@@ -67,10 +67,11 @@ async def test_get_file_absolute(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 
 
 @pytest.mark.asyncio
-async def test_get_file_relative_workspace(tmp_path: Path) -> None:
+async def test_get_file_relative_workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     ws = tmp_path / "w"
     ws.mkdir()
     (ws / "a.md").write_text("# x", encoding="utf-8")
+    monkeypatch.setattr("nanobot.web.routes.get_skills_root", lambda: ws / "skills")
     cfg = MagicMock()
     cfg.workspace_path = ws
     app = create_app(config=cfg)
@@ -81,12 +82,13 @@ async def test_get_file_relative_workspace(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_get_file_relative_workspace_prefix(tmp_path: Path) -> None:
+async def test_get_file_relative_workspace_prefix(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     ws = tmp_path / "w"
     ws.mkdir()
     target = ws / "skills" / "gongkan_skill" / "ProjectData" / "Input" / "BOQ.xlsx"
     target.parent.mkdir(parents=True)
     target.write_text("xlsx-bytes", encoding="utf-8")
+    monkeypatch.setattr("nanobot.web.routes.get_skills_root", lambda: ws / "skills")
     cfg = MagicMock()
     cfg.workspace_path = ws
     app = create_app(config=cfg)
@@ -97,9 +99,10 @@ async def test_get_file_relative_workspace_prefix(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_get_file_escape_returns_400(tmp_path: Path) -> None:
+async def test_get_file_escape_returns_400(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     ws = tmp_path / "w"
     ws.mkdir()
+    monkeypatch.setattr("nanobot.web.routes.get_skills_root", lambda: ws / "skills")
     cfg = MagicMock()
     cfg.workspace_path = ws
     app = create_app(config=cfg)
@@ -109,7 +112,8 @@ async def test_get_file_escape_returns_400(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_get_file_missing_returns_404(tmp_path: Path) -> None:
+async def test_get_file_missing_returns_404(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("nanobot.web.routes.get_skills_root", lambda: tmp_path / "skills")
     cfg = MagicMock()
     cfg.workspace_path = tmp_path
     app = create_app(config=cfg)

@@ -8,6 +8,7 @@ from typing import Any
 from nanobot.web.mission_control import MissionControlManager
 from nanobot.web.skill_ui_patch import build_skill_ui_data_patch_payload
 from nanobot.web.task_progress import normalize_task_progress_payload
+from nanobot.web.skills import get_skill_dir
 
 SUPPORTED_SKILL_RUNTIME_EVENTS = {
     "chat.guidance",
@@ -31,6 +32,57 @@ def _payload_from_envelope(envelope: dict[str, Any]) -> tuple[str, dict[str, Any
     if event not in SUPPORTED_SKILL_RUNTIME_EVENTS:
         raise ValueError(f"unsupported skill runtime event: {event}")
     return event, payload
+
+
+def _try_load_skill_dashboard_bootstrap(skill_name: str) -> dict[str, Any] | None:
+    """Best-effort build a SkillUiBootstrap payload for a local skill dashboard.
+
+    Some Skill-First modules start via ``skill_runtime_start`` without the user
+    manually mounting the dashboard first. In that case, emitting a bootstrap
+    ensures the right-side panel can open immediately and subsequent patches
+    have a mounted document to target.
+    """
+    name = str(skill_name or "").strip()
+    if not name:
+        return None
+    try:
+        skill_dir = get_skill_dir(name)
+    except Exception:
+        return None
+    if not skill_dir.is_dir():
+        return None
+
+    module_doc_id = ""
+    module_data_file = ""
+    module_file = skill_dir / "module.json"
+    if module_file.is_file():
+        try:
+            raw = json.loads(module_file.read_text(encoding="utf-8"))
+            if isinstance(raw, dict):
+                module_doc_id = str(raw.get("docId") or "").strip()
+                module_data_file = str(raw.get("dataFile") or "").strip()
+        except Exception:
+            module_doc_id = ""
+            module_data_file = ""
+
+    dashboard_path = skill_dir / "data" / "dashboard.json"
+    if not dashboard_path.is_file():
+        return None
+    try:
+        document = json.loads(dashboard_path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    if not isinstance(document, dict):
+        return None
+
+    data_file = module_data_file or f"skills/{name}/data/dashboard.json"
+    doc_id = (
+        module_doc_id
+        or str((document.get("meta") or {}).get("docId") or "").strip()
+        or "dashboard:runtime"
+    )
+    synthetic_path = f"skill-ui://SduiView?dataFile={data_file}"
+    return {"syntheticPath": synthetic_path, "docId": doc_id, "document": document}
 
 
 async def _emit_guidance(
@@ -63,6 +115,8 @@ async def _emit_file_request(
     pending_hitl_store: Any = None,
 ) -> dict[str, Any]:
     title = str(payload.get("title") or "").strip() or "请上传文件"
+    hitl_rid = str(payload.get("requestId") or "").strip() or None
+    final_skill_name = str(payload.get("skillName") or (envelope or {}).get("skillName") or "").strip() or None
     # Persist pending HITL (idempotent) when store is configured.
     if pending_hitl_store is not None and envelope is not None:
         await pending_hitl_store.create_pending_request(envelope)
@@ -73,10 +127,11 @@ async def _emit_file_request(
         multiple=bool(payload.get("multiple")),
         mode="replace" if str(payload.get("mode") or "").strip() == "replace" else "append",
         card_id=str(payload.get("cardId") or "").strip() or None,
+        hitl_request_id=hitl_rid,
         module_id=str(payload.get("moduleId") or "").strip() or None,
         next_action=str(payload.get("resumeAction") or "").strip() or None,
         save_relative_dir=str(payload.get("saveRelativeDir") or "").strip() or None,
-        skill_name=str(payload.get("skillName") or "").strip() or None,
+        skill_name=final_skill_name,
         state_namespace=str(payload.get("stateNamespace") or "").strip() or None,
         step_id=str(payload.get("stepId") or "").strip() or None,
     )
@@ -97,6 +152,8 @@ async def _emit_choice_request(
     pending_hitl_store: Any = None,
 ) -> dict[str, Any]:
     title = str(payload.get("title") or "").strip() or "请选择"
+    hitl_rid = str(payload.get("requestId") or "").strip() or None
+    final_skill_name = str(payload.get("skillName") or (envelope or {}).get("skillName") or "").strip() or None
     raw_options = payload.get("options")
     options = [dict(item) for item in raw_options if isinstance(item, dict)] if isinstance(raw_options, list) else []
     if pending_hitl_store is not None and envelope is not None:
@@ -105,9 +162,10 @@ async def _emit_choice_request(
         title,
         options,
         card_id=str(payload.get("cardId") or "").strip() or None,
+        hitl_request_id=hitl_rid,
         module_id=str(payload.get("moduleId") or "").strip() or None,
         next_action=str(payload.get("resumeAction") or "").strip() or None,
-        skill_name=str(payload.get("skillName") or "").strip() or None,
+        skill_name=final_skill_name,
         state_namespace=str(payload.get("stateNamespace") or "").strip() or None,
         step_id=str(payload.get("stepId") or "").strip() or None,
     )
@@ -130,6 +188,8 @@ async def _emit_confirm_request(
     title = str(payload.get("title") or "").strip() or "请确认"
     confirm_label = str(payload.get("confirmLabel") or "").strip() or "确认"
     cancel_label = str(payload.get("cancelLabel") or "").strip() or "取消"
+    hitl_rid = str(payload.get("requestId") or "").strip() or None
+    final_skill_name = str(payload.get("skillName") or (envelope or {}).get("skillName") or "").strip() or None
     if pending_hitl_store is not None and envelope is not None:
         await pending_hitl_store.create_pending_request(envelope)
     handle = await mc.emit_confirm(
@@ -137,9 +197,10 @@ async def _emit_confirm_request(
         confirm_label=confirm_label,
         cancel_label=cancel_label,
         card_id=str(payload.get("cardId") or "").strip() or None,
+        hitl_request_id=hitl_rid,
         module_id=str(payload.get("moduleId") or "").strip() or None,
         next_action=str(payload.get("resumeAction") or "").strip() or None,
-        skill_name=str(payload.get("skillName") or "").strip() or None,
+        skill_name=final_skill_name,
         state_namespace=str(payload.get("stateNamespace") or "").strip() or None,
         step_id=str(payload.get("stepId") or "").strip() or None,
     )
@@ -255,7 +316,10 @@ async def emit_skill_runtime_event(
     if event == "hitl.file_request":
         # Ensure envelope contains thread/skill/run identifiers for persistence.
         enriched = dict(envelope)
-        enriched.setdefault("threadId", thread_id)
+        # Always use the platform chat session id: driver stdout may carry
+        # ``thread-unknown`` or a stale value; setdefault would keep the wrong id and
+        # ``PendingHitlStore.consume_result`` would raise thread_id mismatch on upload.
+        enriched["threadId"] = thread_id
         return await _emit_file_request(
             mc=mc,
             payload=payload,
@@ -264,7 +328,7 @@ async def emit_skill_runtime_event(
         )
     if event == "hitl.choice_request":
         enriched = dict(envelope)
-        enriched.setdefault("threadId", thread_id)
+        enriched["threadId"] = thread_id
         return await _emit_choice_request(
             mc=mc,
             payload=payload,
@@ -273,7 +337,7 @@ async def emit_skill_runtime_event(
         )
     if event == "hitl.confirm_request":
         enriched = dict(envelope)
-        enriched.setdefault("threadId", thread_id)
+        enriched["threadId"] = thread_id
         return await _emit_confirm_request(
             mc=mc,
             payload=payload,
@@ -317,6 +381,17 @@ async def dispatch_skill_runtime_intent(
             return True, "skill_runtime_start threadId 不匹配"
         if resume_runner is None:
             return True, "skill_runtime_start：resume_runner 未配置"
+
+        bootstrap = _try_load_skill_dashboard_bootstrap(skill_name)
+        if bootstrap is not None:
+            try:
+                from nanobot.agent.loop import emit_skill_ui_bootstrap_event
+
+                await emit_skill_ui_bootstrap_event(bootstrap)
+            except Exception:
+                # Best-effort: do not block skill execution on UI bootstrap.
+                pass
+
         out = await resume_runner(
             thread_id=thread_id,
             skill_name=skill_name,

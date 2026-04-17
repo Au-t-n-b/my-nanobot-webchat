@@ -192,14 +192,24 @@ class PendingHitlStore:
                 raise ValueError("requestId not found")
 
             _rid, t_id, s_name, resume_action, on_cancel_action, status = row
-            if str(t_id) != thread_id:
-                await db.rollback()
-                raise ValueError("thread_id mismatch")
             if str(s_name) != skill_name:
                 await db.rollback()
                 raise ValueError("skill_name mismatch")
 
             terminal_status: TerminalStatus = str(status)
+            # Legacy rows may have a bogus thread_id (e.g. driver printed ``thread-unknown`` before
+            # the bridge forced the real chat thread). Heal only while still pending.
+            if str(t_id) != thread_id:
+                if terminal_status != "pending":
+                    await db.rollback()
+                    raise ValueError("thread_id mismatch")
+                upd = await db.execute(
+                    "UPDATE pending_hitl_requests SET thread_id=? WHERE request_id=? AND status='pending'",
+                    (thread_id, request_id),
+                )
+                if (upd.rowcount or 0) <= 0:
+                    await db.rollback()
+                    raise ValueError("thread_id mismatch")
             if terminal_status != "pending":
                 # Idempotent replay: do not resume twice.
                 await db.commit()

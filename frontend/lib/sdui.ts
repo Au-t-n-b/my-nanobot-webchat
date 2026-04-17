@@ -45,6 +45,7 @@ export type SduiNodeType =
   | "ArtifactGrid"
   | "GuidanceCard"
   | "ChoiceCard"
+  | "ConfirmCard"
   | "StatisticRow"
   | "GanttLane"
   | "GanttChart"
@@ -78,6 +79,7 @@ export const SDUI_NODE_TYPE_VALUES: readonly SduiNodeType[] = [
   "ArtifactGrid",
   "GuidanceCard",
   "ChoiceCard",
+  "ConfirmCard",
   "StatisticRow",
   "GanttLane",
   "GanttChart",
@@ -406,7 +408,13 @@ export type SduiGuidanceCardNode = {
   flex?: number;
 };
 
-export type SduiChoiceOption = { id: string; label: string; description?: string };
+/** 选项 id：优先 `id`；技能 HITL 常见仅提供 `value`（与 label 并存） */
+export type SduiChoiceOption = {
+  id?: string;
+  value?: string;
+  label: string;
+  description?: string;
+};
 
 export type SduiChoiceCardNode = {
   type: "ChoiceCard";
@@ -417,6 +425,23 @@ export type SduiChoiceCardNode = {
   moduleId?: string;
   nextAction?: string;
   skillName?: string;
+  /** 与 PendingHitlStore.request_id 一致（skill HITL envelope payload.requestId） */
+  hitlRequestId?: string;
+  stateNamespace?: string;
+  stepId?: string;
+  flex?: number;
+};
+
+export type SduiConfirmCardNode = {
+  type: "ConfirmCard";
+  id?: string;
+  title: string;
+  confirmLabel: string;
+  cancelLabel: string;
+  moduleId?: string;
+  nextAction?: string;
+  skillName?: string;
+  hitlRequestId?: string;
   stateNamespace?: string;
   stepId?: string;
   flex?: number;
@@ -449,6 +474,7 @@ export type SduiNode =
   | SduiArtifactGridNode
   | SduiGuidanceCardNode
   | SduiChoiceCardNode
+  | SduiConfirmCardNode
   | SduiStatisticRowNode
   | SduiGanttLaneNode
   | SduiGanttChartNode
@@ -574,6 +600,8 @@ export type SduiFilePickerNode = SduiOptionalId & {
   skillName?: string;
   stateNamespace?: string;
   stepId?: string;
+  /** 与 PendingHitlStore.request_id 一致（skill HITL envelope payload.requestId） */
+  hitlRequestId?: string;
   /** workspace 相对目录，上传文件落盘为 ``<saveRelativeDir>/<净化后的原文件名>`` */
   saveRelativeDir?: string;
 };

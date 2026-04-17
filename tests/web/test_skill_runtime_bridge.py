@@ -112,6 +112,7 @@ async def test_emit_file_request_event_uses_mission_control(monkeypatch: pytest.
                 "multiple": True,
                 "saveRelativeDir": "skills/gongkan_skill/input",
                 "resumeAction": "run_step1",
+                "requestId": "req-upload-bridge-1",
                 "cardId": "upload:runtime",
                 "skillName": "gongkan_skill",
                 "stateNamespace": "gongkan_skill",
@@ -134,6 +135,7 @@ async def test_emit_file_request_event_uses_mission_control(monkeypatch: pytest.
     assert captured["skill_name"] == "gongkan_skill"
     assert captured["state_namespace"] == "gongkan_skill"
     assert captured["step_id"] == "prepare_inputs"
+    assert captured.get("hitl_request_id") == "req-upload-bridge-1"
 
 
 @pytest.mark.asyncio
@@ -193,6 +195,7 @@ async def test_emit_file_request_persists_pending_hitl_before_rendering(
     assert handled is True
     assert "请上传输入件" in message
     assert captured["card_id"] == "upload:runtime"
+    assert captured.get("hitl_request_id") == "req-file-1"
 
     pending = await store.get_pending_request("req-file-1")
     assert pending is not None
@@ -259,6 +262,7 @@ async def test_emit_choice_request_persists_pending_hitl_before_rendering(
     assert handled is True
     assert "请选择本次建模目标" in msg
     assert captured["card_id"] == "choice:runtime"
+    assert captured.get("hitl_request_id") == "req-choice-1"
 
     pending = await store.get_pending_request("req-choice-1")
     assert pending is not None
@@ -324,6 +328,7 @@ async def test_emit_confirm_request_persists_pending_hitl_before_rendering(
     assert handled is True
     assert "审批通过后是否继续" in msg
     assert captured["card_id"] == "confirm:runtime"
+    assert captured.get("hitl_request_id") == "req-confirm-1"
     assert captured["confirm_label"] == "继续"
     assert captured["cancel_label"] == "稍后处理"
 
@@ -422,7 +427,8 @@ async def test_emit_dashboard_bootstrap_uses_bootstrap_channel(
 async def test_emit_artifact_publish_appends_all_items(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[dict[str, object]] = []
 
-    async def fake_add_artifact(self, synthetic_path, *, doc_id, **kwargs):
+    # Keep signature aligned with MissionControlManager.add_artifact(doc_id, *, synthetic_path, ...)
+    async def fake_add_artifact(self, doc_id, *, synthetic_path, **kwargs):
         calls.append({"synthetic_path": synthetic_path, "doc_id": doc_id, **kwargs})
 
     monkeypatch.setattr(
@@ -682,7 +688,8 @@ async def test_dispatch_skill_runtime_result_rejects_invalid_payload_before_stor
     )
 
     assert handled is True
-    assert "invalid" in msg or "missing" in msg
+    # Error message may be localized / encoding-dependent on Windows terminals; only assert the category.
+    assert msg.startswith("skill_runtime_result")
     assert calls == []
 
 

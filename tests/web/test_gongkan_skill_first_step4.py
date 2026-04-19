@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
 import sys
 from pathlib import Path
 
@@ -48,6 +50,13 @@ async def test_gongkan_skill_first_step4_sends_approval_then_choice_then_distrib
     out_dir = skill_dir / "ProjectData" / "Output"
     for name in ["工勘报告.docx", "全量勘测结果表.xlsx", "机房满足度评估表.xlsx", "风险识别结果表.xlsx"]:
         (out_dir / name).write_bytes(b"")
+    (out_dir / "skill_result.json").write_text(
+        json.dumps(
+            {"scene_filter": {"scenario": "集成测试场景"}, "remaining_issues": {"total": 1}, "artifacts": []},
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
 
     # Fake distribute scripts
     scripts_dir = skill_dir / "zhgk" / "report-distribute" / "scripts"
@@ -67,6 +76,7 @@ async def test_gongkan_skill_first_step4_sends_approval_then_choice_then_distrib
     )
     monkeypatch.setenv("NANOBOT_AGUI_SKILLS_ROOT", str(skills_root))
 
+    from nanobot.web.mission_control import ChatCardHandle
     from nanobot.web.pending_hitl_store import PendingHitlStore
     from nanobot.web.skill_resume_runner import make_skill_first_resume_runner
 
@@ -75,18 +85,33 @@ async def test_gongkan_skill_first_step4_sends_approval_then_choice_then_distrib
 
     asked_choice: list[dict] = []
     patches: list[dict] = []
+    envelopes: list[dict | None] = []
+    guidance_texts: list[str] = []
 
     async def fake_emit_patch(payload: dict):
         patches.append(payload)
 
     async def fake_emit_choices(self, title: str, options: list[dict], *, card_id: str | None = None, **kwargs):
         asked_choice.append({"card_id": card_id, "title": title, "options": options, **kwargs})
-        from nanobot.web.mission_control import ChatCardHandle
-
         return ChatCardHandle(card_id=str(card_id or "card"), doc_id="chat:t-1")
+
+    async def fake_emit_guidance(self, context: str, actions: list, **kwargs):
+        guidance_texts.append(str(context or ""))
+        return ChatCardHandle(card_id=str(kwargs.get("card_id") or "g"), doc_id="chat:t-1")
 
     monkeypatch.setattr("nanobot.agent.loop.emit_skill_ui_data_patch_event", fake_emit_patch)
     monkeypatch.setattr("nanobot.web.mission_control.MissionControlManager.emit_choices", fake_emit_choices)
+    monkeypatch.setattr("nanobot.web.mission_control.MissionControlManager.emit_guidance", fake_emit_guidance)
+
+    import nanobot.web.skill_resume_runner as resume_mod
+
+    _orig_emit = resume_mod.emit_skill_runtime_event
+
+    async def _trace_emit_skill_runtime_event(**kwargs):
+        envelopes.append(kwargs.get("envelope"))
+        return await _orig_emit(**kwargs)
+
+    monkeypatch.setattr(resume_mod, "emit_skill_runtime_event", _trace_emit_skill_runtime_event)
 
     runner = make_skill_first_resume_runner(pending_hitl_store=store, python_executable=sys.executable)
 
@@ -115,4 +140,9 @@ async def test_gongkan_skill_first_step4_sends_approval_then_choice_then_distrib
     )
     assert out2["ok"] is True
     assert patches
+    assert any(
+        isinstance(e, dict) and e.get("event") == "skill.epilogue" for e in envelopes if e is not None
+    ), "Step4-B 成功后应发出 skill.epilogue"
+    await asyncio.sleep(0.05)
+    assert guidance_texts, "结案陈词应经 emit_guidance 注入会话"
 

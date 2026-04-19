@@ -87,6 +87,11 @@ async def test_gongkan_skill_first_step3_runs_three_scripts_and_publishes_output
         encoding="utf-8",
     )
 
+    # Step3 成功后自动串联 Step4，需存在 distribute_report.py（与 Step4 单测一致的最小桩）
+    scripts_dir = skill_dir / "zhgk" / "report-distribute" / "scripts"
+    scripts_dir.mkdir(parents=True, exist_ok=True)
+    (scripts_dir / "distribute_report.py").write_text("print('ok')\n", encoding="utf-8")
+
     # Copy template driver/dashboard
     repo_root = Path(__file__).resolve().parents[2]
     (skill_dir / "runtime" / "driver.py").write_text(
@@ -107,15 +112,23 @@ async def test_gongkan_skill_first_step3_runs_three_scripts_and_publishes_output
 
     patches: list[dict] = []
     artifacts: list[dict] = []
+    asked_choice: list[dict] = []
 
     async def fake_emit_patch(payload: dict):
         patches.append(payload)
 
-    async def fake_add_artifact(self, synthetic_path, *, doc_id, **kwargs):
+    async def fake_add_artifact(self, doc_id, *, synthetic_path, **kwargs):
         artifacts.append({"synthetic_path": synthetic_path, "doc_id": doc_id, **kwargs})
+
+    async def fake_emit_choices(self, title: str, options: list[dict], *, card_id: str | None = None, **kwargs):
+        asked_choice.append({"card_id": card_id, "title": title, "options": options, **kwargs})
+        from nanobot.web.mission_control import ChatCardHandle
+
+        return ChatCardHandle(card_id=str(card_id or "card"), doc_id="chat:t-1")
 
     monkeypatch.setattr("nanobot.agent.loop.emit_skill_ui_data_patch_event", fake_emit_patch)
     monkeypatch.setattr("nanobot.web.mission_control.MissionControlManager.add_artifact", fake_add_artifact)
+    monkeypatch.setattr("nanobot.web.mission_control.MissionControlManager.emit_choices", fake_emit_choices)
 
     runner = make_skill_first_resume_runner(pending_hitl_store=store, python_executable=sys.executable)
     out = await runner(
@@ -129,4 +142,5 @@ async def test_gongkan_skill_first_step3_runs_three_scripts_and_publishes_output
     assert out["ok"] is True
     assert patches
     assert artifacts
+    assert asked_choice, "expected Step4 choice after auto-chaining from Step3"
 

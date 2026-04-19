@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+import re
 import shutil
 from pathlib import Path
+from typing import Any
 from uuid import uuid4
 
 import pytest
@@ -13,6 +16,7 @@ from aiohttp.test_utils import TestClient, TestServer
 from nanobot.config import loader as config_loader
 from nanobot.web.app import create_app
 from nanobot.web.mission_control import ChatCardHandle
+from nanobot.providers.base import LLMResponse
 
 
 def _set_nanobot_home(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
@@ -88,6 +92,110 @@ async def test_emit_guidance_event_uses_mission_control(monkeypatch: pytest.Monk
 
 
 @pytest.mark.asyncio
+async def test_skill_epilogue_returns_ok_immediately_and_worker_emits_guidance(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tasks: list[asyncio.Task[Any]] = []
+    orig_create_task = asyncio.create_task
+
+    def _capture_task(coro: Any, *args: Any, **kwargs: Any) -> asyncio.Task[Any]:
+        t = orig_create_task(coro, *args, **kwargs)
+        tasks.append(t)
+        return t
+
+    monkeypatch.setattr("nanobot.web.skill_runtime_bridge.asyncio.create_task", _capture_task)
+
+    chat_calls: list[dict[str, Any]] = []
+
+    class _FakeProvider:
+        async def chat_with_retry(self, **kwargs: Any) -> LLMResponse:
+            chat_calls.append(kwargs)
+            return LLMResponse(content="模拟结案：工勘已圆满收官。")
+
+    class _FakeAgentLoop:
+        provider = _FakeProvider()
+        model = "fake-model"
+
+    guidance_calls: list[dict[str, Any]] = []
+
+    async def fake_emit_guidance(self, context: str, actions: list, **kwargs: Any) -> ChatCardHandle:
+        guidance_calls.append({"context": context, "actions": actions, **kwargs})
+        return ChatCardHandle(card_id=str(kwargs.get("card_id") or "x"), doc_id="chat:t-epilogue")
+
+    monkeypatch.setattr(
+        "nanobot.web.mission_control.MissionControlManager.emit_guidance",
+        fake_emit_guidance,
+    )
+
+    from nanobot.web.skill_runtime_bridge import emit_skill_runtime_event
+
+    result = await emit_skill_runtime_event(
+        envelope={
+            "event": "skill.epilogue",
+            "payload": {
+                "cardId": "zhgk:epilogue:final",
+                "stats": {"scenario": "新址新建", "risk_rows": 2, "artifact_count": 1},
+            },
+        },
+        thread_id="t-epilogue",
+        docman=None,
+        agent_loop=_FakeAgentLoop(),
+    )
+
+    assert result["ok"] is True
+    assert result.get("event") == "skill.epilogue"
+    assert result.get("deferred") is True
+    assert tasks, "expected background epilogue task"
+
+    await tasks[0]
+    assert chat_calls, "expected provider.chat_with_retry"
+    assert guidance_calls and "模拟结案" in guidance_calls[0]["context"]
+    assert guidance_calls[0].get("card_id") == "zhgk:epilogue:final"
+
+
+@pytest.mark.asyncio
+async def test_skill_epilogue_without_agent_loop_uses_fallback_text(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tasks: list[asyncio.Task[Any]] = []
+    orig_create_task = asyncio.create_task
+
+    def _capture_task(coro: Any, *args: Any, **kwargs: Any) -> asyncio.Task[Any]:
+        t = orig_create_task(coro, *args, **kwargs)
+        tasks.append(t)
+        return t
+
+    monkeypatch.setattr("nanobot.web.skill_runtime_bridge.asyncio.create_task", _capture_task)
+
+    guidance_calls: list[dict[str, Any]] = []
+
+    async def fake_emit_guidance(self, context: str, actions: list, **kwargs: Any) -> ChatCardHandle:
+        guidance_calls.append({"context": context, **kwargs})
+        return ChatCardHandle(card_id="c", doc_id="chat:t-epilogue")
+
+    monkeypatch.setattr(
+        "nanobot.web.mission_control.MissionControlManager.emit_guidance",
+        fake_emit_guidance,
+    )
+
+    from nanobot.web.skill_runtime_bridge import emit_skill_runtime_event
+
+    result = await emit_skill_runtime_event(
+        envelope={
+            "event": "skill.epilogue",
+            "payload": {"stats": {"scenario": "机房改造", "risk_rows": 0}},
+        },
+        thread_id="t-epilogue-2",
+        docman=None,
+        agent_loop=None,
+    )
+    assert result["ok"] is True
+    await tasks[0]
+    assert guidance_calls
+    assert "机房改造" in guidance_calls[0]["context"]
+
+
+@pytest.mark.asyncio
 async def test_emit_file_request_event_uses_mission_control(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, object] = {}
 
@@ -117,6 +225,7 @@ async def test_emit_file_request_event_uses_mission_control(monkeypatch: pytest.
                 "skillName": "gongkan_skill",
                 "stateNamespace": "gongkan_skill",
                 "stepId": "prepare_inputs",
+                "description": "缺失：A\n缺失：B",
             },
         },
         thread_id="t-runtime",
@@ -136,6 +245,7 @@ async def test_emit_file_request_event_uses_mission_control(monkeypatch: pytest.
     assert captured["state_namespace"] == "gongkan_skill"
     assert captured["step_id"] == "prepare_inputs"
     assert captured.get("hitl_request_id") == "req-upload-bridge-1"
+    assert captured.get("help_text") == "缺失：A\n缺失：B"
 
 
 @pytest.mark.asyncio
@@ -193,7 +303,7 @@ async def test_emit_file_request_persists_pending_hitl_before_rendering(
         pending_hitl_store=store,
     )
     assert handled is True
-    assert "请上传输入件" in message
+    assert message == ""
     assert captured["card_id"] == "upload:runtime"
     assert captured.get("hitl_request_id") == "req-file-1"
 
@@ -260,7 +370,7 @@ async def test_emit_choice_request_persists_pending_hitl_before_rendering(
         pending_hitl_store=store,
     )
     assert handled is True
-    assert "请选择本次建模目标" in msg
+    assert msg == ""
     assert captured["card_id"] == "choice:runtime"
     assert captured.get("hitl_request_id") == "req-choice-1"
 
@@ -326,7 +436,7 @@ async def test_emit_confirm_request_persists_pending_hitl_before_rendering(
         pending_hitl_store=store,
     )
     assert handled is True
-    assert "审批通过后是否继续" in msg
+    assert msg == ""
     assert captured["card_id"] == "confirm:runtime"
     assert captured.get("hitl_request_id") == "req-confirm-1"
     assert captured["confirm_label"] == "继续"
@@ -560,7 +670,7 @@ async def test_dispatch_skill_runtime_intent_executes_bridge(monkeypatch: pytest
     )
 
     assert handled is True
-    assert message == "runtime bridge ok"
+    assert message == ""
     assert len(captured) == 1
     assert captured[0]["thread_id"] == "t-runtime"
     assert captured[0]["envelope"]["event"] == "chat.guidance"
@@ -571,37 +681,51 @@ async def test_dispatch_skill_runtime_start_invokes_resume_runner_once() -> None
     from nanobot.web.skill_runtime_bridge import dispatch_skill_runtime_intent
 
     resumed: list[dict] = []
+    focused: list[dict] = []
 
     async def fake_resume(**kwargs):
         resumed.append(kwargs)
         return {"ok": True}
 
-    intent = {
-        "type": "chat_card_intent",
-        "verb": "skill_runtime_start",
-        "payload": {
-            "type": "skill_runtime_start",
-            "threadId": "t-runtime",
-            "skillName": "gongkan_skill",
-            "requestId": "req-start-1",
-            "action": "zhgk_step1_scene_filter",
-        },
-    }
+    async def fake_focus(payload: dict) -> None:
+        focused.append(dict(payload))
 
-    handled, msg = await dispatch_skill_runtime_intent(
-        intent,
-        thread_id="t-runtime",
-        docman=None,
-        pending_hitl_store=None,
-        resume_runner=fake_resume,
-    )
+    import nanobot.agent.loop as agent_loop
+
+    token = agent_loop._MODULE_SESSION_FOCUS_EMITTER.set(fake_focus)  # type: ignore[attr-defined]
+    try:
+        intent = {
+            "type": "chat_card_intent",
+            "verb": "skill_runtime_start",
+            "payload": {
+                "type": "skill_runtime_start",
+                "threadId": "t-runtime",
+                "skillName": "gongkan_skill",
+                "requestId": "req-start-1",
+                "action": "zhgk_step1_scene_filter",
+            },
+        }
+
+        handled, msg = await dispatch_skill_runtime_intent(
+            intent,
+            thread_id="t-runtime",
+            docman=None,
+            pending_hitl_store=None,
+            resume_runner=fake_resume,
+        )
+    finally:
+        agent_loop._MODULE_SESSION_FOCUS_EMITTER.reset(token)  # type: ignore[attr-defined]
 
     assert handled is True
-    assert "resumed" in msg
+    assert msg == ""
+    assert focused and focused[-1]["threadId"] == "t-runtime"
+    assert focused[-1]["moduleId"] == "gongkan_skill"
+    assert focused[-1]["status"] == "running"
     assert len(resumed) == 1
     assert resumed[0]["thread_id"] == "t-runtime"
     assert resumed[0]["skill_name"] == "gongkan_skill"
-    assert resumed[0]["request_id"] == "req-start-1"
+    assert resumed[0]["request_id"].startswith("req-start-1:")
+    assert re.search(r":[0-9a-f]{12}$", resumed[0]["request_id"], re.IGNORECASE)
     assert resumed[0]["action"] == "zhgk_step1_scene_filter"
     assert resumed[0]["status"] == "ok"
 
@@ -654,9 +778,9 @@ async def test_dispatch_skill_runtime_result_intent_consumes_pending_hitl_idempo
     )
 
     assert handled_1 is True
-    assert "consumed" in msg_1
+    assert "resume_runner" in msg_1 and "未配置" in msg_1
     assert handled_2 is True
-    assert "duplicate" in msg_2
+    assert msg_2 == ""
 
 
 @pytest.mark.asyncio
@@ -691,6 +815,40 @@ async def test_dispatch_skill_runtime_result_rejects_invalid_payload_before_stor
     # Error message may be localized / encoding-dependent on Windows terminals; only assert the category.
     assert msg.startswith("skill_runtime_result")
     assert calls == []
+
+
+@pytest.mark.asyncio
+async def test_dispatch_skill_runtime_result_maps_store_value_error_to_message() -> None:
+    class _RaisingStore:
+        async def timeout_expired_requests(self, *args, **kwargs):
+            return {"timed_out_request_ids": []}
+
+        async def consume_result(self, payload):
+            raise ValueError("thread_id mismatch")
+
+    from nanobot.web.skill_runtime_bridge import dispatch_skill_runtime_intent
+
+    handled, msg = await dispatch_skill_runtime_intent(
+        {
+            "type": "chat_card_intent",
+            "verb": "skill_runtime_result",
+            "payload": {
+                "type": "skill_runtime_result",
+                "threadId": "t-runtime",
+                "skillName": "s1",
+                "skillRunId": "run-2",
+                "requestId": "req-1",
+                "action": "a",
+                "status": "ok",
+                "result": {},
+            },
+        },
+        thread_id="t-runtime",
+        docman=None,
+        pending_hitl_store=_RaisingStore(),
+    )
+    assert handled is True
+    assert msg == "skill_runtime_result: thread_id mismatch"
 
 
 @pytest.mark.asyncio
@@ -756,9 +914,9 @@ async def test_dispatch_skill_runtime_result_calls_resume_runner_once_on_consume
     )
 
     assert handled_1 is True
-    assert "resumed" in msg_1
+    assert msg_1 == ""
     assert handled_2 is True
-    assert "duplicate" in msg_2
+    assert msg_2 == ""
     assert len(resumed) == 1
     assert resumed[0]["thread_id"] == "t-runtime"
     assert resumed[0]["skill_name"] == "s1"
@@ -821,7 +979,7 @@ async def test_dispatch_skill_runtime_result_passes_resolved_action_for_cancel(
         resume_runner=fake_resume,
     )
     assert handled is True
-    assert "resumed" in msg
+    assert msg == ""
     assert len(resumed) == 1
     assert resumed[0]["action"] == "approval_defer"
 class _FakeAgent:
@@ -887,8 +1045,11 @@ async def test_handle_chat_skill_runtime_event_returns_run_finished(
         docman=None,
         pending_hitl_store=None,
         resume_runner=None,
+        session_manager=None,
+        session_key=None,
+        **kwargs,
     ):
-        return True, "runtime bridge ok"
+        return True, ""
 
     monkeypatch.setattr(
         "nanobot.web.skill_runtime_bridge.dispatch_skill_runtime_intent",
@@ -920,7 +1081,66 @@ async def test_handle_chat_skill_runtime_event_returns_run_finished(
 
     finished = _first_sse_data(body, "RunFinished")
     assert finished is not None
-    assert finished["message"] == "runtime bridge ok"
+    assert finished["message"] == ""
+
+
+@pytest.mark.asyncio
+async def test_handle_chat_nl_skill_runtime_start_fastlane_dispatches_intent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """NL「开启 <skill>」应走 skill UI fastlane 并调用 dispatch_skill_runtime_intent，不经 RunRegistry LLM。"""
+    captured: list[dict[str, Any]] = []
+
+    async def fake_dispatch(
+        intent,
+        *,
+        thread_id,
+        docman=None,
+        pending_hitl_store=None,
+        resume_runner=None,
+        session_manager=None,
+        session_key=None,
+        **kwargs,
+    ):
+        captured.append(
+            {
+                "intent": intent,
+                "thread_id": thread_id,
+                "pending": pending_hitl_store,
+                "resume_runner": resume_runner,
+            }
+        )
+        return True, "已启动技能"
+
+    monkeypatch.setattr(
+        "nanobot.web.skill_runtime_bridge.dispatch_skill_runtime_intent",
+        fake_dispatch,
+    )
+
+    app = create_app(config=None, agent_loop=_FakeAgent())
+
+    async with TestClient(TestServer(app)) as client:
+        response = await client.post(
+            "/api/chat",
+            json={
+                "threadId": f"thread-{uuid4().hex}",
+                "runId": f"run-{uuid4().hex}",
+                "messages": [{"role": "user", "content": "开启 gongkan_skill"}],
+            },
+        )
+        assert response.status == 200
+        body = await response.text()
+
+    assert len(captured) == 1
+    intent = captured[0]["intent"]
+    assert intent["verb"] == "skill_runtime_start"
+    assert intent["payload"]["skillName"] == "gongkan_skill"
+
+    started = _first_sse_data(body, "RunStarted")
+    assert started is not None
+    finished = _first_sse_data(body, "RunFinished")
+    assert finished is not None
+    assert finished["message"] == "已启动技能"
 
 
 @pytest.mark.asyncio
@@ -995,11 +1215,11 @@ async def test_handle_chat_skill_runtime_result_intent_consumes_pending_hitl(
 
     fin1 = _first_sse_data(body1, "RunFinished")
     assert fin1 is not None
-    assert "consumed" in fin1["message"]
+    assert "resume_runner" in fin1["message"] and "未配置" in fin1["message"]
 
     fin2 = _first_sse_data(body2, "RunFinished")
     assert fin2 is not None
-    assert "duplicate" in fin2["message"]
+    assert fin2["message"] == ""
 
 
 @pytest.mark.asyncio
@@ -1081,10 +1301,10 @@ async def test_handle_chat_skill_runtime_result_intent_triggers_resume_runner_on
 
     fin1 = _first_sse_data(body1, "RunFinished")
     assert fin1 is not None
-    assert "resumed" in fin1["message"]
+    assert fin1["message"] == ""
     fin2 = _first_sse_data(body2, "RunFinished")
     assert fin2 is not None
-    assert "duplicate" in fin2["message"]
+    assert fin2["message"] == ""
     assert len(resumed) == 1
 
 
@@ -1121,7 +1341,9 @@ async def test_create_app_defaults_enable_skill_first_resume_runner(
     async def fake_run_skill_runtime_driver(*, skill_name, request, python_executable=None):
         return [{"event": "chat.guidance", "payload": {"context": "resumed", "actions": []}}]
 
-    async def fake_emit_skill_runtime_event(*, envelope, thread_id, docman=None, pending_hitl_store=None):
+    async def fake_emit_skill_runtime_event(
+        *, envelope, thread_id, docman=None, pending_hitl_store=None, agent_loop=None
+    ):
         emitted.append({"envelope": envelope, "thread_id": thread_id})
         return {"ok": True, "event": envelope.get("event"), "summary": "ok"}
 
@@ -1166,6 +1388,105 @@ async def test_create_app_defaults_enable_skill_first_resume_runner(
 
     fin = _first_sse_data(body, "RunFinished")
     assert fin is not None
-    assert "resumed" in fin["message"]
+    assert fin["message"] == ""
     assert len(emitted) == 1
     assert emitted[0]["envelope"]["event"] == "chat.guidance"
+
+
+@pytest.mark.asyncio
+async def test_dispatch_skill_runtime_result_agent_upload_skips_resume_runner_and_updates_session(
+    tmp_path: Path,
+) -> None:
+    from nanobot.session.manager import SessionManager
+    from nanobot.web.pending_hitl_store import PendingHitlStore
+    from nanobot.web.skill_runtime_bridge import AGENT_UPLOAD_RESUME_ACTION, dispatch_skill_runtime_intent
+
+    store = PendingHitlStore(tmp_path / "hitl.db")
+    await store.init()
+
+    thread_id = "t-agent-upload"
+    tc_id = "call-tool-up-1"
+    req_id = "req-agent-upload-1"
+
+    await store.create_pending_request(
+        {
+            "event": "hitl.file_request",
+            "threadId": thread_id,
+            "skillName": "nanobot_agent",
+            "skillRunId": f"agent:{thread_id}",
+            "payload": {
+                "requestId": req_id,
+                "resumeAction": AGENT_UPLOAD_RESUME_ACTION,
+                "title": "请上传",
+                "purpose": "file",
+                "skillName": "nanobot_agent",
+                "toolCallId": tc_id,
+                "saveRelativeDir": "skills/zhgk/ProjectData/Input",
+            },
+        }
+    )
+
+    sm = SessionManager(tmp_path)
+    session = sm.get_or_create(thread_id)
+    session.messages.append(
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {
+                    "id": tc_id,
+                    "type": "function",
+                    "function": {"name": "request_user_upload", "arguments": "{}"},
+                }
+            ],
+        }
+    )
+    session.messages.append(
+        {
+            "role": "tool",
+            "tool_call_id": tc_id,
+            "name": "request_user_upload",
+            "content": '{"status":"pending_user_upload"}',
+        }
+    )
+    sm.save(session)
+
+    resumed: list[dict] = []
+
+    async def fake_resume(**kwargs):
+        resumed.append(kwargs)
+        return {"ok": True}
+
+    intent = {
+        "type": "chat_card_intent",
+        "verb": "skill_runtime_result",
+        "payload": {
+            "type": "skill_runtime_result",
+            "threadId": thread_id,
+            "skillName": "nanobot_agent",
+            "requestId": req_id,
+            "status": "ok",
+            "result": {"upload": {"fileId": "f1", "name": "a.txt"}, "uploads": []},
+        },
+    }
+
+    handled, msg = await dispatch_skill_runtime_intent(
+        intent,
+        thread_id=thread_id,
+        docman=None,
+        pending_hitl_store=store,
+        resume_runner=fake_resume,
+        session_manager=sm,
+        session_key=thread_id,
+    )
+    assert handled is True
+    assert msg == ""
+    assert resumed == []
+
+    session2 = sm.get_or_create(thread_id)
+    tool_msgs = [m for m in session2.messages if m.get("role") == "tool" and m.get("tool_call_id") == tc_id]
+    assert len(tool_msgs) == 1
+    stored = json.loads(tool_msgs[0]["content"])
+    assert stored["status"] == "ok"
+    assert stored["requestId"] == req_id
+    assert stored["result"]["upload"]["fileId"] == "f1"

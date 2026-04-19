@@ -9,6 +9,7 @@ import json
 import mimetypes
 import os
 import re
+import threading
 import traceback
 import uuid
 import zipfile
@@ -653,7 +654,13 @@ def _try_parse_chat_card_intent(text: str) -> dict[str, Any] | None:
 
     # Fallback fast-path: allow natural language "开启/打开/启动 <moduleId>" to start a module skill.
     # This avoids relying on the LLM to emit the JSON envelope.
-    m = re.match(r"^(?:开启|打开|启动)\s*([A-Za-z0-9_-]+)\s*$", t)
+    #
+    # Accept common variants like:
+    # - "启动 dashboard_only"
+    # - "启动 dashboard_only 模块"
+    # - "好的，启动 dashboard_only 模块"
+    # - "打开 dashboard_only 大盘"
+    m = re.search(r"(?:开启|打开|启动)\s*[`'\"]?([A-Za-z0-9_-]+)[`'\"]?(?:\s*(?:模块|大盘|skill))?\s*$", t)
     if m:
         module_id = m.group(1).strip()
         # platform_capability_lab expects action=pcs_start (see its dashboard button).
@@ -670,6 +677,194 @@ def _try_parse_chat_card_intent(text: str) -> dict[str, Any] | None:
         }
 
     return None
+
+
+_SKILL_HITL_FASTLANE_VERBS = frozenset({"skill_runtime_result", "skill_runtime_resume"})
+
+
+def _is_skill_hitl_fastlane_intent(intent: dict[str, Any] | None) -> bool:
+    if not isinstance(intent, dict):
+        return False
+    if intent.get("type") != "chat_card_intent":
+        return False
+    return str(intent.get("verb") or "").strip() in _SKILL_HITL_FASTLANE_VERBS
+
+
+def _is_skill_ui_fastlane_intent(intent: dict[str, Any] | None) -> bool:
+    """True for HITL resume intents or direct ``skill_runtime_start`` (NL / SDUI button)."""
+    if not isinstance(intent, dict) or intent.get("type") != "chat_card_intent":
+        return False
+    verb = str(intent.get("verb") or "").strip()
+    if verb == "skill_runtime_start":
+        return True
+    return verb in _SKILL_HITL_FASTLANE_VERBS
+
+
+async def _handle_chat_skill_ui_fastlane(
+    *,
+    request: web.Request,
+    thread_id: str,
+    run_id: str,
+    intent: dict[str, Any],
+    model_name_override: str | None,
+) -> web.StreamResponse:
+    """Process skill-first intents without ``RunRegistry.try_begin`` (no LLM slot).
+
+    Covers ``skill_runtime_result`` / ``skill_runtime_resume`` (HITL) and
+    ``skill_runtime_start`` (e.g. natural-language 开启 zhgk or SDUI start button) so
+    ``dispatch_skill_runtime_intent`` runs with Skill UI emitters bound.
+
+    A long-lived LLM ``/api/chat`` stream holds the registry slot; without this lane,
+    ``skill_runtime_result`` would get HTTP 409 and the skill would never resume.
+    """
+    from nanobot.agent.loop import AgentLoop
+    from nanobot.web.module_skill_runtime import dispatch_chat_card_intent
+    from nanobot.web.skill_manifest_bridge import dispatch_skill_manifest_intent
+    from nanobot.web.skill_runtime_bridge import dispatch_skill_runtime_intent
+
+    agent: AgentLoop | None = request.app[AGENT_LOOP_KEY]
+    model_name = model_name_override or (agent.model if agent else None) or "unknown"
+
+    stream_headers = {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+        "X-Accel-Buffering": "no",
+    }
+    stream_headers.update(_cors_headers(request))
+    response = web.StreamResponse(status=200, headers=stream_headers)
+    await response.prepare(request)
+
+    async def _write(event: str, payload: dict[str, Any]) -> None:
+        await response.write(format_sse(event, payload))
+
+    # ``skill_runtime_result`` / ``skill_runtime_resume`` run ``resume_runner`` which calls
+    # ``emit_skill_runtime_event`` → ``emit_skill_ui_*_event`` ContextVars. The fastlane
+    # handler does not go through ``handle_chat``'s per-request emitter setup, so without
+    # rebinding here all dashboard.patch / chat cards / artifacts from the driver are no-ops
+    # and the UI appears "stuck" until the user clicks Start again.
+    emitter_stack: list[tuple[str, Any]] = []
+
+    def _release_fastlane_skill_ui_emitters() -> None:
+        if agent is None:
+            emitter_stack.clear()
+            return
+        while emitter_stack:
+            kind, tok = emitter_stack.pop()
+            if kind == "thread":
+                agent.reset_current_thread_id(tok)
+            elif kind == "patch":
+                agent.reset_skill_ui_patch_emitter(tok)
+            elif kind == "chat":
+                agent.reset_skill_ui_chat_card_emitter(tok)
+            elif kind == "boot" and hasattr(agent, "reset_skill_ui_bootstrap_emitter"):
+                agent.reset_skill_ui_bootstrap_emitter(tok)
+            elif kind == "focus":
+                agent.reset_module_session_focus_emitter(tok)
+            elif kind == "task" and hasattr(agent, "reset_task_status_emitter"):
+                agent.reset_task_status_emitter(tok)
+
+    try:
+        await _write("RunStarted", {"threadId": thread_id, "runId": run_id, "model": model_name})
+
+        if agent is not None:
+            async def emit_skill_ui_patch(payload: dict[str, Any]) -> None:
+                await _write("SkillUiDataPatch", payload)
+
+            async def emit_skill_ui_chat_card(payload: dict[str, Any]) -> None:
+                await _write("SkillUiChatCard", payload)
+
+            async def emit_skill_ui_bootstrap(payload: dict[str, Any]) -> None:
+                await _write("SkillUiBootstrap", payload)
+
+            async def emit_module_session_focus(payload: dict[str, Any]) -> None:
+                await _write("ModuleSessionFocus", payload)
+
+            async def emit_task_status(payload: dict[str, Any]) -> None:
+                await _write("TaskStatusUpdate", payload)
+
+            emitter_stack.append(("thread", agent.set_current_thread_id(thread_id)))
+            emitter_stack.append(("patch", agent.set_skill_ui_patch_emitter(emit_skill_ui_patch)))
+            emitter_stack.append(("chat", agent.set_skill_ui_chat_card_emitter(emit_skill_ui_chat_card)))
+            if hasattr(agent, "set_skill_ui_bootstrap_emitter"):
+                emitter_stack.append(("boot", agent.set_skill_ui_bootstrap_emitter(emit_skill_ui_bootstrap)))
+            emitter_stack.append(("focus", agent.set_module_session_focus_emitter(emit_module_session_focus)))
+            if hasattr(agent, "set_task_status_emitter"):
+                emitter_stack.append(("task", agent.set_task_status_emitter(emit_task_status)))
+
+        pending_store = request.app.get(PENDING_HITL_STORE_KEY)
+        resume_runner = request.app.get(SKILL_RESUME_RUNNER_KEY)
+        if pending_store is not None:
+            try:
+                await pending_store.init()
+            except Exception:
+                pass
+
+        handled, hitl_message = await dispatch_chat_card_intent(
+            intent,
+            thread_id=thread_id,
+            docman=None,
+        )
+        if not handled:
+            sessions = getattr(agent, "sessions", None) if agent is not None else None
+            handled, hitl_message = await dispatch_skill_runtime_intent(
+                intent,
+                thread_id=thread_id,
+                docman=None,
+                pending_hitl_store=pending_store,
+                resume_runner=resume_runner,
+                session_manager=sessions,
+                session_key=thread_id,
+                agent_loop=agent,
+            )
+        if not handled:
+            handled, hitl_message = await dispatch_skill_manifest_intent(
+                intent,
+                thread_id=thread_id,
+                docman=None,
+            )
+
+        msg = str(hitl_message or "").strip()
+        if not handled and not msg:
+            msg = "intent not handled"
+        await _write(
+            "RunFinished",
+            {
+                "threadId": thread_id,
+                "runId": run_id,
+                "message": msg,
+                "choices": [],
+            },
+        )
+    except Exception as e:
+        code = type(e).__name__
+        msg = str(e) or code
+        logger.exception("AGUI skill HITL fastlane failed: {}", msg)
+        await _write(
+            "Error",
+            {
+                "threadId": thread_id,
+                "runId": run_id,
+                "code": code,
+                "message": msg,
+            },
+        )
+        await _write(
+            "RunFinished",
+            {
+                "threadId": thread_id,
+                "runId": run_id,
+                "error": {"code": code, "message": msg},
+                "choices": [],
+            },
+        )
+    finally:
+        _release_fastlane_skill_ui_emitters()
+    try:
+        await response.write_eof()
+    except (ClientConnectionResetError, ConnectionResetError, RuntimeError):
+        pass
+    return response
 
 
 async def handle_chat(request: web.Request) -> web.StreamResponse | web.Response:
@@ -707,6 +902,19 @@ async def handle_chat(request: web.Request) -> web.StreamResponse | web.Response
             return web.json_response(
                 {"detail": "messages must include a non-empty user role string"},
                 status=400,
+            )
+
+    intent_preview: dict[str, Any] | None = None
+    if agent is not None and user_text:
+        intent_preview = _try_parse_chat_card_intent(user_text)
+        if _is_skill_ui_fastlane_intent(intent_preview):
+            assert intent_preview is not None
+            return await _handle_chat_skill_ui_fastlane(
+                request=request,
+                thread_id=thread_id,
+                run_id=run_id,
+                intent=intent_preview,
+                model_name_override=model_name_override,
             )
 
     if not await registry.try_begin(thread_id, run_id):
@@ -871,6 +1079,8 @@ async def handle_chat(request: web.Request) -> web.StreamResponse | web.Response
                             run_choices.clear()
                             run_choices.extend(normalized)
                     return True
+                if tool_name == "request_user_upload":
+                    return True
                 if not human_in_the_loop:
                     return True
                 fut = await approvals.create(thread_id, run_id, tool_call_id)
@@ -891,6 +1101,15 @@ async def handle_chat(request: web.Request) -> web.StreamResponse | web.Response
             token_skill_ui_chat = agent.set_skill_ui_chat_card_emitter(emit_skill_ui_chat_card)
             token_module_focus = agent.set_module_session_focus_emitter(emit_module_session_focus)
             token_thread_id = agent.set_current_thread_id(thread_id)
+            pending_store = request.app.get(PENDING_HITL_STORE_KEY)
+            token_pending_hitl = (
+                agent.set_pending_hitl_store(pending_store)
+                if pending_store is not None and hasattr(agent, "set_pending_hitl_store")
+                else None
+            )
+            token_chat_docman = (
+                agent.set_chat_docman(None) if hasattr(agent, "set_chat_docman") else None
+            )
             token_skill_ui_bootstrap = (
                 agent.set_skill_ui_bootstrap_emitter(emit_skill_ui_bootstrap)
                 if hasattr(agent, "set_skill_ui_bootstrap_emitter")
@@ -943,6 +1162,9 @@ async def handle_chat(request: web.Request) -> web.StreamResponse | web.Response
                         docman=None,
                         pending_hitl_store=pending_store,
                         resume_runner=resume_runner,
+                        session_manager=getattr(agent, "sessions", None),
+                        session_key=thread_id,
+                        agent_loop=agent,
                     )
                 if not handled:
                     handled, hitl_message = await dispatch_skill_manifest_intent(
@@ -1048,6 +1270,10 @@ async def handle_chat(request: web.Request) -> web.StreamResponse | web.Response
                 agent.reset_skill_ui_chat_card_emitter(token_skill_ui_chat)
                 agent.reset_module_session_focus_emitter(token_module_focus)
                 agent.reset_current_thread_id(token_thread_id)
+                if token_pending_hitl is not None and hasattr(agent, "reset_pending_hitl_store"):
+                    agent.reset_pending_hitl_store(token_pending_hitl)
+                if token_chat_docman is not None and hasattr(agent, "reset_chat_docman"):
+                    agent.reset_chat_docman(token_chat_docman)
                 if token_skill_ui_bootstrap is not None and hasattr(agent, "reset_skill_ui_bootstrap_emitter"):
                     agent.reset_skill_ui_bootstrap_emitter(token_skill_ui_bootstrap)
                 if token_task_status is not None and hasattr(agent, "reset_task_status_emitter"):
@@ -1233,6 +1459,34 @@ async def handle_workspace_upload(request: web.Request) -> web.Response:
     file_id = f"ws:{logical}"
     logical_path = f"workspace/{logical}"
     return web.json_response({"fileId": file_id, "logicalPath": logical_path})
+
+
+_skill_ui_state_lock = threading.Lock()
+_skill_ui_state_revision = 0
+
+
+async def handle_skill_state_sync(request: web.Request) -> web.Response:
+    """POST /api/skill/state/sync — SDUI upload / local widget state sync.
+
+    ``SkillUiRuntimeProvider`` calls this after FilePicker uploads with ``behavior: immediate``.
+    A full persisted store is not required for skill-first resume (files are on disk); this
+    endpoint exists so the client gets HTTP 200 and an optional monotonic ``revision`` for acks.
+    """
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({"ok": False, "detail": "Invalid JSON body"}, status=400)
+
+    doc_id = str(data.get("docId") or "").strip()
+    key = str(data.get("key") or "").strip()
+    if not doc_id or not key:
+        return web.json_response({"ok": False, "detail": "docId and key are required"}, status=400)
+
+    global _skill_ui_state_revision
+    with _skill_ui_state_lock:
+        _skill_ui_state_revision += 1
+        rev = _skill_ui_state_revision
+    return web.json_response({"ok": True, "revision": rev})
 
 
 async def handle_file(request: web.Request) -> web.Response:
@@ -1968,6 +2222,7 @@ async def handle_browser(request: web.Request) -> web.WebSocketResponse:
 def setup_routes(app: web.Application) -> None:
     app.router.add_post("/api/chat", handle_chat)
     app.router.add_post("/api/upload", handle_workspace_upload)
+    app.router.add_post("/api/skill/state/sync", handle_skill_state_sync)
     app.router.add_post("/api/approve-tool", handle_approve)
     app.router.add_get("/api/task-status", handle_task_status)
     app.router.add_get("/api/file", handle_file)
@@ -1993,6 +2248,7 @@ def setup_routes(app: web.Application) -> None:
     app.router.add_get("/api/browser", handle_browser)
     app.router.add_options("/api/chat", handle_options)
     app.router.add_options("/api/upload", handle_options)
+    app.router.add_options("/api/skill/state/sync", handle_options)
     app.router.add_options("/api/approve-tool", handle_options)
     app.router.add_options("/api/task-status", handle_options)
     app.router.add_options("/api/file", handle_options)

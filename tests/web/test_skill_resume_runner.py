@@ -9,7 +9,9 @@ import pytest
 async def test_skill_first_resume_runner_runs_driver_and_emits_events(monkeypatch: pytest.MonkeyPatch) -> None:
     emitted: list[dict] = []
 
-    async def fake_emit_skill_runtime_event(*, envelope, thread_id, docman=None, pending_hitl_store=None):
+    async def fake_emit_skill_runtime_event(
+        *, envelope, thread_id, docman=None, pending_hitl_store=None, agent_loop=None
+    ):
         emitted.append({"envelope": envelope, "thread_id": thread_id})
         return {"ok": True, "event": envelope.get("event"), "summary": "ok"}
 

@@ -102,6 +102,8 @@ async def test_gongkan_skill_first_step1_requests_upload_then_patches_dashboard(
     asked: list[dict] = []
     patches: list[dict] = []
     artifacts: list[dict] = []
+    bootstraps: list[dict] = []
+    envelopes: list[dict | None] = []
 
     async def fake_ask_for_file(self, **kwargs):
         asked.append(kwargs)
@@ -113,12 +115,26 @@ async def test_gongkan_skill_first_step1_requests_upload_then_patches_dashboard(
     async def fake_emit_patch(payload: dict):
         patches.append(payload)
 
-    async def fake_add_artifact(self, synthetic_path, *, doc_id, **kwargs):
+    async def fake_emit_bootstrap(payload: dict):
+        bootstraps.append(payload)
+
+    async def fake_add_artifact(self, doc_id, *, synthetic_path, **kwargs):
         artifacts.append({"synthetic_path": synthetic_path, "doc_id": doc_id, **kwargs})
 
     monkeypatch.setattr("nanobot.web.mission_control.MissionControlManager.ask_for_file", fake_ask_for_file)
     monkeypatch.setattr("nanobot.agent.loop.emit_skill_ui_data_patch_event", fake_emit_patch)
+    monkeypatch.setattr("nanobot.agent.loop.emit_skill_ui_bootstrap_event", fake_emit_bootstrap)
     monkeypatch.setattr("nanobot.web.mission_control.MissionControlManager.add_artifact", fake_add_artifact)
+
+    import nanobot.web.skill_resume_runner as resume_mod
+
+    _orig_emit = resume_mod.emit_skill_runtime_event
+
+    async def _trace_emit_skill_runtime_event(**kwargs):
+        envelopes.append(kwargs.get("envelope"))
+        return await _orig_emit(**kwargs)
+
+    monkeypatch.setattr(resume_mod, "emit_skill_runtime_event", _trace_emit_skill_runtime_event)
 
     runner = make_skill_first_resume_runner(pending_hitl_store=store, python_executable=sys.executable)
 
@@ -133,6 +149,8 @@ async def test_gongkan_skill_first_step1_requests_upload_then_patches_dashboard(
     )
     assert out1["ok"] is True
     assert asked, "expected hitl.file_request to render FilePicker"
+    assert bootstraps, "expected dashboard.bootstrap -> emit_skill_ui_bootstrap_event"
+    assert any("golden-metrics" in json.dumps(b, ensure_ascii=False) for b in bootstraps)
 
     # pending requestId is req-0:step1_upload_inputs per template driver
     pending = await store.get_pending_request("req-0:step1_upload_inputs")
@@ -155,4 +173,23 @@ async def test_gongkan_skill_first_step1_requests_upload_then_patches_dashboard(
     assert out2["ok"] is True
     assert patches, "expected dashboard.patch emission"
     assert artifacts, "expected artifact.publish -> add_artifact calls"
+
+    assert any(
+        isinstance(e, dict) and e.get("event") == "dashboard.bootstrap" for e in envelopes if e is not None
+    )
+    assert any(
+        isinstance(e, dict)
+        and e.get("event") == "dashboard.patch"
+        and "golden-metrics" in json.dumps(e, ensure_ascii=False)
+        and "chart-donut" in json.dumps(e, ensure_ascii=False)
+        and "chart-bar" in json.dumps(e, ensure_ascii=False)
+        for e in envelopes
+        if e is not None
+    )
+    ack_ids = [
+        (e.get("payload") or {}).get("cardId")
+        for e in envelopes
+        if isinstance(e, dict) and e.get("event") == "chat.guidance"
+    ]
+    assert "zhgk:ack:step1:inputs-ready" in ack_ids
 

@@ -2,13 +2,41 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+import re
+import uuid
+from datetime import datetime
 from typing import Any
+
+from loguru import logger
 
 from nanobot.web.mission_control import MissionControlManager
 from nanobot.web.skill_ui_patch import build_skill_ui_data_patch_payload
 from nanobot.web.task_progress import normalize_task_progress_payload
 from nanobot.web.skills import get_skill_dir
+
+# Must match ``resumeAction`` / stored action for agent ``request_user_upload`` HITL.
+AGENT_UPLOAD_RESUME_ACTION = "agent_upload"
+
+# Template / NL ``skill_runtime_start`` often uses a stable ``requestId`` (e.g. ``req-start-zhgk``).
+# PendingHitlStore uses ``request_id`` as PRIMARY KEY with INSERT OR IGNORE; once consumed, a second
+# run must use a new id or ``create_pending_request`` is skipped and ``skill_runtime_result`` only
+# ever sees duplicate consumes (no resume_runner).
+_START_RUN_NONCE_RE = re.compile(r":[0-9a-f]{12}$", re.IGNORECASE)
+
+
+def _ensure_unique_skill_runtime_start_request_id(payload: dict[str, Any]) -> str:
+    """If ``requestId`` lacks a trailing 12-hex run nonce, append ``:<nonce>`` (mutates payload)."""
+    rid = str(payload.get("requestId") or "").strip()
+    if not rid:
+        return ""
+    if _START_RUN_NONCE_RE.search(rid):
+        return rid
+    new_rid = f"{rid}:{uuid.uuid4().hex[:12]}"
+    payload["requestId"] = new_rid
+    return new_rid
+
 
 SUPPORTED_SKILL_RUNTIME_EVENTS = {
     "chat.guidance",
@@ -19,6 +47,7 @@ SUPPORTED_SKILL_RUNTIME_EVENTS = {
     "hitl.confirm_request",
     "artifact.publish",
     "task_progress.sync",
+    "skill.epilogue",
 }
 
 
@@ -120,6 +149,7 @@ async def _emit_file_request(
     # Persist pending HITL (idempotent) when store is configured.
     if pending_hitl_store is not None and envelope is not None:
         await pending_hitl_store.create_pending_request(envelope)
+    desc = str(payload.get("description") or "").strip() or None
     handle = await mc.ask_for_file(
         purpose=str(payload.get("purpose") or "").strip() or "file",
         title=title,
@@ -134,6 +164,7 @@ async def _emit_file_request(
         skill_name=final_skill_name,
         state_namespace=str(payload.get("stateNamespace") or "").strip() or None,
         step_id=str(payload.get("stepId") or "").strip() or None,
+        help_text=desc,
     )
     return {
         "ok": True,
@@ -302,12 +333,76 @@ async def _emit_task_progress_sync(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _skill_epilogue_user_prompt(stats: dict[str, Any]) -> str:
+    parts = [
+        "工勘流程已闭环，请根据以下摘要写一句结案陈词（仅一句）。",
+        f"场景：{str(stats.get('scenario') or '未标注')}",
+        f"风险/遗留条目数：{int(stats.get('risk_rows') or 0)}",
+        f"产物条目数：{int(stats.get('artifact_count') or 0)}",
+        f"勘测项：已填 {int(stats.get('survey_filled') or 0)} / 共 {int(stats.get('survey_total') or 0)}",
+    ]
+    ct = str(stats.get("cooling_tag") or "").strip()
+    if ct:
+        parts.append(f"冷却标签：{ct}")
+    return "\n".join(parts)
+
+
+def _skill_epilogue_fallback_text(stats: dict[str, Any]) -> str:
+    scen = str(stats.get("scenario") or "").strip() or "本次工勘"
+    risk = int(stats.get("risk_rows") or 0)
+    if risk > 0:
+        return f"{scen}已顺利结案；尚有 {risk} 条遗留项建议纳入后续整改台账。"
+    return f"{scen}已顺利结案，报告已分发，感谢您的投入与配合。"
+
+
+async def _skill_epilogue_worker(
+    *,
+    thread_id: str,
+    docman: Any,
+    stats: dict[str, Any],
+    card_id: str,
+    agent_loop: Any,
+) -> None:
+    mc = MissionControlManager(thread_id=thread_id, docman=docman)
+    text = ""
+    provider = getattr(agent_loop, "provider", None) if agent_loop is not None else None
+    if provider is not None:
+        try:
+            model = getattr(agent_loop, "model", None)
+            resp = await provider.chat_with_retry(
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "你是资深工勘顾问。只输出一句中文结案陈词：祝贺闭环并点出关键数字或下一步，不超过50字，不要 markdown、不要分点列表。",
+                    },
+                    {"role": "user", "content": _skill_epilogue_user_prompt(stats)},
+                ],
+                tools=None,
+                model=model,
+                max_tokens=160,
+                temperature=0.45,
+            )
+            text = (resp.content or "").strip().replace("\n", " ")
+        except Exception as e:
+            logger.warning("skill.epilogue LLM failed | thread_id={} | {}", thread_id, e)
+            text = ""
+    if not text:
+        text = _skill_epilogue_fallback_text(stats)
+    if len(text) > 80:
+        text = text[:80]
+    try:
+        await mc.emit_guidance(text, [], card_id=card_id)
+    except Exception as e:
+        logger.warning("skill.epilogue emit_guidance failed | thread_id={} | {}", thread_id, e)
+
+
 async def emit_skill_runtime_event(
     *,
     envelope: dict[str, Any],
     thread_id: str,
     docman: Any = None,
     pending_hitl_store: Any = None,
+    agent_loop: Any = None,
 ) -> dict[str, Any]:
     event, payload = _payload_from_envelope(envelope)
     mc = MissionControlManager(thread_id=thread_id, docman=docman)
@@ -352,7 +447,72 @@ async def emit_skill_runtime_event(
         return await _emit_artifact_publish(mc=mc, payload=payload)
     if event == "task_progress.sync":
         return await _emit_task_progress_sync(payload)
+    if event == "skill.epilogue":
+        stats = payload.get("stats")
+        if not isinstance(stats, dict):
+            stats = {}
+        cid = str(payload.get("cardId") or "zhgk:epilogue:final").strip() or "zhgk:epilogue:final"
+        asyncio.create_task(
+            _skill_epilogue_worker(
+                thread_id=thread_id,
+                docman=docman,
+                stats=stats,
+                card_id=cid,
+                agent_loop=agent_loop,
+            ),
+            name="skill_epilogue",
+        )
+        return {"ok": True, "event": "skill.epilogue", "summary": "结案陈词已排队", "deferred": True}
     raise ValueError(f"unsupported skill runtime event: {event}")
+
+
+def _tool_call_id_from_pending_payload(payload_json: str | None) -> str:
+    if not isinstance(payload_json, str) or not payload_json.strip():
+        return ""
+    try:
+        data = json.loads(payload_json)
+        if isinstance(data, dict):
+            return str(data.get("toolCallId") or "").strip()
+    except json.JSONDecodeError:
+        return ""
+    return ""
+
+
+async def _persist_agent_upload_tool_result(
+    *,
+    session_manager: Any,
+    session_key: str,
+    tool_call_id: str,
+    body: dict[str, Any],
+) -> None:
+    if session_manager is None or not (session_key or "").strip() or not (tool_call_id or "").strip():
+        logger.warning(
+            "agent_upload persist skipped | missing session_manager/session_key/tool_call_id | key={!r} tid={!r}",
+            session_key,
+            tool_call_id,
+        )
+        return
+    session = session_manager.get_or_create(session_key)
+    content = json.dumps(body, ensure_ascii=False)
+    updated = False
+    for msg in reversed(session.messages):
+        if msg.get("role") == "tool" and str(msg.get("tool_call_id")) == tool_call_id:
+            msg["content"] = content
+            msg["name"] = "request_user_upload"
+            updated = True
+            break
+    if not updated:
+        session.messages.append(
+            {
+                "role": "tool",
+                "tool_call_id": tool_call_id,
+                "name": "request_user_upload",
+                "content": content,
+                "timestamp": datetime.now().isoformat(),
+            }
+        )
+    session.updated_at = datetime.now()
+    session_manager.save(session)
 
 
 async def dispatch_skill_runtime_intent(
@@ -362,6 +522,9 @@ async def dispatch_skill_runtime_intent(
     docman: Any = None,
     pending_hitl_store: Any = None,
     resume_runner: Any = None,
+    session_manager: Any = None,
+    session_key: str | None = None,
+    agent_loop: Any = None,
 ) -> tuple[bool, str]:
     if not intent:
         return False, ""
@@ -372,7 +535,7 @@ async def dispatch_skill_runtime_intent(
         if not isinstance(payload, dict):
             return True, "skill_runtime_start payload 非法"
         skill_name = str(payload.get("skillName") or "").strip()
-        request_id = str(payload.get("requestId") or "").strip()
+        request_id = _ensure_unique_skill_runtime_start_request_id(payload)
         action = str(payload.get("action") or "").strip()
         tid = str(payload.get("threadId") or "").strip() or thread_id
         if not skill_name or not request_id or not action:
@@ -381,6 +544,14 @@ async def dispatch_skill_runtime_intent(
             return True, "skill_runtime_start threadId 不匹配"
         if resume_runner is None:
             return True, "skill_runtime_start：resume_runner 未配置"
+
+        # Switch right-side panel to this module (DashboardNavigator follows ModuleSessionFocus).
+        try:
+            from nanobot.agent.loop import emit_module_session_focus_event
+
+            await emit_module_session_focus_event({"threadId": thread_id, "moduleId": skill_name, "status": "running"})
+        except Exception:
+            pass
 
         bootstrap = _try_load_skill_dashboard_bootstrap(skill_name)
         if bootstrap is not None:
@@ -392,17 +563,28 @@ async def dispatch_skill_runtime_intent(
                 # Best-effort: do not block skill execution on UI bootstrap.
                 pass
 
-        out = await resume_runner(
-            thread_id=thread_id,
-            skill_name=skill_name,
-            request_id=request_id,
-            action=action,
-            status="ok",
-            result={},
-        )
+        try:
+            out = await resume_runner(
+                thread_id=thread_id,
+                skill_name=skill_name,
+                request_id=request_id,
+                action=action,
+                status="ok",
+                result={},
+            )
+        except Exception as e:
+            logger.exception(
+                "skill_runtime_start resume_runner raised | thread_id={} skill_name={} request_id={}",
+                thread_id,
+                skill_name,
+                request_id,
+            )
+            return True, f"skill_runtime_start 异常：{type(e).__name__}: {e}"
         if isinstance(out, dict) and out.get("ok") is True:
-            return True, "skill_runtime_start resumed"
-        return True, "skill_runtime_start 执行失败"
+            # Silent success: opening dashboards / starting skills should not pollute chat.
+            return True, ""
+        err = str((out or {}).get("error") or "").strip() if isinstance(out, dict) else ""
+        return True, err or "skill_runtime_start 执行失败"
     if verb == "skill_runtime_event":
         if not isinstance(payload, dict):
             return True, "skill_runtime_event payload 非法"
@@ -411,9 +593,11 @@ async def dispatch_skill_runtime_intent(
             thread_id=thread_id,
             docman=docman,
             pending_hitl_store=pending_hitl_store,
+            agent_loop=agent_loop,
         )
         if result.get("ok") is True:
-            return True, str(result.get("summary") or "").strip()
+            # UI updates arrive via SSE; do not mirror summary into RunFinished transcript.
+            return True, ""
         return True, str(result.get("error") or "操作失败").strip()
 
     # Skill-First: direct resume for interactive UI events (non-HITL).
@@ -442,19 +626,29 @@ async def dispatch_skill_runtime_intent(
         if resume_runner is None:
             return True, "skill_runtime_resume：resume_runner 未配置"
 
-        out = await resume_runner(
-            thread_id=thread_id,
-            skill_name=skill_name,
-            request_id=request_id,
-            action=action,
-            status=status,
-            result=result_obj if result_obj is not None else {},
-        )
+        try:
+            out = await resume_runner(
+                thread_id=thread_id,
+                skill_name=skill_name,
+                request_id=request_id,
+                action=action,
+                status=status,
+                result=result_obj if result_obj is not None else {},
+            )
+        except Exception as e:
+            logger.exception(
+                "skill_runtime_resume resume_runner raised | thread_id={} skill_name={} request_id={}",
+                thread_id,
+                skill_name,
+                request_id,
+            )
+            return True, f"skill_runtime_resume 异常：{type(e).__name__}: {e}"
         if isinstance(out, dict) and out.get("ok") is True:
             # Silent success: UI updates are delivered via SSE events (dashboard.patch/artifact.publish).
             # Avoid polluting the chat transcript with a completion line.
             return True, ""
-        return True, "skill_runtime_resume 执行失败"
+        err = str((out or {}).get("error") or "").strip() if isinstance(out, dict) else ""
+        return True, err or "skill_runtime_resume 执行失败"
 
     # Hard Rule: runtime results must be ingested via /api/chat fast-path intent.
     if verb == "skill_runtime_result":
@@ -484,48 +678,158 @@ async def dispatch_skill_runtime_intent(
             return True, "skill_runtime_result.status 非法"
         if pending_hitl_store is None:
             return True, "skill_runtime_result：pending_hitl_store 未配置"
+        rid = str(payload.get("requestId") or "").strip()
+        logger.info(
+            "skill_runtime_result ingest | thread_id={} rid={} skill={} status={}",
+            thread_id,
+            rid,
+            p_skill,
+            p_status,
+        )
+        tool_call_id = ""
+        if hasattr(pending_hitl_store, "get_pending_request"):
+            pending_row = await pending_hitl_store.get_pending_request(rid)
+            pj = None
+            if isinstance(pending_row, dict):
+                pj = pending_row.get("payload_json")
+            tool_call_id = _tool_call_id_from_pending_payload(pj if isinstance(pj, str) else None)
         # Opportunistic zombie prevention: advance timeouts before consuming results.
         try:
             await pending_hitl_store.timeout_expired_requests()
         except Exception:
             # Timeout scan is best-effort; do not block result ingestion.
             pass
-        out = await pending_hitl_store.consume_result(payload)
+        try:
+            out = await pending_hitl_store.consume_result(payload)
+        except ValueError as e:
+            # Store validation (e.g. rare races); return handled error instead of breaking /api/chat SSE.
+            logger.warning(
+                "skill_runtime_result consume failed | thread_id={} rid={} skill={} err={}",
+                thread_id,
+                rid,
+                p_skill,
+                e,
+            )
+            return True, f"skill_runtime_result: {e}"
         if out.get("ok") is True and out.get("duplicate") is True:
-            return True, "skill_runtime_result duplicate (idempotent)"
-        if out.get("ok") is True:
-            if resume_runner is None:
-                return True, "skill_runtime_result consumed"
-            # Use resolved action/result from store replay to enforce fallback routing hard rules.
-            rid = str(payload.get("requestId") or "").strip()
-            resolved_action = str(payload.get("action") or "").strip()
-            resolved_status = str(payload.get("status") or "").strip()
-            resolved_result = payload.get("result")
-            try:
-                replay = await pending_hitl_store.get_result_for_request(rid)
-            except Exception:
-                replay = None
-            if isinstance(replay, dict):
-                resolved_action = str(replay.get("action") or resolved_action)
-                raw = replay.get("result_json")
-                if isinstance(raw, str) and raw.strip():
-                    try:
-                        parsed = json.loads(raw)
-                        if isinstance(parsed, dict):
-                            resolved_status = str(parsed.get("status") or resolved_status)
-                            if "result" in parsed:
-                                resolved_result = parsed.get("result")
-                    except json.JSONDecodeError:
-                        pass
-            await resume_runner(
+            logger.info(
+                "skill_runtime_result duplicate (idempotent) | thread_id={} rid={} skill={}",
+                thread_id,
+                rid,
+                p_skill,
+            )
+            return True, ""
+        if out.get("ok") is not True:
+            logger.warning(
+                "skill_runtime_result consume not ok | thread_id={} rid={} skill={} out={}",
+                thread_id,
+                rid,
+                p_skill,
+                out,
+            )
+            return True, "skill_runtime_result 处理失败"
+
+        resolved_action = str(payload.get("action") or "").strip()
+        resolved_status = str(payload.get("status") or "").strip()
+        resolved_result = payload.get("result")
+        try:
+            replay = await pending_hitl_store.get_result_for_request(rid)
+        except Exception:
+            replay = None
+        if isinstance(replay, dict):
+            resolved_action = str(replay.get("action") or resolved_action)
+            raw = replay.get("result_json")
+            if isinstance(raw, str) and raw.strip():
+                try:
+                    parsed = json.loads(raw)
+                    if isinstance(parsed, dict):
+                        resolved_status = str(parsed.get("status") or resolved_status)
+                        if "result" in parsed:
+                            resolved_result = parsed.get("result")
+                except json.JSONDecodeError:
+                    pass
+
+        if resolved_action == AGENT_UPLOAD_RESUME_ACTION:
+            sk = (session_key or "").strip() or str(thread_id)
+            await _persist_agent_upload_tool_result(
+                session_manager=session_manager,
+                session_key=sk,
+                tool_call_id=tool_call_id,
+                body={
+                    "ok": resolved_status == "ok",
+                    "status": resolved_status,
+                    "requestId": rid,
+                    "result": resolved_result,
+                },
+            )
+            return True, ""
+
+        if resume_runner is None:
+            logger.error(
+                "skill_runtime_result consumed pending but resume_runner is None | thread_id={} rid={} skill={} action={}",
+                thread_id,
+                rid,
+                p_skill,
+                resolved_action,
+            )
+            return True, "skill_runtime_result：resume_runner 未配置，pending 已消费但无法续跑"
+
+        ra = str(resolved_action or "").strip()
+        if not ra:
+            logger.error(
+                "skill_runtime_result empty resolved_action after consume | thread_id={} rid={} skill={} replay={!r}",
+                thread_id,
+                rid,
+                p_skill,
+                replay,
+            )
+            return True, "skill_runtime_result：未能解析续跑 action（pending 或 replay 数据异常）"
+        resolved_action = ra
+
+        resume_skill = str(payload.get("skillName") or "").strip()
+        try:
+            resume_skill = get_skill_dir(resume_skill).name
+        except Exception:
+            pass
+
+        logger.info(
+            "skill_runtime_result resume_runner | thread_id={} rid={} resume_skill={} action={} status={}",
+            thread_id,
+            rid,
+            resume_skill,
+            resolved_action,
+            resolved_status,
+        )
+
+        try:
+            rr_out = await resume_runner(
                 thread_id=str(payload.get("threadId") or "").strip(),
-                skill_name=str(payload.get("skillName") or "").strip(),
+                skill_name=resume_skill,
                 request_id=rid,
                 action=resolved_action,
                 status=resolved_status,
                 result=resolved_result,
             )
-            return True, "skill_runtime_result resumed"
-        return True, "skill_runtime_result 处理失败"
+        except Exception as e:
+            logger.exception(
+                "skill_runtime_result resume_runner raised | thread_id={} rid={} resume_skill={} action={}",
+                thread_id,
+                rid,
+                resume_skill,
+                resolved_action,
+            )
+            return True, f"skill_runtime_result 续跑异常：{type(e).__name__}: {e}"
+
+        if isinstance(rr_out, dict) and rr_out.get("ok") is False:
+            err = str(rr_out.get("error") or "").strip() or "续跑失败"
+            logger.warning(
+                "skill_runtime_result resume_runner returned ok=false | thread_id={} rid={} err={}",
+                thread_id,
+                rid,
+                err,
+            )
+            return True, f"skill_runtime_result：{err}"
+
+        return True, ""
 
     return False, ""

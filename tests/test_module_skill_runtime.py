@@ -1249,7 +1249,9 @@ async def test_smart_survey_guide_routes_ui_through_skill_runtime_bridge(
 
     emitted: list[dict[str, Any]] = []
 
-    async def fake_emit_skill_runtime_event(*, envelope: dict[str, Any], thread_id: str, docman: Any = None) -> dict[str, Any]:
+    async def fake_emit_skill_runtime_event(
+        *, envelope: dict[str, Any], thread_id: str, docman: Any = None, agent_loop: Any = None, **_: Any
+    ) -> dict[str, Any]:
         emitted.append({"envelope": envelope, "thread_id": thread_id})
         return {"ok": True, "event": str(envelope.get("event") or ""), "summary": "ok"}
 
@@ -1280,7 +1282,9 @@ async def test_smart_survey_prepare_step1_missing_inputs_routes_hitl_through_bri
 
     emitted: list[dict[str, Any]] = []
 
-    async def fake_emit_skill_runtime_event(*, envelope: dict[str, Any], thread_id: str, docman: Any = None) -> dict[str, Any]:
+    async def fake_emit_skill_runtime_event(
+        *, envelope: dict[str, Any], thread_id: str, docman: Any = None, agent_loop: Any = None, **_: Any
+    ) -> dict[str, Any]:
         emitted.append({"envelope": envelope, "thread_id": thread_id})
         return {"ok": True, "event": str(envelope.get("event") or ""), "summary": "ok"}
 
@@ -1311,7 +1315,9 @@ async def test_smart_survey_run_step1_routes_progress_and_dashboard_through_brid
 
     emitted: list[dict[str, Any]] = []
 
-    async def fake_emit_skill_runtime_event(*, envelope: dict[str, Any], thread_id: str, docman: Any = None) -> dict[str, Any]:
+    async def fake_emit_skill_runtime_event(
+        *, envelope: dict[str, Any], thread_id: str, docman: Any = None, agent_loop: Any = None, **_: Any
+    ) -> dict[str, Any]:
         emitted.append({"envelope": envelope, "thread_id": thread_id})
         return {"ok": True, "event": str(envelope.get("event") or ""), "summary": "ok"}
 

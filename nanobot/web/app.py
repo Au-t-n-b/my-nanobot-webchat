@@ -61,7 +61,10 @@ def create_app(
     if skill_resume_runner is not None:
         app[SKILL_RESUME_RUNNER_KEY] = skill_resume_runner
     elif enable_skill_first_resume_runner:
-        app[SKILL_RESUME_RUNNER_KEY] = make_skill_first_resume_runner(pending_hitl_store=store)
+        app[SKILL_RESUME_RUNNER_KEY] = make_skill_first_resume_runner(
+            pending_hitl_store=store,
+            agent_loop=agent_loop,
+        )
     else:
         app[SKILL_RESUME_RUNNER_KEY] = None
     app[REMOTE_CENTER_SESSION_STORE_KEY] = RemoteCenterSessionStore()

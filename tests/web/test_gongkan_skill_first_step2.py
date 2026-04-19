@@ -106,7 +106,7 @@ async def test_gongkan_skill_first_step2_requests_upload_then_runs_and_publishes
     async def fake_emit_patch(payload: dict):
         patches.append(payload)
 
-    async def fake_add_artifact(self, synthetic_path, *, doc_id, **kwargs):
+    async def fake_add_artifact(self, doc_id, *, synthetic_path, **kwargs):
         artifacts.append({"synthetic_path": synthetic_path, "doc_id": doc_id, **kwargs})
 
     monkeypatch.setattr("nanobot.web.mission_control.MissionControlManager.ask_for_file", fake_ask_for_file)

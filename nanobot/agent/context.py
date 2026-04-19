@@ -113,6 +113,7 @@ Whenever you need the user to **choose between options** (e.g. selecting a scena
 
 ## File uploads & module_skill_runtime (CRITICAL)
 - **NEVER** use `present_choices` for file uploads, "模拟上传", "选择文件上传", or skip/upload confirmation. The Web UI renders a real **drag-and-drop FilePicker** only when you call the **`module_skill_runtime`** tool with the module's real upload action (for example `upload_evidence` or `upload_bundle`).
+- For **ad-hoc uploads** into the zhgk project input folder (outside a mounted module flow), call **`request_user_upload`** with `save_location_alias` **`zhgk_input`** only (no raw filesystem paths). After the user finishes uploading, they may send a short follow-up (e.g. 「继续」) before you continue reasoning.
 - For **`module_boilerplate`**: after the user selects a strategy (e.g. their message is `balanced`, `speed`, or `quality`), your **next step MUST** be a tool call:
   `module_skill_runtime(module_id="module_boilerplate", action="upload_evidence", state={{"standard":"<same id>"}})`
   — not `present_choices`. Do not invent fake upload buttons.

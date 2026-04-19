@@ -12,7 +12,7 @@
       {
         "type": "Text",
         "variant": "heading",
-        "content": "智慧工勘模块 · 当前进展 / 产物总结"
+        "content": "智慧工勘模块 · 当前进展 / 黄金指标 / 产物总结"
       },
       {
         "type": "Row",
@@ -22,12 +22,12 @@
           {
             "type": "Button",
             "id": "btn-start-skill",
-            "label": "开始工勘（Step 1：场景筛选）",
-            "variant": "primary",
-            "color": "accent",
+            "label": "启动智慧工勘（自动执行四步，遇上传/选择时暂停）",
+            "variant": "secondary",
+            "color": "subtle",
             "action": {
               "kind": "post_user_message",
-              "text": "{\"type\":\"chat_card_intent\",\"verb\":\"skill_runtime_start\",\"payload\":{\"type\":\"skill_runtime_start\",\"skillName\":\"gongkan_skill\",\"requestId\":\"req-start-zhgk\",\"action\":\"zhgk_step1_scene_filter\"}}"
+              "text": "{\"type\":\"chat_card_intent\",\"verb\":\"skill_runtime_start\",\"payload\":{\"type\":\"skill_runtime_start\",\"skillName\":\"gongkan_skill\",\"requestId\":\"req-start-zhgk\",\"action\":\"start\"}}"
             }
           }
         ]
@@ -35,10 +35,51 @@
       { "type": "Stepper", "id": "stepper-main", "steps": [] },
       {
         "type": "Text",
-        "id": "summary-text",
-        "variant": "body",
-        "color": "subtle",
-        "content": "进入模块后将在此展示工勘阶段摘要。"
+        "variant": "heading",
+        "content": "黄金指标"
+      },
+      {
+        "type": "Row",
+        "gap": "md",
+        "children": [
+          {
+            "type": "DonutChart",
+            "id": "chart-donut",
+            "flex": 1,
+            "centerLabel": "任务完成度",
+            "centerValue": "0%",
+            "segments": [
+              { "label": "已完成", "value": 0, "color": "success" },
+              { "label": "待办", "value": 4, "color": "subtle" }
+            ]
+          },
+          {
+            "type": "BarChart",
+            "id": "chart-bar",
+            "flex": 1,
+            "valueUnit": "",
+            "data": [
+              { "label": "勘测完成度", "value": 0, "color": "accent" },
+              { "label": "数据完整率", "value": 0, "color": "success" },
+              { "label": "遗留问题数", "value": 0, "color": "warning" }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "GoldenMetrics",
+        "id": "golden-metrics",
+        "metrics": [
+          { "id": "metric-throughput", "label": "勘测完成度", "value": 0, "color": "accent" },
+          { "id": "metric-quality", "label": "数据完整率", "value": 0, "color": "success" },
+          { "id": "metric-risk", "label": "遗留问题数", "value": 0, "color": "warning" }
+        ]
+      },
+      {
+        "type": "Stack",
+        "id": "alerts",
+        "gap": "sm",
+        "children": []
       },
       {
         "type": "ArtifactGrid",
@@ -53,8 +94,14 @@
         "title": "作业结果",
         "mode": "output",
         "artifacts": []
+      },
+      {
+        "type": "Text",
+        "id": "summary-text",
+        "variant": "body",
+        "color": "subtle",
+        "content": "进入模块后将在此展示工勘阶段摘要。"
       }
     ]
   }
 }
-

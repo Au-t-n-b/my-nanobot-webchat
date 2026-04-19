@@ -97,6 +97,7 @@ class MissionControlManager:
         skill_name: str | None = None,
         state_namespace: str | None = None,
         step_id: str | None = None,
+        help_text: str | None = None,
     ) -> ChatCardHandle:
         """Emit a chat card that asks user to upload a file.
 
@@ -113,11 +114,6 @@ class MissionControlManager:
             "accept": (accept or "").strip() or None,
             "multiple": bool(multiple),
             "label": "上传文件",
-            "helpText": (
-                f"将文件拖到下方区域或点击选择；支持多文件与补充追加上传；保存目录（workspace 相对）：{save_dir}/<文件名>"
-                if save_dir
-                else "将文件拖到下方区域或点击选择；支持多文件与补充追加上传；上传成功后会同步会话、大盘并触发下一步。"
-            ),
         }
         mid = (module_id or "").strip()
         na = (next_action or "").strip()
@@ -136,6 +132,9 @@ class MissionControlManager:
             fp_node["stateNamespace"] = namespace
         if sid:
             fp_node["stepId"] = sid
+        ht = (help_text or "").strip()
+        if ht:
+            fp_node["helpText"] = ht
         hr = (hitl_request_id or "").strip()
         if hr:
             # Must match PendingHitlStore primary key (HITL envelope payload.requestId).

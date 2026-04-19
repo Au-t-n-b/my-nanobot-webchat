@@ -18,6 +18,7 @@ from nanobot.agent.context import ContextBuilder
 from nanobot.agent.memory import MemoryConsolidator
 from nanobot.agent.subagent import SubagentManager
 from nanobot.agent.tools.choices import PresentChoicesTool
+from nanobot.agent.tools.user_upload import RequestUserUploadTool
 from nanobot.agent.tools.cron import CronTool
 from nanobot.agent.skills import BUILTIN_SKILLS_DIR
 from nanobot.agent.tools.filesystem import EditFileTool, ListDirTool, ReadFileTool, WriteFileTool
@@ -68,6 +69,12 @@ _SKILL_UI_CHAT_CARD_EMITTER: ContextVar[SkillUiChatCardEmitter | None] = Context
 
 _CURRENT_THREAD_ID: ContextVar[str | None] = ContextVar("nanobot_current_thread_id", default=None)
 
+# Web chat: optional PendingHitlStore for agent-driven HITL (request_user_upload).
+_PENDING_HITL_STORE: ContextVar[Any | None] = ContextVar("nanobot_pending_hitl_store", default=None)
+
+# DocManager for MissionControl chat cards (optional; often None in /api/chat).
+_CHAT_DOCMAN: ContextVar[Any | None] = ContextVar("nanobot_chat_docman", default=None)
+
 # SSE ModuleSessionFocus: 工具级模块焦点（见 routes.handle_chat、module_skill_runtime）
 ModuleSessionFocusEmitter = Callable[[dict[str, Any]], Awaitable[None]]
 _MODULE_SESSION_FOCUS_EMITTER: ContextVar[ModuleSessionFocusEmitter | None] = ContextVar(
@@ -86,6 +93,14 @@ _TASK_STATUS_EMITTER: ContextVar[TaskStatusEmitter | None] = ContextVar(
 def get_current_thread_id() -> str | None:
     """Thread id for the active /api/chat request (None outside web chat)."""
     return _CURRENT_THREAD_ID.get()
+
+
+def get_pending_hitl_store() -> Any | None:
+    return _PENDING_HITL_STORE.get()
+
+
+def get_chat_docman() -> Any | None:
+    return _CHAT_DOCMAN.get()
 
 
 async def emit_skill_ui_chat_card_event(payload: dict[str, Any]) -> None:
@@ -389,6 +404,18 @@ class AgentLoop:
     def reset_current_thread_id(self, token: Token) -> None:
         _CURRENT_THREAD_ID.reset(token)
 
+    def set_pending_hitl_store(self, store: Any | None) -> Token:
+        return _PENDING_HITL_STORE.set(store)
+
+    def reset_pending_hitl_store(self, token: Token) -> None:
+        _PENDING_HITL_STORE.reset(token)
+
+    def set_chat_docman(self, docman: Any | None) -> Token:
+        return _CHAT_DOCMAN.set(docman)
+
+    def reset_chat_docman(self, token: Token) -> None:
+        _CHAT_DOCMAN.reset(token)
+
     def set_module_session_focus_emitter(self, callback: ModuleSessionFocusEmitter | None) -> Token:
         return _MODULE_SESSION_FOCUS_EMITTER.set(callback)
 
@@ -427,6 +454,7 @@ class AgentLoop:
         self.tools.register(RunAssetScanTool(workspace=self.workspace))
         self.tools.register(ModuleSkillRuntimeTool())
         self.tools.register(PresentChoicesTool())
+        self.tools.register(RequestUserUploadTool())
         self.tools.register(MessageTool(send_callback=self.bus.publish_outbound))
         self.tools.register(SpawnTool(manager=self.subagents))
         if self.cron_service:
@@ -667,7 +695,7 @@ class AgentLoop:
                             _file_retry_counter[fkey] = _file_retry_counter.get(fkey, 0) + 1
 
                     gather_coro = asyncio.gather(*(
-                        self.tools.execute(tc.name, tc.arguments)
+                        self.tools.execute(tc.name, tc.arguments, _nanobot_tool_call_id=tc.id)
                         for tc in approved_calls
                     ), return_exceptions=True)
 
@@ -750,6 +778,9 @@ class AgentLoop:
                 # run_finished_sent is managed in exactly one place.
                 if any(tc.name == "present_choices" for tc in response.tool_calls):
                     final_content = ""  # choices turn; caller includes run_choices
+                    break
+                if any(tc.name == "request_user_upload" for tc in response.tool_calls):
+                    final_content = ""
                     break
                 # ─────────────────────────────────────────────────────────────
             else:

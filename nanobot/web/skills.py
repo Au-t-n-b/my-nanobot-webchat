@@ -24,18 +24,55 @@ def get_skills_root() -> Path:
     return (Path.home() / ".nanobot" / "workspace" / "skills").resolve()
 
 
+def _normalize_skill_dir_key(name: str) -> str:
+    """Fold UI/LLM variants (spaces vs underscores/dashes, case) for directory matching."""
+    s = str(name or "").strip()
+    s = re.sub(r"\s+", "_", s)
+    s = s.replace("-", "_")
+    return s.lower()
+
+
+def _find_skill_child_dir(root: Path, requested: str) -> Path | None:
+    """Return an existing ``<skills_root>/<child>/`` whose name matches ``requested`` under normalization."""
+    if not requested.strip():
+        return None
+    want = _normalize_skill_dir_key(requested)
+    try:
+        children = list(root.iterdir())
+    except OSError:
+        return None
+    for child in children:
+        if not child.is_dir():
+            continue
+        if _normalize_skill_dir_key(child.name) == want:
+            return child.resolve()
+    return None
+
+
 def get_skill_dir(skill_name: str) -> Path:
     target = str(skill_name or "").strip()
     if not target:
         raise ValueError("skill name is required")
-    root = get_skills_root()
+    root = get_skills_root().resolve()
     root.mkdir(parents=True, exist_ok=True)
+    matched = _find_skill_child_dir(root, target)
+    if matched is not None:
+        try:
+            matched.relative_to(root)
+        except ValueError as exc:
+            raise ValueError("invalid skill name") from exc
+        return matched
     candidate = (root / target).resolve()
     try:
         candidate.relative_to(root)
     except ValueError as exc:
         raise ValueError("invalid skill name") from exc
     return candidate
+
+
+def skill_dir_keys_equivalent(a: str, b: str) -> bool:
+    """True if two skill slug strings refer to the same ``skills/<name>/`` folder (case / space / ``_`` / ``-``)."""
+    return _normalize_skill_dir_key(a) == _normalize_skill_dir_key(b)
 
 
 def _parse_frontmatter_description(content: str) -> str:

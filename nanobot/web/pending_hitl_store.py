@@ -8,6 +8,8 @@ from typing import Any, Literal
 
 import aiosqlite
 
+from nanobot.web.skills import skill_dir_keys_equivalent
+
 TerminalStatus = Literal["pending", "consumed", "timeout", "cancelled"]
 
 
@@ -192,7 +194,7 @@ class PendingHitlStore:
                 raise ValueError("requestId not found")
 
             _rid, t_id, s_name, resume_action, on_cancel_action, status = row
-            if str(s_name) != skill_name:
+            if not skill_dir_keys_equivalent(str(s_name), skill_name):
                 await db.rollback()
                 raise ValueError("skill_name mismatch")
 
@@ -201,13 +203,25 @@ class PendingHitlStore:
             # the bridge forced the real chat thread). Heal only while still pending.
             if str(t_id) != thread_id:
                 if terminal_status != "pending":
-                    await db.rollback()
-                    raise ValueError("thread_id mismatch")
+                    # Already finalized: client may replay from another tab/session/thread (e.g. SDUI
+                    # file upload silent chat). Treat as idempotent success instead of hard-failing.
+                    await db.commit()
+                    return {"ok": True, "duplicate": True, "terminal_status": terminal_status}
                 upd = await db.execute(
                     "UPDATE pending_hitl_requests SET thread_id=? WHERE request_id=? AND status='pending'",
                     (thread_id, request_id),
                 )
                 if (upd.rowcount or 0) <= 0:
+                    # Another request may have consumed this row between our SELECT and UPDATE
+                    # (e.g. double upload / two tabs). Re-read and treat as idempotent duplicate.
+                    cur2 = await db.execute(
+                        "SELECT status FROM pending_hitl_requests WHERE request_id=?",
+                        (request_id,),
+                    )
+                    row2 = await cur2.fetchone()
+                    if row2 and str(row2[0] or "") != "pending":
+                        await db.commit()
+                        return {"ok": True, "duplicate": True, "terminal_status": str(row2[0])}
                     await db.rollback()
                     raise ValueError("thread_id mismatch")
             if terminal_status != "pending":

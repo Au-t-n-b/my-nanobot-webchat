@@ -475,3 +475,28 @@ async def test_post_chat_human_in_the_loop_false_skips_tool_pending() -> None:
         assert resp.status == 200
         body = await resp.text()
         assert "event: ToolPending" not in body
+
+
+@pytest.mark.asyncio
+async def test_skill_state_sync_returns_revision() -> None:
+    app = create_app(config=None, agent_loop=None)
+    async with TestClient(TestServer(app)) as client:
+        r1 = await client.post(
+            "/api/skill/state/sync",
+            json={"docId": "dashboard:test", "key": "uploads.step1", "value": [{"name": "a.xlsx"}]},
+        )
+        assert r1.status == 200
+        j1 = await r1.json()
+        assert j1.get("ok") is True
+        assert isinstance(j1.get("revision"), int)
+
+        r2 = await client.post(
+            "/api/skill/state/sync",
+            json={"docId": "dashboard:test", "key": "uploads.step1", "value": []},
+        )
+        assert r2.status == 200
+        j2 = await r2.json()
+        assert j2["revision"] > j1["revision"]
+
+        r_bad = await client.post("/api/skill/state/sync", json={"docId": "", "key": ""})
+        assert r_bad.status == 400

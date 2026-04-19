@@ -90,6 +90,75 @@ async def test_consume_result_is_idempotent_and_marks_consumed(tmp_path: Path) -
     assert out_2["duplicate"] is True
     assert out_2["terminal_status"] == "consumed"
 
+
+@pytest.mark.asyncio
+async def test_consume_result_accepts_skill_name_case_and_space_variants(tmp_path: Path) -> None:
+    """Pending row may store disk slug; FilePicker may send UI-cased or spaced variants."""
+    from nanobot.web.pending_hitl_store import PendingHitlStore
+
+    db_path = tmp_path / "hitl.db"
+    store = PendingHitlStore(db_path)
+    await store.init()
+
+    await store.create_pending_request(
+        {
+            "event": "hitl.file_request",
+            "threadId": "t-zhgk",
+            "skillName": "zhgk",
+            "skillRunId": "run-1",
+            "payload": {
+                "requestId": "req-upload-zhgk-1",
+                "resumeAction": "zhgk_step1_scene_filter",
+                "onCancelAction": "cancel_step1_upload",
+                "expiresAt": _now_ms() + 60_000,
+                "title": "上传",
+            },
+        }
+    )
+
+    result = {
+        "type": "skill_runtime_result",
+        "threadId": "t-zhgk",
+        "skillName": "Zhgk",
+        "skillRunId": "run-2",
+        "requestId": "req-upload-zhgk-1",
+        "status": "ok",
+        "result": {"files": []},
+    }
+    out = await store.consume_result(result)
+    assert out["ok"] is True
+    assert out["duplicate"] is False
+
+    await store.init()
+    await store.create_pending_request(
+        {
+            "event": "hitl.file_request",
+            "threadId": "t-gk",
+            "skillName": "gongkan_skill",
+            "skillRunId": "run-1",
+            "payload": {
+                "requestId": "req-upload-gk-1",
+                "resumeAction": "step1",
+                "onCancelAction": "cancel",
+                "expiresAt": _now_ms() + 60_000,
+                "title": "上传",
+            },
+        }
+    )
+    out2 = await store.consume_result(
+        {
+            "type": "skill_runtime_result",
+            "threadId": "t-gk",
+            "skillName": "gongkan skill",
+            "skillRunId": "run-2",
+            "requestId": "req-upload-gk-1",
+            "status": "ok",
+            "result": {},
+        }
+    )
+    assert out2["ok"] is True
+
+
 @pytest.mark.asyncio
 async def test_consume_result_cancel_uses_fallback_routing_ignoring_client_action(
     tmp_path: Path,
@@ -234,7 +303,7 @@ async def test_consume_result_heals_stale_thread_id_when_pending(tmp_path: Path)
 
 
 @pytest.mark.asyncio
-async def test_consume_result_rejects_thread_mismatch_when_not_pending(tmp_path: Path) -> None:
+async def test_consume_result_is_idempotent_when_terminal_and_thread_differs(tmp_path: Path) -> None:
     from nanobot.web.pending_hitl_store import PendingHitlStore
 
     db_path = tmp_path / "hitl.db"
@@ -275,8 +344,10 @@ async def test_consume_result_rejects_thread_mismatch_when_not_pending(tmp_path:
         "status": "ok",
         "result": {"confirmed": True},
     }
-    with pytest.raises(ValueError, match="thread_id mismatch"):
-        await store.consume_result(bad_thread)
+    out_dup = await store.consume_result(bad_thread)
+    assert out_dup["ok"] is True
+    assert out_dup["duplicate"] is True
+    assert out_dup["terminal_status"] == "consumed"
 
 
 @pytest.mark.asyncio

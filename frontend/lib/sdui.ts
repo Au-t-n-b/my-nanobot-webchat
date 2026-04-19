@@ -317,7 +317,7 @@ export function applySduiPatch(doc: SduiDocument, patch: SduiPatch): SduiDocumen
         const safeNext = nextItems.filter((x) => x !== undefined);
         if (safeNext.length) grid.rows = prev.concat(safeNext);
       } else if (field === "artifacts") {
-        // ArtifactGrid.artifacts — 与 mission_control.add_artifact / build_append_op 对齐
+        // ArtifactGrid.artifacts — append 语义 + 按 path（空则 id）幂等去重/覆盖
         const grid = existing as unknown as { type?: string; artifacts?: SduiArtifactItem[] };
         if (grid.type !== "ArtifactGrid") continue;
         const prev = Array.isArray(grid.artifacts) ? grid.artifacts : [];
@@ -330,7 +330,19 @@ export function applySduiPatch(doc: SduiDocument, patch: SduiPatch): SduiDocumen
             typeof (x as SduiArtifactItem).label === "string" &&
             typeof (x as SduiArtifactItem).path === "string",
         );
-        if (safeNext.length) grid.artifacts = prev.concat(safeNext);
+        if (!safeNext.length) continue;
+        const artifactDedupeKey = (it: SduiArtifactItem): string => {
+          const p = it.path.trim().replace(/\\/g, "/");
+          return p ? p.toLowerCase() : `id:${it.id}`;
+        };
+        const merged = [...prev];
+        for (const item of safeNext) {
+          const k = artifactDedupeKey(item);
+          const j = merged.findIndex((x) => artifactDedupeKey(x) === k);
+          if (j >= 0) merged[j] = item;
+          else merged.push(item);
+        }
+        grid.artifacts = merged;
       }
       continue;
     }

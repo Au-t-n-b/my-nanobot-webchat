@@ -298,7 +298,8 @@ export function useAgentChat() {
   const [runStatus, setRunStatus] = useState<RunStatus>("idle");
   const [statusMessage, setStatusMessage] = useState("准备就绪");
   const [effectiveModel, setEffectiveModel] = useState<string | null>(null);
-  const [skillUiPatchEvent, setSkillUiPatchEvent] = useState<SkillUiDataPatchEvent | null>(null);
+  /** 连续多条 SkillUiDataPatch：单 state 会互相覆盖，导致 Stepper 等早期 patch 丢失；用队列逐条应用。 */
+  const [skillUiPatchQueue, setSkillUiPatchQueue] = useState<SkillUiDataPatchEvent[]>([]);
   const [skillUiBootstrapEvent, setSkillUiBootstrapEvent] = useState<SkillUiBootstrapEvent | null>(null);
   const [taskStatusEvent, setTaskStatusEvent] = useState<TaskStatusPayload | null>(null);
   /** 工具级模块焦点：仅由 SSE ModuleSessionFocus 维护，不用 Patch 超时猜测 */
@@ -428,6 +429,7 @@ export function useAgentChat() {
       setRunStatus("idle");
       setStatusMessage("当前会话已清空");
       setEffectiveModel(null);
+      setSkillUiPatchQueue([]);
     },
     [threadId, stepLogs, pendingTool, pendingChoices, runStatus, statusMessage, effectiveModel],
   );
@@ -481,6 +483,7 @@ export function useAgentChat() {
     setRunStatus("idle");
     setStatusMessage("已创建新会话");
     setEffectiveModel(null);
+    setSkillUiPatchQueue([]);
   }, []);
 
   const deleteSession = useCallback(
@@ -544,6 +547,7 @@ export function useAgentChat() {
     setRunStatus("idle");
     setStatusMessage("已切换会话");
     setEffectiveModel(null);
+    setSkillUiPatchQueue([]);
   }, []);
 
   const approveTool = useCallback(
@@ -591,8 +595,27 @@ export function useAgentChat() {
       options?: { showInTranscript?: boolean, showCompletionMessage?: boolean },
     ) => {
       const trimmed = text.trim();
-      if (!trimmed || !threadId || isLoading) return;
       const showInTranscript = options?.showInTranscript !== false;
+      // Skill HITL 回传可能在「主对话 SSE 尚未结束」时发出；此时 isLoading 仍为 true。
+      // 若在此处短路，用户点击「完成上传并继续」会被静默丢弃，技能永远不 resume。
+      let bypassLoadingGuard = false;
+      if (!showInTranscript && trimmed) {
+        try {
+          const j = JSON.parse(trimmed) as { type?: unknown; verb?: unknown };
+          const verb = typeof j.verb === "string" ? j.verb.trim() : "";
+          if (
+            j &&
+            typeof j === "object" &&
+            j.type === "chat_card_intent" &&
+            (verb === "skill_runtime_result" || verb === "skill_runtime_resume")
+          ) {
+            bypassLoadingGuard = true;
+          }
+        } catch {
+          // 非 JSON：保持默认（仍受 isLoading 约束）
+        }
+      }
+      if (!trimmed || !threadId || (isLoading && !bypassLoadingGuard)) return;
       const showCompletionMessage = options?.showCompletionMessage === true;
 
       abortRef.current?.abort();
@@ -731,16 +754,16 @@ export function useAgentChat() {
           } else if (event === "RunFinished") {
             sawRunFinished = true;
             const finishMsg = typeof data.message === "string" ? data.message.trim() : "";
+            // 仅「正常对话轮」把 RunFinished.message 写入消息流。sendSilentMessage（卡片 / HITL 回传）
+            // 使用 showInTranscript:false，不得再追加完成语，否则会与卡片状态打架（如「本轮执行完成」幽灵气泡）。
             const allowSilentCompletionMessage = !showCompletionMessage || !/^已进入下一步[:：]/.test(finishMsg);
-            if ((showInTranscript || showCompletionMessage) && finishMsg && allowSilentCompletionMessage) {
+            if (showInTranscript && finishMsg && allowSilentCompletionMessage) {
               setMessages((prev) =>
-                showInTranscript
-                  ? prev.map((m) =>
-                      m.id === asstId
-                        ? { ...m, content: (m.content && m.content.trim()) ? m.content : finishMsg }
-                        : m,
-                    )
-                  : [...prev, { id: newId(), role: "assistant", content: finishMsg }]
+                prev.map((m) =>
+                  m.id === asstId
+                    ? { ...m, content: (m.content && m.content.trim()) ? m.content : finishMsg }
+                    : m,
+                ),
               );
             }
             // Persist tool-inferred file paths into the assistant message
@@ -768,7 +791,9 @@ export function useAgentChat() {
               setStatusMessage(err.message ?? "本轮执行失败");
             } else {
               setRunStatus("completed");
-              setStatusMessage(Array.isArray(data.choices) && data.choices.length > 0 ? "已生成下一步选项" : "本轮执行完成");
+              setStatusMessage(
+                Array.isArray(data.choices) && data.choices.length > 0 ? "已生成下一步选项" : "就绪",
+              );
             }
           } else if (event === "Error") {
             if (typeof data.message === "string") {
@@ -849,11 +874,15 @@ export function useAgentChat() {
               return;
             }
             startTransition(() => {
-              setSkillUiPatchEvent({
+              const evt: SkillUiDataPatchEvent = {
                 id: newId(),
                 syntheticPath: syntheticPathRaw,
                 patch: patchObj as SduiPatch,
                 receivedAt: Date.now(),
+              };
+              setSkillUiPatchQueue((prev) => {
+                const next = [...prev, evt];
+                return next.length > 512 ? next.slice(-512) : next;
               });
             });
           } else if (event === "SkillUiChatCard") {
@@ -865,6 +894,57 @@ export function useAgentChat() {
             const title = typeof data.title === "string" ? data.title : null;
             const rawNode = (data.node ?? data.document) as unknown;
             const node = (rawNode && typeof rawNode === "object" ? rawNode : { type: "Text", content: "（空卡片）" }) as SduiNode;
+            const n = node as { type?: string; context?: unknown; actions?: unknown[] };
+            const actions = Array.isArray(n.actions) ? n.actions : [];
+            const isPlainGuidance = n.type === "GuidanceCard" && actions.length === 0;
+            const guidanceText = isPlainGuidance ? String(n.context ?? "").trim() : "";
+
+            if (isPlainGuidance) {
+              const stableId = `guidance-bubble:${cardId}`;
+              startTransition(() => {
+                setMessages((prev) => {
+                  const idxCard = prev.findIndex((m) => m.kind === "chat_card" && m.chatCard?.cardId === cardId);
+                  const idxBubble = prev.findIndex((m) => m.id === stableId);
+                  if (!guidanceText) {
+                    if (idxBubble >= 0) {
+                      const next = [...prev];
+                      next.splice(idxBubble, 1);
+                      return next;
+                    }
+                    if (idxCard >= 0) {
+                      const next = [...prev];
+                      next.splice(idxCard, 1);
+                      return next;
+                    }
+                    return prev;
+                  }
+                  if (idxBubble >= 0) {
+                    const next = [...prev];
+                    next[idxBubble] = { ...next[idxBubble], content: guidanceText, kind: undefined, chatCard: undefined };
+                    return next;
+                  }
+                  if (idxCard >= 0) {
+                    const next = [...prev];
+                    next[idxCard] = {
+                      id: stableId,
+                      role: "assistant",
+                      content: guidanceText,
+                    };
+                    return next;
+                  }
+                  return [
+                    ...prev,
+                    {
+                      id: stableId,
+                      role: "assistant" as const,
+                      content: guidanceText,
+                    },
+                  ];
+                });
+              });
+              return;
+            }
+
             startTransition(() => {
               setMessages((prev) => {
                 if (mode === "replace") {
@@ -873,6 +953,19 @@ export function useAgentChat() {
                     const next = [...prev];
                     next[idx] = {
                       ...next[idx],
+                      content: "",
+                      kind: "chat_card",
+                      chatCard: { cardId, docId, title, node },
+                    };
+                    return next;
+                  }
+                  const stableGuidance = `guidance-bubble:${cardId}`;
+                  const idxG = prev.findIndex((m) => m.id === stableGuidance);
+                  if (idxG >= 0) {
+                    const next = [...prev];
+                    next[idxG] = {
+                      id: newId(),
+                      role: "assistant",
                       content: "",
                       kind: "chat_card",
                       chatCard: { cardId, docId, title, node },
@@ -984,7 +1077,9 @@ export function useAgentChat() {
     runStatus,
     statusMessage,
     effectiveModel,
-    skillUiPatchEvent,
+    skillUiPatchQueue,
+    /** 兼容仅关心「最后一条」的组件（如路由 syntheticPath） */
+    skillUiPatchEvent: skillUiPatchQueue.at(-1) ?? null,
     skillUiBootstrapEvent,
     taskStatusEvent,
     activeModuleIds,

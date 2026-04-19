@@ -27,7 +27,8 @@ type ModuleRow = { syntheticPath: string; label: string };
 type Props = {
   threadId: string;
   activeModuleIds: ReadonlySet<string>;
-  skillUiPatchEvent: SkillUiDataPatchEvent | null | undefined;
+  /** 本会话内收到的 SkillUiDataPatch 序列（勿仅用最后一项，否则高频 patch 会丢） */
+  skillUiPatchQueue?: readonly SkillUiDataPatchEvent[] | null;
   skillUiBootstrapEvent: SkillUiBootstrapEvent | null | undefined;
   onOpenPreview: (path: string) => void;
   postToAgent: (text: string) => void;
@@ -59,13 +60,14 @@ function placeholderSyntheticPath(moduleId: string): string {
 export function DashboardNavigator({
   threadId,
   activeModuleIds,
-  skillUiPatchEvent,
+  skillUiPatchQueue,
   skillUiBootstrapEvent,
   onOpenPreview,
   postToAgent,
   isAgentRunning,
   activeSkillName,
 }: Props) {
+  const latestSkillUiPatch = skillUiPatchQueue?.length ? skillUiPatchQueue[skillUiPatchQueue.length - 1] : null;
   const [view, setView] = useState<"overview" | "module">("overview");
   const [modules, setModules] = useState<Map<string, ModuleRow>>(new Map());
   const [visible, setVisible] = useState(true);
@@ -130,14 +132,14 @@ export function DashboardNavigator({
 
   /** 收到大盘 Patch 时自动进入该模块的 Skill 视图（避免一直停在「项目总览」只看小卡片） */
   useEffect(() => {
-    const ev = skillUiPatchEvent;
+    const ev = latestSkillUiPatch;
     if (!ev?.syntheticPath) return;
     const moduleId = extractModuleId(ev.syntheticPath);
     if (!moduleId) return;
     if (userOverrideRef.current) return;
     if (view === "module" && activeModuleId === moduleId) return;
     switchToModule(moduleId, false);
-  }, [skillUiPatchEvent, view, activeModuleId, switchToModule]);
+  }, [latestSkillUiPatch, view, activeModuleId, switchToModule]);
 
   /** 侧栏/会话已锁定模块且仍在总览时，自动打开对应模块大盘 */
   useEffect(() => {
@@ -167,7 +169,7 @@ export function DashboardNavigator({
 
   // Patch / Bootstrap：只登记 syntheticPath 与 label，不切 Tab（由 ModuleSessionFocus 驱动）
   useEffect(() => {
-    const syntheticPath = skillUiPatchEvent?.syntheticPath ?? skillUiBootstrapEvent?.syntheticPath;
+    const syntheticPath = latestSkillUiPatch?.syntheticPath ?? skillUiBootstrapEvent?.syntheticPath;
     if (!syntheticPath) return;
     const moduleId = extractModuleId(syntheticPath);
     if (!moduleId) return;
@@ -181,7 +183,7 @@ export function DashboardNavigator({
       });
       return next;
     });
-  }, [skillUiPatchEvent, skillUiBootstrapEvent]);
+  }, [latestSkillUiPatch, skillUiBootstrapEvent]);
 
   // 焦点：补全未知模块占位、检测新增 id 并自动切 Tab
   useEffect(() => {
@@ -259,7 +261,7 @@ export function DashboardNavigator({
           allModules={moduleEntries}
           onSelectModule={(id) => switchToModule(id, true)}
           onBack={switchToOverview}
-          skillUiPatchEvent={skillUiPatchEvent}
+          skillUiPatchQueue={skillUiPatchQueue ?? []}
           onOpenPreview={onOpenPreview}
           postToAgent={postToAgent}
           isAgentRunning={isAgentRunning}

@@ -91,7 +91,7 @@ export default function Home() {
     runStatus,
     statusMessage,
     effectiveModel,
-    skillUiPatchEvent,
+    skillUiPatchQueue,
     skillUiBootstrapEvent,
     activeModuleIds,
     sendMessage,
@@ -435,12 +435,13 @@ export default function Home() {
     return null;
   }, [messages]);
 
+  // Prefer paths / HITL card skillName over LLM ``moduleId`` strings (often wrong or humanized).
   const dashboardActiveSkillName =
     activeSkillName?.trim() ||
-    moduleIdInferredFromMessages ||
-    skillNameInferredFromMessages ||
+    skillNameInferredFromSkillUiPath ||
     skillNameInferredFromChatCards ||
-    skillNameInferredFromSkillUiPath;
+    skillNameInferredFromMessages ||
+    moduleIdInferredFromMessages;
 
   const handleFillInput = useCallback((text: string) => {
     setInputPrefill(text);
@@ -1150,7 +1151,7 @@ export default function Home() {
                 <DashboardNavigator
                   threadId={threadId}
                   activeModuleIds={activeModuleIds}
-                  skillUiPatchEvent={skillUiPatchEvent}
+                  skillUiPatchQueue={skillUiPatchQueue}
                   skillUiBootstrapEvent={skillUiBootstrapEvent}
                   onOpenPreview={wakePreview}
                   postToAgent={(text) => void sendSilentMessage(text, selectedModel)}
@@ -1198,9 +1199,6 @@ export default function Home() {
                 onOpenPath={openFilePreview}
                 activeSkillName={dashboardActiveSkillName}
                 onFillInput={handleFillInput}
-                postToAgent={(text) => void sendSilentMessage(text, selectedModel)}
-                isAgentRunning={isAgentRunning}
-                skillUiPatchEvent={skillUiPatchEvent}
               />
             </div>
           </div>

@@ -52,10 +52,6 @@ export function ChatArea({
   onSelectPendingChoice,
   onDismissPendingChoices,
 }: Props) {
-  const inlineStatusTag =
-    !isLoading && runStatus === "completed" && statusMessage === "本轮执行完成"
-      ? "本轮执行完成"
-      : null;
   const showQuickReplies =
     Boolean(pendingChoices && pendingChoices.length > 0 && onSelectPendingChoice && onDismissPendingChoices);
 
@@ -119,7 +115,7 @@ export function ChatArea({
         messages={messages}
         isLoading={isLoading}
         showStreamingCaret={showStreamCaret}
-        inlineStatusTag={inlineStatusTag ?? undefined}
+        inlineStatusTag={undefined}
         onFileLinkClick={onFileLinkClick}
         onDeleteMessage={onDeleteMessage}
         searchQuery={searchQuery}

@@ -33,8 +33,10 @@ type Props = {
   isAgentRunning?: boolean;
   /** open_preview 动作打开预览 */
   onOpenPreview?: (path: string) => void;
-  /** v3：来自 SSE 的实时 patch（可能乱序/早到） */
+  /** v3：单条 patch（兼容旧调用方；与 incomingPatchQueue 二选一或并存时队列优先） */
   incomingPatchEvent?: SkillUiDataPatchEvent | null;
+  /** v3：本会话内同一面板的连续 patch（避免 React state 只保留最后一条导致 Stepper 等丢失） */
+  incomingPatchQueue?: readonly SkillUiDataPatchEvent[] | null;
 };
 
 function UnknownSkillUiPanel({ component, hint }: { component: string; hint?: string }) {
@@ -77,6 +79,7 @@ export function SkillUiWrapper({
   isAgentRunning = false,
   onOpenPreview,
   incomingPatchEvent = null,
+  incomingPatchQueue = null,
 }: Props) {
   const parsed = parseSkillUiPath(syntheticPath);
   const [data, setData] = useState<unknown>(undefined);
@@ -89,7 +92,12 @@ export function SkillUiWrapper({
 
   const pendingPatchesRef = useRef<SduiPatch[]>([]);
   const lastAppliedPatchIdRef = useRef<string>("");
+  const appliedPatchEventIdsRef = useRef<Set<string>>(new Set());
   const lastRevisionByDocIdRef = useRef<Map<string, number>>(new Map());
+
+  useEffect(() => {
+    appliedPatchEventIdsRef.current.clear();
+  }, [syntheticPath]);
 
   const postToAgentRaw = useCallback(
     (text: string) => {
@@ -112,6 +120,7 @@ export function SkillUiWrapper({
         setError(null);
         pendingPatchesRef.current = [];
         lastRevisionByDocIdRef.current.clear();
+        appliedPatchEventIdsRef.current.clear();
         return;
       }
 
@@ -121,6 +130,7 @@ export function SkillUiWrapper({
       setBaseDoc(null);
       pendingPatchesRef.current = [];
       lastRevisionByDocIdRef.current.clear();
+      appliedPatchEventIdsRef.current.clear();
 
       let dataFileTried = p.dataFile.replace(/\\/g, "/");
       const tryFetch = async (rel: string) => {
@@ -270,13 +280,55 @@ export function SkillUiWrapper({
 
   // Consume incoming SSE patches; buffer if base doc not ready.
   useEffect(() => {
+    const path = syntheticPath.trim();
+    const q = incomingPatchQueue ?? [];
+
+    if (q.length > 0) {
+      const fresh = q.filter((e) => e.syntheticPath.trim() === path && !appliedPatchEventIdsRef.current.has(e.id));
+      if (!fresh.length) return;
+      for (const e of fresh) appliedPatchEventIdsRef.current.add(e.id);
+      const patches = fresh.map((e) => e.patch);
+      if (!baseDoc) {
+        for (const patch of patches) {
+          skillUiPatchDebug("buffered until base document ready", {
+            docId: patch.docId,
+            revision: patch.revision,
+          });
+          pendingPatchesRef.current.push(patch);
+        }
+        return;
+      }
+      setBaseDoc((cur) => {
+        if (!cur) return cur;
+        let doc = cur;
+        for (const patch of patches) {
+          const docId = patch.docId.trim();
+          const revision = patch.revision;
+          if (!docId || typeof revision !== "number" || !Number.isFinite(revision)) {
+            skillUiPatchDebug("discard: invalid docId or revision", { docId: patch.docId, revision: patch.revision });
+            continue;
+          }
+          const last = lastRevisionByDocIdRef.current.get(docId) ?? 0;
+          if (revision <= last) {
+            skillUiPatchDebug("discard: revision not greater than last applied", { docId, revision, lastApplied: last });
+            continue;
+          }
+          lastRevisionByDocIdRef.current.set(docId, revision);
+          doc = applySduiPatch(doc, patch);
+          skillUiPatchDebug("applied (batch)", { docId, revision, opCount: patch.ops?.length ?? 0 });
+        }
+        queueMicrotask(() => setData(doc));
+        return doc;
+      });
+      return;
+    }
+
     if (!incomingPatchEvent) return;
     if (incomingPatchEvent.id === lastAppliedPatchIdRef.current) return;
 
-    // 精准路由：须与当前面板 syntheticPath 完全一致（多 Skill 防串台）
-    if (incomingPatchEvent.syntheticPath.trim() !== syntheticPath.trim()) {
+    if (incomingPatchEvent.syntheticPath.trim() !== path) {
       skillUiPatchDebug("discard: syntheticPath mismatch", {
-        panelPath: syntheticPath.trim(),
+        panelPath: path,
         eventPath: incomingPatchEvent.syntheticPath.trim(),
       });
       return;
@@ -294,7 +346,7 @@ export function SkillUiWrapper({
       return;
     }
     tryApplyPatch(patch);
-  }, [incomingPatchEvent, syntheticPath, baseDoc, tryApplyPatch]);
+  }, [incomingPatchQueue, incomingPatchEvent, syntheticPath, baseDoc, tryApplyPatch]);
 
   // Replay buffered patches once the base doc is ready.
   useEffect(() => {

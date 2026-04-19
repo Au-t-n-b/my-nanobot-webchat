@@ -10,7 +10,7 @@ type Props = {
   allModules: ModuleEntry[];
   onSelectModule: (id: string) => void;
   onBack: () => void;
-  skillUiPatchEvent: SkillUiDataPatchEvent | null | undefined;
+  skillUiPatchQueue?: readonly SkillUiDataPatchEvent[] | null;
   onOpenPreview: (path: string) => void;
   postToAgent: (text: string) => void;
   isAgentRunning: boolean;
@@ -22,7 +22,7 @@ export function ModuleDashboard({
   allModules,
   onSelectModule,
   onBack,
-  skillUiPatchEvent,
+  skillUiPatchQueue,
   onOpenPreview,
   postToAgent,
   isAgentRunning,
@@ -72,11 +72,9 @@ export function ModuleDashboard({
           <SkillUiWrapper
             key={entry.syntheticPath}
             syntheticPath={entry.syntheticPath}
-            incomingPatchEvent={
-              skillUiPatchEvent?.syntheticPath === entry.syntheticPath
-                ? skillUiPatchEvent
-                : null
-            }
+            incomingPatchQueue={(skillUiPatchQueue ?? []).filter(
+              (e) => e.syntheticPath.trim() === entry.syntheticPath.trim(),
+            )}
             onOpenPreview={onOpenPreview}
             postToAgent={postToAgent}
             isAgentRunning={isAgentRunning}

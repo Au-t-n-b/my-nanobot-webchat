@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Upload, CheckCircle2, AlertTriangle, Check } from "lucide-react";
 import type { SduiFilePickerNode } from "@/lib/sdui";
 import { useSkillUiRuntime } from "@/components/sdui/SkillUiRuntimeProvider";
@@ -53,10 +53,47 @@ export function SduiFilePicker({
 }: Props) {
   const { syncState, postToAgent } = useSkillUiRuntime();
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const submitAnchorRef = useRef<HTMLDivElement | null>(null);
   const [state, setState] = useState<UploadState>({ status: "idle" });
   const [dragOver, setDragOver] = useState(false);
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFileRecord[]>([]);
+  const [hitlSubmitted, setHitlSubmitted] = useState(false);
   const legacyGate = useLegacyModuleActionAllowed(moduleId);
+
+  const pendingRequestId = useMemo(
+    () => (hitlRequestId ?? "").trim() || (cardId ?? "").trim(),
+    [hitlRequestId, cardId],
+  );
+  const isSkillHitl = Boolean((skillName ?? "").trim() && pendingRequestId);
+
+  // 下一轮 HITL（新 hitlRequestId）或同卡被 SSE replace 时，必须清空「已提交」与本地文件列表，
+  // 否则会卡在已提交且无法再次点击继续；用户只能重启技能才能再走 start。
+  const skillHitlWaveKey = useMemo(
+    () =>
+      [
+        (hitlRequestId ?? "").trim(),
+        (cardId ?? "").trim(),
+        String(purpose ?? ""),
+        String(nextAction ?? ""),
+        String(stepId ?? ""),
+      ].join("|"),
+    [hitlRequestId, cardId, purpose, nextAction, stepId],
+  );
+
+  const prevSkillHitlWaveKey = useRef<string | null>(null);
+  useEffect(() => {
+    if (!isSkillHitl) return;
+    if (prevSkillHitlWaveKey.current === null) {
+      prevSkillHitlWaveKey.current = skillHitlWaveKey;
+      return;
+    }
+    if (prevSkillHitlWaveKey.current === skillHitlWaveKey) return;
+    prevSkillHitlWaveKey.current = skillHitlWaveKey;
+    setHitlSubmitted(false);
+    setUploadedFiles([]);
+    setState({ status: "idle" });
+    setDragOver(false);
+  }, [skillHitlWaveKey, isSkillHitl]);
 
   const uploadOne = useCallback(
     (file: File) =>
@@ -96,9 +133,47 @@ export function SduiFilePicker({
     [purpose, saveRelativeDir],
   );
 
+  const submitSkillHitlResult = useCallback(() => {
+    if (hitlSubmitted || !isSkillHitl) return;
+    const skill = (skillName ?? "").trim();
+    const namespace = (stateNamespace ?? "").trim();
+    const sid = (stepId ?? "").trim();
+    if (uploadedFiles.length === 0) return;
+    const latest = uploadedFiles[uploadedFiles.length - 1]!;
+    postToAgent(
+      JSON.stringify({
+        type: "chat_card_intent",
+        verb: "skill_runtime_result",
+        payload: {
+          type: "skill_runtime_result",
+          skillName: skill,
+          requestId: pendingRequestId,
+          status: "ok",
+          ...(namespace ? { stateNamespace: namespace } : {}),
+          ...(sid ? { stepId: sid } : {}),
+          result: {
+            upload: latest,
+            uploads: uploadedFiles,
+          },
+        },
+      }),
+    );
+    setHitlSubmitted(true);
+  }, [
+    hitlSubmitted,
+    isSkillHitl,
+    skillName,
+    pendingRequestId,
+    stateNamespace,
+    stepId,
+    uploadedFiles,
+    postToAgent,
+  ]);
+
   const finishUpload = useCallback(
     async (files: File[]) => {
       try {
+        if (isSkillHitl && hitlSubmitted) return;
         const chosen = multiple ? files : files.slice(0, 1);
         if (!chosen.length) return;
         const baseUploads = multiple ? uploadedFiles : [];
@@ -131,35 +206,14 @@ export function SduiFilePicker({
         const mid = (moduleId ?? "").trim();
         const na = (nextAction ?? "").trim();
         const cid = (cardId ?? "").trim();
-        const hitlRid = (hitlRequestId ?? "").trim();
         if (latest) {
-          const skill = (skillName ?? "").trim();
-          const namespace = (stateNamespace ?? "").trim();
-          const sid = (stepId ?? "").trim();
-          // Skill-first: if the SDUI node is tied to a skill HITL request, always return via skill_runtime_result.
-          // (Option 1: platform must not depend on legacy module_action flow.)
-          // PendingHitlStore keys by HITL payload.requestId; MissionControl injects it as hitlRequestId on the node.
-          const pendingRequestId = hitlRid || cid;
-          if (skill && pendingRequestId) {
-            postToAgent(
-              JSON.stringify({
-                type: "chat_card_intent",
-                verb: "skill_runtime_result",
-                payload: {
-                  type: "skill_runtime_result",
-                  skillName: skill,
-                  requestId: pendingRequestId,
-                  status: "ok",
-                  // action can be omitted; backend will fall back to pending.resume_action
-                  ...(namespace ? { stateNamespace: namespace } : {}),
-                  ...(sid ? { stepId: sid } : {}),
-                  result: {
-                    upload: latest,
-                    uploads: nextUploads,
-                  },
-                },
-              }),
-            );
+          if (isSkillHitl) {
+            // Skill-first: 仅落盘 + 本地累积；由用户点击「完成上传并继续」一次性 resume。
+            queueMicrotask(() => {
+              requestAnimationFrame(() => {
+                submitAnchorRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+              });
+            });
             return;
           }
 
@@ -210,17 +264,17 @@ export function SduiFilePicker({
       multiple,
       saveRelativeDir,
       uploadedFiles,
-      skillName,
-      stateNamespace,
-      stepId,
-      hitlRequestId,
+      isSkillHitl,
+      hitlSubmitted,
       legacyGate.allowed,
       legacyGate.reason,
     ],
   );
 
+  const skillLocked = isSkillHitl && hitlSubmitted;
+
   const onPick = () => {
-    if (state.status === "uploading") return;
+    if (state.status === "uploading" || skillLocked) return;
     inputRef.current?.click();
   };
 
@@ -234,7 +288,7 @@ export function SduiFilePicker({
   const onDragOver = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    if (state.status === "uploading") return;
+    if (state.status === "uploading" || skillLocked) return;
     setDragOver(true);
   };
 
@@ -248,7 +302,7 @@ export function SduiFilePicker({
     e.preventDefault();
     e.stopPropagation();
     setDragOver(false);
-    if (state.status === "uploading") return;
+    if (state.status === "uploading" || skillLocked) return;
     const files = e.dataTransfer.files ? Array.from(e.dataTransfer.files) : [];
     if (!files.length) return;
     await finishUpload(files);
@@ -256,7 +310,10 @@ export function SduiFilePicker({
 
   return (
     <div
-      className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-2)] p-4"
+      className={[
+        "rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-2)] p-4",
+        skillLocked ? "pointer-events-none opacity-70" : "",
+      ].join(" ")}
       data-testid="sdui-file-picker"
     >
       <div className="flex items-start gap-3">
@@ -266,11 +323,16 @@ export function SduiFilePicker({
         <div className="min-w-0 flex-1">
           <div className="text-sm font-semibold ui-text-primary">{label}</div>
           {helpText ? <div className="mt-1 text-xs ui-text-secondary leading-relaxed">{helpText}</div> : null}
+          {(saveRelativeDir ?? "").trim() ? (
+            <div className="mt-1 font-mono text-[10px] ui-text-muted opacity-90">
+              保存目录（workspace 相对）：{(saveRelativeDir ?? "").trim().replace(/\\/g, "/").replace(/\/$/, "")}/
+            </div>
+          ) : null}
 
           <div
             role="button"
-            aria-label="将文件拖入此窗口上传，或点击选择文件"
-            tabIndex={0}
+            aria-label="点击选择或将文件拖拽至此上传"
+            tabIndex={skillLocked ? -1 : 0}
             onKeyDown={(e) => {
               if (e.key === "Enter" || e.key === " ") {
                 e.preventDefault();
@@ -282,22 +344,16 @@ export function SduiFilePicker({
             onDrop={onDrop}
             onClick={onPick}
             className={[
-              "mt-3 min-h-[148px] rounded-xl border-2 border-dashed px-4 py-10 text-center transition-colors cursor-pointer select-none flex flex-col items-center justify-center gap-2",
+              "mt-3 min-h-[120px] rounded-xl border-2 border-dashed px-4 py-8 text-center transition-colors cursor-pointer select-none flex flex-col items-center justify-center gap-2",
               dragOver
                 ? "border-[var(--accent)] bg-[color-mix(in_oklab,var(--accent)_12%,var(--surface-2))]"
                 : "border-[var(--border-subtle)] bg-[var(--surface-3)]/40 hover:border-[var(--accent)]/50",
               state.status === "uploading" ? "pointer-events-none opacity-80" : "",
+              skillLocked ? "pointer-events-none opacity-60" : "",
             ].join(" ")}
           >
             <Upload className="h-8 w-8 ui-text-muted opacity-60" aria-hidden />
-            <p className="text-sm font-medium ui-text-primary">将文件拖入此窗口</p>
-            <p className="text-xs ui-text-secondary max-w-[18rem]">
-              松开即上传到工作区；亦可点击此区域从磁盘选择
-              {multiple ? <span className="block mt-1">支持多文件与补充追加上传</span> : null}
-              {saveRelativeDir ? (
-                <span className="block mt-2 font-mono text-[10px] opacity-80">{saveRelativeDir}/</span>
-              ) : null}
-            </p>
+            <p className="text-sm font-medium ui-text-primary">点击选择，或将文件拖拽至此</p>
           </div>
 
           <div className="mt-3 flex items-center gap-2 flex-wrap">
@@ -307,10 +363,10 @@ export function SduiFilePicker({
                 e.stopPropagation();
                 onPick();
               }}
-              disabled={state.status === "uploading"}
+              disabled={state.status === "uploading" || skillLocked}
               className={[
                 "rounded-lg px-3 py-1.5 text-sm font-medium ui-btn-accent inline-flex items-center gap-1.5",
-                state.status === "uploading" ? "opacity-70 cursor-not-allowed" : "",
+                state.status === "uploading" || skillLocked ? "opacity-70 cursor-not-allowed" : "",
               ].join(" ").trim()}
             >
               {uploadedFiles.length > 0 ? (
@@ -331,6 +387,7 @@ export function SduiFilePicker({
               accept={accept}
               multiple={Boolean(multiple)}
               onChange={onChange}
+              disabled={skillLocked}
             />
             {state.status === "success" ? (
               <span className="inline-flex items-center gap-1 text-xs" style={{ color: "var(--success)" }}>
@@ -372,6 +429,36 @@ export function SduiFilePicker({
                   status: "ready",
                 }))}
               />
+            </div>
+          ) : null}
+
+          {isSkillHitl && !hitlSubmitted ? (
+            <div ref={submitAnchorRef} className="mt-5">
+              <button
+                type="button"
+                disabled={uploadedFiles.length === 0 || state.status === "uploading"}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  submitSkillHitlResult();
+                }}
+                className={[
+                  "w-full min-h-[44px] rounded-lg px-4 py-3 text-sm font-semibold ui-btn-accent",
+                  "shadow-sm border border-[color-mix(in_oklab,var(--accent)_35%,transparent)]",
+                  "disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none",
+                ].join(" ")}
+              >
+                完成上传并继续
+              </button>
+              <p className="mt-2 text-center text-xs ui-text-secondary">
+                上传完成后请点击「完成上传并继续」，以继续流程
+              </p>
+            </div>
+          ) : null}
+
+          {isSkillHitl && hitlSubmitted ? (
+            <div className="mt-5 flex items-center justify-center gap-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-3)] py-3 text-sm font-semibold text-[var(--success)]">
+              <CheckCircle2 className="h-5 w-5 shrink-0" aria-hidden />
+              已提交
             </div>
           ) : null}
         </div>

@@ -198,17 +198,36 @@ class ChatCardErrorBoundary extends Component<
   }
 }
 
+function isPlainGuidanceCardNode(node: unknown): boolean {
+  if (!node || typeof node !== "object") return false;
+  const n = node as { type?: unknown; actions?: unknown };
+  if (n.type !== "GuidanceCard") return false;
+  const actions = Array.isArray(n.actions) ? n.actions : [];
+  return actions.length === 0;
+}
+
 function ChatCardBubble({
   msg,
   onFileLinkClick,
   postToAgentRaw,
+  searchQuery,
 }: {
   msg: AgentMessage;
   onFileLinkClick?: (path: string) => void;
   postToAgentRaw: (text: string) => void;
+  searchQuery?: string;
 }) {
   const card = msg.chatCard;
   if (!card) return null;
+  if (isPlainGuidanceCardNode(card.node)) {
+    const text = String((card.node as { context?: unknown }).context ?? "").trim();
+    if (!text) return null;
+    return (
+      <div className="w-full max-w-[min(100%,28rem)] rounded-2xl rounded-tl-sm px-5 py-4 text-base leading-relaxed ui-card">
+        <AgentMarkdown content={text} onFileLinkClick={onFileLinkClick} searchQuery={searchQuery} />
+      </div>
+    );
+  }
   // Force unmount on replace (new event id) to ensure any debounced timers in SDUI inputs are cleaned up.
   const mountKey = `${card.cardId}:${card.docId}`;
   return (
@@ -269,6 +288,14 @@ export const MessageList = memo(function MessageList({
             const isUser = m.role === "user";
             const assistantWaiting = !isUser && isLoading && isLast && !m.content?.trim();
             const isChatCard = m.kind === "chat_card" && m.chatCard;
+            const ghostRunFinishedLine =
+              m.role === "assistant" &&
+              m.kind !== "chat_card" &&
+              (m.content ?? "").trim() === "本轮执行完成";
+
+            if (ghostRunFinishedLine) {
+              return <li key={m.id} className="hidden" aria-hidden />;
+            }
 
             return (
               <li key={m.id} className={isUser ? "flex flex-col items-end gap-0" : "flex flex-row items-start gap-3"}>
@@ -280,6 +307,7 @@ export const MessageList = memo(function MessageList({
                       msg={m}
                       onFileLinkClick={onFileLinkClick}
                       postToAgentRaw={chatCardPostToAgent ?? (() => {})}
+                      searchQuery={searchQuery}
                     />
                   ) : (
                     <div

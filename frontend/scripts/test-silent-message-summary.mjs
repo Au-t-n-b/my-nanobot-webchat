@@ -9,7 +9,7 @@ const __dirname = path.dirname(__filename);
 const hookPath = path.join(__dirname, "../hooks/useAgentChat.ts");
 const hookSource = fs.readFileSync(hookPath, "utf8");
 
-test("silent module actions only append meaningful assistant completion summary", () => {
+test("silent card intents do not append RunFinished.message to transcript", () => {
   assert.match(
     hookSource,
     /options\?: \{ showInTranscript\?: boolean,\s*showCompletionMessage\?: boolean \}/,
@@ -20,19 +20,15 @@ test("silent module actions only append meaningful assistant completion summary"
   );
   assert.match(
     hookSource,
-    /if \(\(showInTranscript \|\| showCompletionMessage\) && finishMsg\)/,
-  );
-  assert.match(
-    hookSource,
     /const allowSilentCompletionMessage = !showCompletionMessage \|\| !\/\^已进入下一步\[:：\]\/\.test\(finishMsg\);/,
   );
   assert.match(
     hookSource,
-    /if \(\(showInTranscript \|\| showCompletionMessage\) && finishMsg && allowSilentCompletionMessage\)/,
+    /if \(showInTranscript && finishMsg && allowSilentCompletionMessage\)/,
   );
   assert.match(
     hookSource,
-    /showInTranscript \? prev\.map\([\s\S]*?: \[\.\.\.prev,\s*\{ id: newId\(\), role: "assistant", content: finishMsg \}\]/,
+    /showInTranscript && finishMsg && allowSilentCompletionMessage[\s\S]*?prev\.map\(\(m\) =>/,
   );
   assert.match(
     hookSource,

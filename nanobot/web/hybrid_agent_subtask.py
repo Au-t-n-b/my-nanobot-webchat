@@ -9,6 +9,7 @@ from typing import Any
 from loguru import logger
 
 from nanobot.agent.skills import BUILTIN_SKILLS_DIR
+from nanobot.agent.tools.doc_text import ExtractDocTextTool
 from nanobot.agent.tools.filesystem import ListDirTool, ReadFileTool
 from nanobot.agent.tools.registry import ToolRegistry
 from nanobot.utils.helpers import build_assistant_message
@@ -45,6 +46,9 @@ def _build_tool_registry(
         )
     if "list_dir" in allowed:
         tools.register(ListDirTool(workspace=workspace, allowed_dir=allowed_dir, extra_allowed_dirs=extra_read))
+    if "extract_doc_text" in allowed:
+        # Always enforce workspace restriction at the tool level.
+        tools.register(ExtractDocTextTool(workspace=workspace))
     return tools
 
 

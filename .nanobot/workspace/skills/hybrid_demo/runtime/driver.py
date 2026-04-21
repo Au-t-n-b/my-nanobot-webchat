@@ -65,7 +65,7 @@ def main() -> int:
     # Always ensure a readable demo artifact exists for hybrid subtask.
     result_path = _ensure_demo_files(skill_root)
 
-    if action not in {"start"}:
+    if action not in {"start", "analyze_upload"}:
         _print_event(
             {
                 "event": "chat.guidance",
@@ -74,13 +74,76 @@ def main() -> int:
                 "skillRunId": run_id,
                 "timestamp": _now_ms(),
                 "payload": {
-                    "context": f"hybrid_demo 未识别 action={action}，仅支持 start。",
+                    "context": f"hybrid_demo 未识别 action={action}，仅支持 start/analyze_upload。",
                     "actions": [],
                     "cardId": "hybrid_demo:unknown_action",
                 },
             }
         )
         return 0
+
+    if action == "start":
+        # Step 0: Ask user to upload a doc/docx for analysis.
+        _print_event(
+            {
+                "event": "hitl.file_request",
+                "threadId": thread_id,
+                "skillName": skill_name,
+                "skillRunId": run_id,
+                "timestamp": _now_ms(),
+                "payload": {
+                    "requestId": f"{request_id}:upload_doc",
+                    "cardId": "hybrid_demo:upload_doc",
+                    "purpose": "hybrid-demo-doc",
+                    "title": "请上传一个 .doc 或 .docx 文件（用于混合子任务分析）",
+                    "description": "上传后将自动触发受控子任务读取并生成摘要，回填到右侧大盘。",
+                    "accept": ".doc,.docx",
+                    "multiple": False,
+                    "mode": "replace",
+                    "resumeAction": "analyze_upload",
+                    "saveRelativeDir": "skills/hybrid_demo/ProjectData/Input",
+                    "stepId": "hybrid_demo.step0.upload",
+                },
+            }
+        )
+        _print_event(
+            {
+                "event": "chat.guidance",
+                "threadId": thread_id,
+                "skillName": skill_name,
+                "skillRunId": run_id,
+                "timestamp": _now_ms(),
+                "payload": {
+                    "context": "请先上传 .doc/.docx 文件；上传完成后我会用混合子任务读取并生成摘要。",
+                    "actions": [],
+                    "cardId": "hybrid_demo:upload_prompt",
+                },
+            }
+        )
+        return 0
+
+    # action == analyze_upload
+    # Try to locate uploaded file name from resume payload; fall back to listing Input dir.
+    raw_result = req.get("result")
+    uploaded_name = ""
+    if isinstance(raw_result, dict):
+        files = raw_result.get("files")
+        if isinstance(files, list) and files:
+            first = files[0]
+            if isinstance(first, dict):
+                uploaded_name = str(first.get("name") or "").strip()
+    input_dir = skill_root / "ProjectData" / "Input"
+    doc_path = ""
+    if uploaded_name:
+        doc_path = str((input_dir / uploaded_name).resolve())
+    else:
+        try:
+            for cand in sorted(input_dir.glob("*")):
+                if cand.suffix.lower() in {".doc", ".docx"}:
+                    doc_path = str(cand.resolve())
+                    break
+        except Exception:
+            doc_path = ""
 
     # 1) 主流程先写一段提示到 dashboard
     _print_event(
@@ -100,7 +163,7 @@ def main() -> int:
                         "value": {
                             "type": "Text",
                             "id": "summary-text",
-                            "content": "主流程已启动：即将委托受控 Agent 子任务读取 skill_result.json 并生成摘要…",
+                            "content": "已收到上传文件：即将委托受控 Agent 子任务读取 .doc/.docx 并生成摘要…",
                         },
                     }
                 ],
@@ -108,7 +171,7 @@ def main() -> int:
         }
     )
 
-    # 2) 委托受控 Agent 子任务：读取 workspace 内文件并总结，然后回填同一节点
+    # 2) 委托受控 Agent 子任务：提取 doc/docx 文本并总结，然后回填同一节点
     _print_event(
         {
             "event": "skill.agent_task_execute",
@@ -121,11 +184,11 @@ def main() -> int:
                 "taskId": f"{request_id}:hybrid_demo:summary",
                 "stepId": "hybrid_demo.step1.summary",
                 "goal": (
-                    "请在当前技能工作区内使用工具读取事实并输出简短中文摘要（<=200字）：\n"
-                    f"- 文件：{result_path.as_posix()}\n"
-                    "要求：不要编造未读到的字段。"
+                    "你将收到一个上传的 Word 文件路径。请使用工具 `extract_doc_text` 提取其文本后，输出简短中文摘要（<=200字）。\n"
+                    f"- Word 文件：{doc_path or '(未找到上传文件，请先 list_dir skills/hybrid_demo/ProjectData/Input)'}\n"
+                    "要求：不要编造未提取到的内容。"
                 ),
-                "allowedTools": ["read_file", "list_dir"],
+                "allowedTools": ["extract_doc_text", "list_dir"],
                 "maxIterations": 4,
                 "resultSchema": {"type": "string"},
                 "syntheticPath": synthetic_path,

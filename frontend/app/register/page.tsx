@@ -15,7 +15,7 @@ export default function RegisterPage() {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    if (isLoggedIn()) router.replace("/");
+    if (isLoggedIn()) router.replace("/workbench");
   }, [router]);
 
   const submit = (e: React.FormEvent) => {
@@ -28,7 +28,7 @@ export default function RegisterPage() {
         setError(r.error);
         return;
       }
-      router.replace("/");
+      router.replace("/workbench");
     } finally {
       setBusy(false);
     }

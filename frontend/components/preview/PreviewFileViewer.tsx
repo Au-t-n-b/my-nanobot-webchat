@@ -15,6 +15,7 @@ import { MermaidRenderer } from "./renderers/MermaidRenderer";
 import { BinaryRenderer } from "./renderers/BinaryRenderer";
 import { DataGridRenderer } from "./renderers/DataGridRenderer";
 import { XlsxRenderer } from "./renderers/XlsxRenderer";
+import { ArchiveRenderer } from "./renderers/ArchiveRenderer";
 import { defaultParser, parserRegistry, type PreviewPayload } from "./previewParsers";
 import type { PreviewResolution } from "./previewTypes";
 
@@ -199,6 +200,19 @@ export function PreviewFileViewer({
 
   if (payload.type === "mermaid") {
     return <MermaidRenderer path={path} resolution={resolution} svg={payload.svg} source={payload.source} />;
+  }
+
+  if (payload.type === "zip") {
+    return (
+      <ArchiveRenderer
+        path={path}
+        resolution={resolution}
+        payload={payload}
+        onOpenPath={onOpenPath}
+        activeSkillName={activeSkillName}
+        onFillInput={onFillInput}
+      />
+    );
   }
 
   return null;

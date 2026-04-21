@@ -11,11 +11,34 @@
         "title": "Hybrid Demo",
         "children": [
           {
+            "type": "Stepper",
+            "id": "stepper-main",
+            "mode": "horizontal",
+            "steps": [
+              { "label": "启动", "status": "running" },
+              { "label": "子任务摘要", "status": "waiting" }
+            ]
+          },
+          {
             "type": "Text",
             "id": "summary-text",
             "variant": "body",
             "color": "subtle",
             "content": "等待运行：请从左侧触发 skill_runtime_start（skillName=hybrid_demo）。"
+          },
+          {
+            "type": "ArtifactGrid",
+            "id": "uploaded-files",
+            "title": "已上传文件",
+            "mode": "input",
+            "artifacts": []
+          },
+          {
+            "type": "ArtifactGrid",
+            "id": "artifacts",
+            "title": "作业结果",
+            "mode": "output",
+            "artifacts": []
           }
         ]
       }

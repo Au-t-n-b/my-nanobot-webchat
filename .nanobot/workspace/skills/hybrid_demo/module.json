@@ -1,6 +1,7 @@
 {
   "schemaVersion": 1,
   "moduleId": "hybrid_demo",
+  "flow": "hybrid_demo",
   "docId": "dashboard:hybrid-demo",
   "dataFile": "workspace/skills/hybrid_demo/data/dashboard.json",
   "label": "Hybrid Demo",

@@ -7,9 +7,12 @@ import json
 import re
 import uuid
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from loguru import logger
+
+import os
+from pathlib import Path
 
 from nanobot.web.mission_control import MissionControlManager
 from nanobot.web.skill_ui_patch import build_skill_ui_data_patch_payload
@@ -47,6 +50,7 @@ SUPPORTED_SKILL_RUNTIME_EVENTS = {
     "hitl.confirm_request",
     "artifact.publish",
     "task_progress.sync",
+    "skill.agent_task_execute",
     "skill.epilogue",
 }
 
@@ -333,6 +337,169 @@ async def _emit_task_progress_sync(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _hybrid_task_progress_payload(
+    *,
+    skill_name: str,
+    task_id: str,
+    step_label: str,
+    outcome_phase: Literal["running", "success", "failed", "skipped"],
+) -> dict[str, Any]:
+    """Single-module snapshot for TaskStatusUpdate (merged client-side by module id).
+
+    Hybrid lanes use module id ``hybrid:{skill}``. Terminal phases must not mislabel
+    failures/skips as ``completed`` — frontend filters ``hybrid:`` from global progress.
+    """
+    now_ms = int(datetime.now().timestamp() * 1000)
+    mod_id = f"hybrid:{skill_name}"
+    if outcome_phase == "running":
+        overall = {"doneCount": 0, "totalCount": 1}
+        mod_status = "running"
+        step_done = False
+    elif outcome_phase == "success":
+        overall = {"doneCount": 1, "totalCount": 1}
+        mod_status = "completed"
+        step_done = True
+    elif outcome_phase == "failed":
+        overall = {"doneCount": 0, "totalCount": 1}
+        mod_status = "failed"
+        step_done = True
+    else:  # skipped
+        overall = {"doneCount": 0, "totalCount": 1}
+        mod_status = "skipped"
+        step_done = True
+    return {
+        "updatedAt": now_ms,
+        "overall": overall,
+        "modules": [
+            {
+                "id": mod_id,
+                "name": f"受控Agent·{skill_name}",
+                "status": mod_status,
+                "steps": [
+                    {
+                        "id": (task_id or mod_id)[:80],
+                        "name": (step_label or "子任务")[:120],
+                        "done": step_done,
+                    }
+                ],
+            }
+        ],
+    }
+
+
+async def _emit_skill_agent_task_execute(
+    *,
+    envelope: dict[str, Any],
+    payload: dict[str, Any],
+    thread_id: str,
+    agent_loop: Any,
+) -> dict[str, Any]:
+    """Execute a bounded Agent subtask inside the skill resume chain (await-friendly)."""
+    from nanobot.web.hybrid_agent_subtask import run_hybrid_agent_subtask
+    from nanobot.web.skill_ui_patch import _merge_op_for_node
+
+    envelope_skill = str(envelope.get("skillName") or "").strip()
+    skill_name = envelope_skill or str(payload.get("skillName") or "").strip() or "skill"
+    task_id = str(payload.get("taskId") or "").strip() or f"hybrid-{uuid.uuid4().hex[:12]}"
+    goal = str(payload.get("goal") or "").strip()
+    if not goal:
+        return {"ok": False, "event": "skill.agent_task_execute", "error": "missing_goal"}
+
+    raw_allowed = payload.get("allowedTools")
+    if isinstance(raw_allowed, list) and raw_allowed:
+        allowed_tools = [str(x).strip() for x in raw_allowed if str(x).strip()]
+    else:
+        allowed_tools = ["read_file", "list_dir"]
+    if not allowed_tools:
+        allowed_tools = ["read_file", "list_dir"]
+
+    try:
+        max_iterations = int(payload.get("maxIterations") or 8)
+    except (TypeError, ValueError):
+        max_iterations = 8
+    max_iterations = max(1, min(max_iterations, 32))
+
+    step_hint = str(payload.get("stepId") or "hybrid.subtask").strip() or "hybrid.subtask"
+
+    synthetic_path = str(payload.get("syntheticPath") or "").strip()
+    doc_id = str(payload.get("docId") or "").strip() or "dashboard:runtime"
+    summary_node_id = str(payload.get("summaryNodeId") or "summary-text").strip() or "summary-text"
+
+    if agent_loop is None:
+        await _emit_task_progress_sync(
+            _hybrid_task_progress_payload(
+                skill_name=skill_name,
+                task_id=task_id,
+                step_label="已跳过(无 Agent 会话绑定)",
+                outcome_phase="skipped",
+            )
+        )
+        logger.info(
+            "skill.agent_task_execute skipped | thread_id={} task_id={} reason=no_agent_loop",
+            thread_id,
+            task_id,
+        )
+        return {"ok": True, "event": "skill.agent_task_execute", "taskId": task_id, "skipped": True}
+
+    await _emit_task_progress_sync(
+        _hybrid_task_progress_payload(
+            skill_name=skill_name,
+            task_id=task_id,
+            step_label=step_hint,
+            outcome_phase="running",
+        )
+    )
+
+    hybrid = await run_hybrid_agent_subtask(
+        agent_loop=agent_loop,
+        goal=goal,
+        allowed_tools=allowed_tools,
+        max_iterations=max_iterations,
+    )
+    ok = bool(hybrid.get("ok"))
+    final_label = "子任务完成" if ok else f"失败: {str(hybrid.get('error') or '')}"[:120]
+    await _emit_task_progress_sync(
+        _hybrid_task_progress_payload(
+            skill_name=skill_name,
+            task_id=task_id,
+            step_label=final_label,
+            outcome_phase="success" if ok else "failed",
+        )
+    )
+
+    text = str(hybrid.get("text") or "").strip()
+    if not text:
+        text = str(hybrid.get("error") or ("子任务失败" if not ok else "")).strip()
+
+    if synthetic_path and text:
+        try:
+            # TODO(hybrid): merge op type is coupled to dashboard JSON; default Text matches gongkan summary-text.
+            # Optional payload ``summaryNodeType`` must match the live node's ``type`` or the client drops the merge.
+            summary_node_type = str(payload.get("summaryNodeType") or "Text").strip() or "Text"
+            merge_op = _merge_op_for_node(
+                summary_node_id,
+                summary_node_type,
+                {"content": text[:8000]},
+            )
+            await _emit_dashboard_patch(
+                {
+                    "syntheticPath": synthetic_path,
+                    "docId": doc_id,
+                    "ops": [merge_op],
+                }
+            )
+        except Exception as e:
+            logger.warning("skill.agent_task_execute patch failed | thread_id={} | {}", thread_id, e)
+
+    return {
+        "ok": True,
+        "event": "skill.agent_task_execute",
+        "taskId": task_id,
+        "subtaskOk": ok,
+        "summary": (text or final_label)[:200],
+    }
+
+
 def _skill_epilogue_user_prompt(stats: dict[str, Any]) -> str:
     parts = [
         "工勘流程已闭环，请根据以下摘要写一句结案陈词（仅一句）。",
@@ -447,6 +614,13 @@ async def emit_skill_runtime_event(
         return await _emit_artifact_publish(mc=mc, payload=payload)
     if event == "task_progress.sync":
         return await _emit_task_progress_sync(payload)
+    if event == "skill.agent_task_execute":
+        return await _emit_skill_agent_task_execute(
+            envelope=envelope,
+            payload=payload,
+            thread_id=thread_id,
+            agent_loop=agent_loop,
+        )
     if event == "skill.epilogue":
         stats = payload.get("stats")
         if not isinstance(stats, dict):
@@ -476,6 +650,110 @@ def _tool_call_id_from_pending_payload(payload_json: str | None) -> str:
     except json.JSONDecodeError:
         return ""
     return ""
+
+
+def _upload_save_location_alias_from_pending_payload(payload_json: str | None) -> str:
+    if not isinstance(payload_json, str) or not payload_json.strip():
+        return ""
+    try:
+        data = json.loads(payload_json)
+        if isinstance(data, dict):
+            return str(data.get("saveLocationAlias") or "").strip()
+    except json.JSONDecodeError:
+        return ""
+    return ""
+
+
+def _desktop_subdir_from_pending_payload(payload_json: str | None) -> str:
+    if not isinstance(payload_json, str) or not payload_json.strip():
+        return ""
+    try:
+        data = json.loads(payload_json)
+        if isinstance(data, dict):
+            return str(data.get("desktopSubdir") or "").strip()
+    except json.JSONDecodeError:
+        return ""
+    return ""
+
+
+def _agui_workspace_root_fallback() -> Path:
+    raw = str(os.environ.get("NANOBOT_AGUI_WORKSPACE") or os.environ.get("NANOBOT_AGUI_WORKSPACE_ROOT") or "").strip()
+    if raw:
+        try:
+            return Path(os.path.expanduser(raw)).resolve()
+        except Exception:
+            pass
+    return (Path.home() / ".nanobot" / "workspace").resolve()
+
+
+def _safe_desktop_subdir(name: str) -> str:
+    # Keep it simple: one folder name, no slashes or traversal.
+    t = str(name or "").strip().strip("/\\")
+    if not t:
+        return ""
+    if any(x in t for x in ("/", "\\", "..", ":")):
+        return ""
+    # Windows reserved chars
+    bad = '\\/:*?"<>|'
+    cleaned = "".join("_" if ch in bad else ch for ch in t)
+    cleaned = " ".join(cleaned.split())
+    return cleaned[:80]
+
+
+def _try_copy_workspace_upload_to_desktop(*, resolved_result: Any, desktop_subdir: str) -> dict[str, Any] | None:
+    """Best-effort: when agent upload targets Desktop, copy staged file to Desktop and return patched result.
+
+    UI upload API is restricted to workspace-relative paths; we stage under workspace then copy out.
+    """
+    if not isinstance(resolved_result, dict):
+        return None
+    upload = resolved_result.get("upload")
+    if not isinstance(upload, dict):
+        return None
+    logical = str(upload.get("logicalPath") or "").strip()
+    if not logical:
+        return None
+    # Expect logicalPath like: workspace/uploads/temp/foo.xlsx
+    p = logical.replace("\\", "/")
+    if p.startswith("workspace/"):
+        p = p[len("workspace/") :]
+    ws_root = _agui_workspace_root_fallback()
+    src = (ws_root / p).resolve()
+    if not src.is_file():
+        return None
+
+    # Desktop path resolution (Windows/macOS/Linux best-effort)
+    desktop_root = Path(os.path.expanduser("~/Desktop")).resolve()
+    if not desktop_root.exists() or not desktop_root.is_dir():
+        return None
+    sub = _safe_desktop_subdir(desktop_subdir)
+    desktop = (desktop_root / sub).resolve() if sub else desktop_root
+    try:
+        desktop.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        return None
+    dst = (desktop / src.name).resolve()
+    try:
+        # Avoid overwrite by suffixing
+        if dst.exists():
+            stem = dst.stem
+            suf = dst.suffix
+            for i in range(2, 2000):
+                cand = desktop / f"{stem} ({i}){suf}"
+                if not cand.exists():
+                    dst = cand.resolve()
+                    break
+        dst.write_bytes(src.read_bytes())
+    except Exception:
+        return None
+
+    patched = dict(resolved_result)
+    patched_upload = dict(upload)
+    patched_upload["desktopPath"] = str(dst)
+    if sub:
+        patched_upload["desktopDir"] = str(desktop)
+    patched["upload"] = patched_upload
+    return patched
 
 
 async def _persist_agent_upload_tool_result(
@@ -687,12 +965,16 @@ async def dispatch_skill_runtime_intent(
             p_status,
         )
         tool_call_id = ""
+        upload_alias = ""
+        desktop_subdir = ""
         if hasattr(pending_hitl_store, "get_pending_request"):
             pending_row = await pending_hitl_store.get_pending_request(rid)
             pj = None
             if isinstance(pending_row, dict):
                 pj = pending_row.get("payload_json")
             tool_call_id = _tool_call_id_from_pending_payload(pj if isinstance(pj, str) else None)
+            upload_alias = _upload_save_location_alias_from_pending_payload(pj if isinstance(pj, str) else None)
+            desktop_subdir = _desktop_subdir_from_pending_payload(pj if isinstance(pj, str) else None)
         # Opportunistic zombie prevention: advance timeouts before consuming results.
         try:
             await pending_hitl_store.timeout_expired_requests()
@@ -750,6 +1032,14 @@ async def dispatch_skill_runtime_intent(
                     pass
 
         if resolved_action == AGENT_UPLOAD_RESUME_ACTION:
+            # If the user asked to save to Desktop, copy out after we have a durable workspace file.
+            if upload_alias == "desktop":
+                patched = _try_copy_workspace_upload_to_desktop(
+                    resolved_result=resolved_result,
+                    desktop_subdir=desktop_subdir,
+                )
+                if patched is not None:
+                    resolved_result = patched
             sk = (session_key or "").strip() or str(thread_id)
             await _persist_agent_upload_tool_result(
                 session_manager=session_manager,

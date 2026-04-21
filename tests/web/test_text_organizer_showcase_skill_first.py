@@ -66,7 +66,7 @@ async def test_text_organizer_showcase_full_chain_file_choice_confirm_publish(
     async def fake_emit_patch(payload: dict):
         patches.append(payload)
 
-    async def fake_add_artifact(self, synthetic_path, *, doc_id, **kwargs):
+    async def fake_add_artifact(self, doc_id: str, *, synthetic_path: str, **kwargs):
         artifacts.append({"synthetic_path": synthetic_path, "doc_id": doc_id, **kwargs})
 
     monkeypatch.setattr("nanobot.web.mission_control.MissionControlManager.ask_for_file", fake_ask_for_file)

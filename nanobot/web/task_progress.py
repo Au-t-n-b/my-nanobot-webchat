@@ -106,8 +106,13 @@ def normalize_task_progress_payload(payload: dict[str, Any]) -> dict[str, Any]:
         if "summary" not in payload:
             active_count = sum(1 for module in modules if module.get("status") == "running")
             completed_count = sum(1 for module in modules if module.get("status") == "completed")
+            failed_count = sum(1 for module in modules if module.get("status") == "failed")
+            skipped_count = sum(1 for module in modules if module.get("status") == "skipped")
             pending_count = sum(1 for module in modules if module.get("status") == "pending")
             total_count = len(modules)
+            remainder = total_count - active_count - completed_count - pending_count - failed_count - skipped_count
+            if remainder > 0:
+                pending_count += remainder
             payload["summary"] = {
                 "activeCount": active_count,
                 "pendingCount": pending_count,

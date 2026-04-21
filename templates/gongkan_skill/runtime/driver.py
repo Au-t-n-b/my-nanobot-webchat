@@ -780,6 +780,35 @@ def _zhgk_step1(ctx: _ZhgkCtx) -> _StepOut:
     gs, gq, gr = _golden_triple_after_step1(result)
     _emit_progress_dashboard_patch(ctx, survey=gs, quality=gq, risk=gr)
 
+    # 混合模式样板：Step1 结束后委托一次受控 Agent 子任务，将结论写回 dashboard「summary-text」。
+    # 由 bridge 的 skill.agent_task_execute 处理；无 Agent 会话时会被安全跳过。
+    _print_event(
+        {
+            "event": "skill.agent_task_execute",
+            "threadId": ctx.thread_id,
+            "skillName": ctx.skill_name,
+            "skillRunId": ctx.run_id,
+            "timestamp": _now_ms(),
+            "payload": {
+                "parentRequestId": ctx.request_id,
+                "taskId": f"{ctx.request_id}:hybrid:step1_scene_digest",
+                "stepId": "zhgk.step1.hybrid_scene_digest",
+                "goal": (
+                    "请在当前技能工作区内用工具读取事实并输出简短中文摘要（<=400字）：\n"
+                    "1) `ProjectData/Output/skill_result.json` 中的场景/冷却标签及过滤摘要；\n"
+                    "2) 若存在，`ProjectData/RunTime/勘测问题底表_过滤.xlsx` 仅说明已生成即可（无需展开全表）。\n"
+                    "不要编造未读到的字段。"
+                ),
+                "allowedTools": ["read_file", "list_dir"],
+                "maxIterations": 6,
+                "resultSchema": {"type": "string"},
+                "syntheticPath": ctx.synthetic_path,
+                "docId": ctx.doc_id,
+                "summaryNodeId": "summary-text",
+            },
+        }
+    )
+
     _emit_friendly_step_ack(
         ctx,
         card_id="zhgk:ack:step1:done",

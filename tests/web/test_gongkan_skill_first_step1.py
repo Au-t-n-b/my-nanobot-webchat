@@ -193,3 +193,7 @@ async def test_gongkan_skill_first_step1_requests_upload_then_patches_dashboard(
     ]
     assert "zhgk:ack:step1:inputs-ready" in ack_ids
 
+    assert any(
+        isinstance(e, dict) and e.get("event") == "skill.agent_task_execute" for e in envelopes if e is not None
+    ), "expected hybrid mode driver envelope after step1 scene filter"
+

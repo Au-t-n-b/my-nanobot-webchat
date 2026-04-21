@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { FileText, Focus, Menu, PanelRightClose, PanelRightOpen, Plus, Settings, Sidebar as SidebarIcon, Trash2, X, Zap } from "lucide-react";
 import { ChatArea } from "@/components/ChatArea";
 import { ErrorToast } from "@/components/ErrorToast";
-import { PreviewPanel } from "@/components/PreviewPanel";
+import { PreviewPanel } from "@/components/preview";
 import { RemoteAssetDetailPanel } from "@/components/RemoteAssetDetailPanel";
 import { RemoteAssetUploadPanel } from "@/components/RemoteAssetUploadPanel";
 import { SearchOverlay } from "@/components/SearchOverlay";

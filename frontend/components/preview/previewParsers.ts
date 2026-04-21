@@ -4,7 +4,8 @@ import * as XLSX from "xlsx";
 import mammoth from "mammoth/mammoth.browser.js";
 import mermaid from "mermaid";
 import type { PreviewKind } from "@/lib/previewKind";
-import type { PreviewParser, PreviewResolution } from "./previewTypes";
+import JSZip from "jszip";
+import type { ParserContext, PreviewParser, PreviewResolution } from "./previewTypes";
 
 export type TextPayload = { type: "text"; text: string };
 export type MarkdownPayload = { type: "markdown"; text: string };
@@ -36,6 +37,19 @@ export type XlsxMultiPayload = {
   }>;
 };
 
+export type ZipTreeNode =
+  | { type: "dir"; name: string; path: string; children: ZipTreeNode[] }
+  | { type: "file"; name: string; path: string; size?: number };
+
+export type ZipArchivePayload = {
+  type: "zip";
+  tree: ZipTreeNode;
+  zip: JSZip;
+  totalFiles: number;
+  isTruncated: boolean;
+  warning?: string;
+};
+
 export type PreviewPayload =
   | TextPayload
   | MarkdownPayload
@@ -44,11 +58,13 @@ export type PreviewPayload =
   | MermaidPayload
   | DataGridPayload
   | XlsxMultiPayload
+  | ZipArchivePayload
   | { type: "none" };
 
 const MAX_PARSE_BYTES = 5 * 1024 * 1024; // 5MB
 const MAX_GRID_ROWS = 1000;
 const MAX_GRID_COLS = 50;
+const MAX_ZIP_ENTRIES = 1000;
 
 async function fetchOk(resolution: PreviewResolution): Promise<Response> {
   if (!resolution.url) throw new Error("missing preview url");
@@ -58,6 +74,21 @@ async function fetchOk(resolution: PreviewResolution): Promise<Response> {
     throw new Error(t || `HTTP ${res.status}`);
   }
   return res;
+}
+
+async function fetchOrUseArrayBuffer(resolution: PreviewResolution, context?: ParserContext): Promise<ArrayBuffer> {
+  if (context?.initialBuffer) return context.initialBuffer;
+  const res = await fetchOk(resolution);
+  return await res.arrayBuffer();
+}
+
+async function fetchOrUseText(resolution: PreviewResolution, context?: ParserContext): Promise<string> {
+  if (context?.initialBuffer) {
+    // Best-effort UTF-8. If file was encoded (GBK/ANSI), it may appear garbled; acceptable in preview.
+    return new TextDecoder("utf-8", { fatal: false }).decode(context.initialBuffer);
+  }
+  const res = await fetchOk(resolution);
+  return await res.text();
 }
 
 function extFromPath(path: string): string {
@@ -236,9 +267,8 @@ async function fetchTextWithSizeGuard(resolution: PreviewResolution): Promise<{ 
   return { text, tooLarge: false };
 }
 
-const parseText: PreviewParser<TextPayload | MarkdownPayload | DataGridPayload> = async (resolution) => {
-  const res = await fetchOk(resolution);
-  const text = await res.text();
+const parseText: PreviewParser<TextPayload | MarkdownPayload | DataGridPayload> = async (resolution, context) => {
+  const text = await fetchOrUseText(resolution, context);
   if (resolution.kind === "md") return { type: "markdown", text };
 
   const ext = extFromPath(resolution.path);
@@ -290,8 +320,7 @@ const parseText: PreviewParser<TextPayload | MarkdownPayload | DataGridPayload> 
 };
 
 const parseMermaid: PreviewParser<MermaidPayload> = async (resolution) => {
-  const res = await fetchOk(resolution);
-  const source = await res.text();
+  const source = await fetchOrUseText(resolution);
   // 与旧逻辑保持一致：严格模式、dark 主题
   mermaid.initialize({ startOnLoad: false, theme: "dark", securityLevel: "strict" });
   const id = `mmd-${stableMermaidId(resolution.path)}`;
@@ -299,9 +328,8 @@ const parseMermaid: PreviewParser<MermaidPayload> = async (resolution) => {
   return { type: "mermaid", svg, source };
 };
 
-const parseXlsx: PreviewParser<XlsxMultiPayload> = async (resolution) => {
-  const res = await fetchOk(resolution);
-  const buf = await res.arrayBuffer();
+const parseXlsx: PreviewParser<XlsxMultiPayload> = async (resolution, context) => {
+  const buf = await fetchOrUseArrayBuffer(resolution, context);
   const wb = XLSX.read(buf, { type: "array" });
   const names = wb.SheetNames ?? [];
   if (!names.length) throw new Error("empty workbook");
@@ -317,15 +345,96 @@ const parseXlsx: PreviewParser<XlsxMultiPayload> = async (resolution) => {
   return { type: "xlsx", sheets };
 };
 
-const parseDocx: PreviewParser<HtmlPayload> = async (resolution) => {
-  const res = await fetchOk(resolution);
-  const buf = await res.arrayBuffer();
+const parseDocx: PreviewParser<HtmlPayload> = async (resolution, context) => {
+  const buf = await fetchOrUseArrayBuffer(resolution, context);
   const { value } = await mammoth.convertToHtml({ arrayBuffer: buf });
   return { type: "html", html: value };
 };
 
+function buildZipTree(filePaths: string[]): { root: ZipTreeNode; totalFiles: number; isTruncated: boolean } {
+  // Build a directory tree. Directory node's path ends with "/" for stability.
+  const root: { type: "dir"; name: string; path: string; children: ZipTreeNode[] } = {
+    type: "dir",
+    name: "",
+    path: "/",
+    children: [],
+  };
+
+  let isTruncated = false;
+  let totalFiles = 0;
+  const seen = new Set<string>();
+
+  const ensureDir = (parent: { children: ZipTreeNode[]; path: string }, name: string, path: string) => {
+    const existing = parent.children.find((c) => c.type === "dir" && c.name === name) as
+      | { type: "dir"; name: string; path: string; children: ZipTreeNode[] }
+      | undefined;
+    if (existing) return existing;
+    const dir: { type: "dir"; name: string; path: string; children: ZipTreeNode[] } = { type: "dir", name, path, children: [] };
+    parent.children.push(dir);
+    return dir;
+  };
+
+  for (const p0 of filePaths) {
+    if (seen.has(p0)) continue;
+    seen.add(p0);
+
+    if (totalFiles >= MAX_ZIP_ENTRIES) {
+      isTruncated = true;
+      break;
+    }
+
+    // Normalize and split
+    const p = p0.replace(/\\/g, "/").replace(/^\/+/, "");
+    if (!p) continue;
+    if (p.endsWith("/")) continue; // directory marker entry
+
+    totalFiles++;
+    const parts = p.split("/").filter(Boolean);
+    if (!parts.length) continue;
+
+    let cur = root;
+    for (let i = 0; i < parts.length; i++) {
+      const name = parts[i]!;
+      const isLeaf = i === parts.length - 1;
+      if (isLeaf) {
+        cur.children.push({ type: "file", name, path: p });
+      } else {
+        const dirPath = parts.slice(0, i + 1).join("/") + "/";
+        cur = ensureDir(cur, name, dirPath);
+      }
+    }
+  }
+
+  const sortNode = (node: ZipTreeNode) => {
+    if (node.type !== "dir") return;
+    node.children.sort((a, b) => {
+      if (a.type !== b.type) return a.type === "dir" ? -1 : 1;
+      return a.name.localeCompare(b.name, "zh-CN");
+    });
+    node.children.forEach(sortNode);
+  };
+  sortNode(root);
+
+  return { root, totalFiles, isTruncated };
+}
+
+const parseZip: PreviewParser<ZipArchivePayload> = async (resolution, context) => {
+  const buf = await fetchOrUseArrayBuffer(resolution, context);
+  const zip = await JSZip.loadAsync(buf);
+  const paths = Object.keys(zip.files ?? {});
+  const { root, totalFiles, isTruncated } = buildZipTree(paths);
+  return {
+    type: "zip",
+    tree: root,
+    zip,
+    totalFiles,
+    isTruncated,
+    warning: isTruncated ? `⚠️ 目录条目过多，仅展示前 ${MAX_ZIP_ENTRIES} 个文件。` : undefined,
+  };
+};
+
 export const parserRegistry: Partial<Record<PreviewKind, PreviewParser<PreviewPayload>>> = {
-  md: async (r) => parseText(r),
+  md: async (r, c) => parseText(r, c),
   text: async (r) => {
     // Best-effort size guard for large text-based structured files.
     const ext = extFromPath(r.path);
@@ -377,8 +486,9 @@ export const parserRegistry: Partial<Record<PreviewKind, PreviewParser<PreviewPa
     return parseText(r);
   },
   mermaid: async (r) => parseMermaid(r),
-  xlsx: async (r) => parseXlsx(r),
-  docx: async (r) => parseDocx(r),
+  xlsx: async (r, c) => parseXlsx(r, c),
+  docx: async (r, c) => parseDocx(r, c),
+  zip: async (r, c) => parseZip(r, c),
 };
 
 export const defaultParser: PreviewParser<PreviewPayload> = async () => ({ type: "none" });

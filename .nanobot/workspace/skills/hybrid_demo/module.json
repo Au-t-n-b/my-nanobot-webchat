@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "hybrid_demo",
+  "docId": "dashboard:hybrid-demo",
+  "dataFile": "workspace/skills/hybrid_demo/data/dashboard.json",
+  "label": "Hybrid Demo",
+  "description": "测试 Skill-First 混合子任务（skill.agent_task_execute）"
+}
+

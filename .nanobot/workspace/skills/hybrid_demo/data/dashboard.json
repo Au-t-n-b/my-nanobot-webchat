@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "type": "SduiDocument",
+  "meta": { "docId": "dashboard:hybrid-demo", "role": "dashboard" },
+  "root": {
+    "type": "Stack",
+    "gap": "md",
+    "children": [
+      {
+        "type": "Card",
+        "title": "Hybrid Demo",
+        "children": [
+          {
+            "type": "Text",
+            "id": "summary-text",
+            "variant": "body",
+            "color": "subtle",
+            "content": "等待运行：请从左侧触发 skill_runtime_start（skillName=hybrid_demo）。"
+          }
+        ]
+      }
+    ]
+  }
+}
+

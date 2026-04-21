@@ -51,8 +51,7 @@ export function PdOnboardingPrototype() {
       });
       grantWorkspaceAccess();
 
-      // keep behavior identical to spec
-      window.location.replace("/");
+      window.location.replace("/workbench");
     } finally {
       setBusy(false);
     }
@@ -75,10 +74,10 @@ export function PdOnboardingPrototype() {
           <ThemeToggle />
           {canGoHome ? (
             <Link href="/" className="text-xs ui-text-muted hover:ui-text-primary">
-              返回主界面
+              返回落地页
             </Link>
           ) : (
-            <span className="text-xs ui-text-muted">返回主界面</span>
+            <span className="text-xs ui-text-muted">返回落地页</span>
           )}
         </div>
       </header>

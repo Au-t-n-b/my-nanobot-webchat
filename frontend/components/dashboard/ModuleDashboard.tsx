@@ -12,7 +12,8 @@ type Props = {
   onBack: () => void;
   skillUiPatchQueue?: readonly SkillUiDataPatchEvent[] | null;
   onOpenPreview: (path: string) => void;
-  postToAgent: (text: string) => void;
+  postToAgent: (text: string) => void | Promise<void>;
+  postToAgentSilently?: (text: string) => void | Promise<void>;
   isAgentRunning: boolean;
   activeSkillName?: string | null;
 };
@@ -25,12 +26,13 @@ export function ModuleDashboard({
   skillUiPatchQueue,
   onOpenPreview,
   postToAgent,
+  postToAgentSilently,
   isAgentRunning,
 }: Props) {
   return (
     <div className="h-full min-h-0 flex flex-col">
       <div
-        className="flex items-stretch shrink-0 border-b border-[var(--border-subtle)] overflow-x-auto"
+        className="relative z-20 flex items-stretch shrink-0 border-b border-[var(--border-subtle)] overflow-x-auto"
         style={{ background: "var(--surface-1)" }}
       >
         <button
@@ -77,6 +79,7 @@ export function ModuleDashboard({
             )}
             onOpenPreview={onOpenPreview}
             postToAgent={postToAgent}
+            postToAgentSilently={postToAgentSilently}
             isAgentRunning={isAgentRunning}
           />
         ) : (

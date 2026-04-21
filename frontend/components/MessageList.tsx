@@ -3,6 +3,7 @@
 import React, { Component, memo, useEffect, useMemo, useRef, useState } from "react";
 import { Bot, Check, Copy, FileText, Trash2, User } from "lucide-react";
 import type { AgentMessage } from "@/hooks/useAgentChat";
+import type { SduiUploadedFileRecord } from "@/lib/sdui";
 import { AgentMarkdown } from "@/components/AgentMarkdown";
 import { extractFilesFromContent } from "@/lib/fileIndex";
 import { SkillUiRuntimeProvider } from "@/components/sdui/SkillUiRuntimeProvider";
@@ -17,7 +18,12 @@ type Props = {
   onFileLinkClick?: (path: string) => void;
   onDeleteMessage?: (id: string) => void;
   searchQuery?: string;
-  chatCardPostToAgent?: (text: string) => void;
+  chatCardPostToAgent?: (text: string) => void | Promise<void>;
+  chatCardPostToAgentSilently?: (text: string) => void | Promise<void>;
+  /** Optional: allow chat cards to send plain text back to main input. */
+  chatCardOnSendText?: (text: string, opts?: { cardId?: string; submittedValue?: string }) => void;
+  /** FilePicker：将提交态与 uploads 写回聊天历史，支持刷新回放 */
+  chatCardOnLockFilePicker?: (cardId: string, uploads: SduiUploadedFileRecord[]) => void;
 };
 
 /**
@@ -210,11 +216,17 @@ function ChatCardBubble({
   msg,
   onFileLinkClick,
   postToAgentRaw,
+  postToAgentSilentlyRaw,
+  onSendTextRaw,
+  onLockFilePickerRaw,
   searchQuery,
 }: {
   msg: AgentMessage;
   onFileLinkClick?: (path: string) => void;
-  postToAgentRaw: (text: string) => void;
+  postToAgentRaw: (text: string) => void | Promise<void>;
+  postToAgentSilentlyRaw?: (text: string) => void | Promise<void>;
+  onSendTextRaw?: (text: string, opts?: { cardId?: string; submittedValue?: string }) => void;
+  onLockFilePickerRaw?: (cardId: string, uploads: SduiUploadedFileRecord[]) => void;
   searchQuery?: string;
 }) {
   const card = msg.chatCard;
@@ -246,6 +258,9 @@ function ChatCardBubble({
         <div key={mountKey} className="min-w-0">
           <SkillUiRuntimeProvider
             postToAgentRaw={postToAgentRaw}
+            postToAgentSilentlyRaw={postToAgentSilentlyRaw}
+            lockFilePickerCardRaw={onLockFilePickerRaw}
+            onSendTextRaw={onSendTextRaw}
             onOpenPreview={(p) => onFileLinkClick?.(p)}
             docId={card.docId}
           >
@@ -266,6 +281,9 @@ export const MessageList = memo(function MessageList({
   onDeleteMessage,
   searchQuery,
   chatCardPostToAgent,
+  chatCardPostToAgentSilently,
+  chatCardOnSendText,
+  chatCardOnLockFilePicker,
 }: Props) {
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -307,6 +325,9 @@ export const MessageList = memo(function MessageList({
                       msg={m}
                       onFileLinkClick={onFileLinkClick}
                       postToAgentRaw={chatCardPostToAgent ?? (() => {})}
+                      postToAgentSilentlyRaw={chatCardPostToAgentSilently}
+                      onSendTextRaw={chatCardOnSendText}
+                      onLockFilePickerRaw={chatCardOnLockFilePicker}
                       searchQuery={searchQuery}
                     />
                   ) : (

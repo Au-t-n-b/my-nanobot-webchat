@@ -8,14 +8,6 @@ import type { AgentMessage, SessionSummary } from "@/hooks/useAgentChat";
 import { extractIndexedFiles } from "@/lib/fileIndex";
 import { openLocation } from "@/lib/apiFile";
 import { SIDEBAR_SECTION_LABEL_CLASS } from "@/lib/sidebarTokens";
-import {
-  createLocalProjectWithMeta,
-  ensureAtLeastOneLocalProject,
-  listLocalProjects,
-  setSelectedLocalProjectId,
-  type LocalProject,
-} from "@/lib/localProjects";
-
 type Props = {
   threadId: string;
   apiBase: string;
@@ -37,6 +29,10 @@ type Props = {
   /** When true the sidebar is in 64 px icon-only mode */
   isCollapsed?: boolean;
   onToggleCollapse?: () => void;
+  /** 产物中心：打开首个产物预览或展开侧栏（与顶栏原行为一致） */
+  onOpenArtifactsHub?: () => void;
+  /** 技能中心：展开侧栏展示技能列表 */
+  onOpenSkillsHub?: () => void;
   /** Opens quick settings (e.g. control center settings tab). */
   onOpenQuickSettings?: () => void;
   /** Local demo auth: sign out and return to login. */
@@ -74,13 +70,6 @@ type SkillPublishModalState = {
   target: SkillPublishTarget;
 };
 
-type ProjectScenarioPreset = "" | "风冷" | "液冷" | "混合" | "其他";
-function asScenarioPreset(v: string): ProjectScenarioPreset {
-  const t = v.trim();
-  if (t === "风冷" || t === "液冷" || t === "混合" || t === "其他") return t;
-  return "";
-}
-
 function apiPath(path: string, apiBase: string): string {
   if (process.env.NEXT_PUBLIC_AGUI_DIRECT === "1") {
     return `${apiBase.replace(/\/$/, "")}${path}`;
@@ -106,6 +95,8 @@ export function Sidebar({
   refreshNonce = 0,
   isCollapsed = false,
   onToggleCollapse,
+  onOpenArtifactsHub,
+  onOpenSkillsHub,
   onOpenQuickSettings,
   onLogout,
 }: Props) {
@@ -155,21 +146,6 @@ export function Sidebar({
   const [orgAssetsLoading, setOrgAssetsLoading] = useState(false);
   const [orgAssetsError, setOrgAssetsError] = useState<string | null>(null);
   const [orgAssetsConnected, setOrgAssetsConnected] = useState(true);
-  const [projects, setProjects] = useState<LocalProject[]>([]);
-  const [selectedProjectId, setSelectedProjectId] = useState<string>("");
-  const [projectCreateOpen, setProjectCreateOpen] = useState(false);
-  const [newProjectName, setNewProjectName] = useState("");
-  const [newProjectCode, setNewProjectCode] = useState("");
-  const [newProjectBidCode, setNewProjectBidCode] = useState("");
-  const [newProjectScenario, setNewProjectScenario] = useState("");
-  const [newProjectScenarioPreset, setNewProjectScenarioPreset] = useState<ProjectScenarioPreset>("");
-  const [newProjectScenarioDetail, setNewProjectScenarioDetail] = useState("");
-  const [newProjectScale, setNewProjectScale] = useState("");
-  const [newProjectDeliveryFeatures, setNewProjectDeliveryFeatures] = useState("");
-  const [newProjectLanguage, setNewProjectLanguage] = useState("");
-  const [newProjectGroup, setNewProjectGroup] = useState("");
-  const [newProjectStakeholders, setNewProjectStakeholders] = useState("");
-  const [projectMetaOpen, setProjectMetaOpen] = useState(false);
   const stableIndexedFilesRef = useRef<ReturnType<typeof extractIndexedFiles>>([]);
   const indexedFiles = useMemo(() => {
     // During streaming, freeze file-index recomputation to avoid input lag.
@@ -236,34 +212,12 @@ export function Sidebar({
     void loadOrgAssets();
   }, [loadOrgAssets, refreshNonce]);
 
-  useEffect(() => {
-    const { projects, selectedId } = ensureAtLeastOneLocalProject();
-    setProjects(projects);
-    setSelectedProjectId(selectedId);
-  }, []);
-
   const copyPath = useCallback((path: string) => {
     void navigator.clipboard.writeText(path).then(() => {
       setCopiedPath(path);
       setTimeout(() => setCopiedPath(null), 1400);
     });
   }, []);
-
-  const refreshProjects = useCallback(() => {
-    const next = listLocalProjects();
-    setProjects(next);
-    setSelectedProjectId((cur) => {
-      if (cur && next.some((p) => p.id === cur)) return cur;
-      const fallback = next[0]?.id ?? "";
-      if (fallback) setSelectedLocalProjectId(fallback);
-      return fallback;
-    });
-  }, []);
-
-  const selectedProjectName = useMemo(() => {
-    const p = projects.find((x) => x.id === selectedProjectId);
-    return p?.name ?? "未选择项目";
-  }, [projects, selectedProjectId]);
 
   const handleOpenLocation = useCallback(async (path: string) => {
     try {
@@ -366,8 +320,23 @@ export function Sidebar({
           <Plus size={18} />
         </button>
 
-        <div className="relative" title={`产物 (${artifacts.length})，点击展开`}>
-          <button type="button" onClick={onToggleCollapse} className={iconBtn}>
+        <div
+          className="relative"
+          title={
+            artifacts.length > 0
+              ? `产物中心（${artifacts.length}），点击打开预览`
+              : "产物中心（暂无产物时展开侧栏）"
+          }
+        >
+          <button
+            type="button"
+            onClick={() => {
+              if (onOpenArtifactsHub) onOpenArtifactsHub();
+              else onToggleCollapse?.();
+            }}
+            className={iconBtn}
+            aria-label="产物中心"
+          >
             <FileText size={18} />
           </button>
           {artifacts.length > 0 && (
@@ -380,7 +349,16 @@ export function Sidebar({
           )}
         </div>
 
-        <button type="button" title="技能，点击展开" onClick={onToggleCollapse} className={iconBtn}>
+        <button
+          type="button"
+          title="技能中心"
+          onClick={() => {
+            if (onOpenSkillsHub) onOpenSkillsHub();
+            else onToggleCollapse?.();
+          }}
+          className={iconBtn}
+          aria-label="技能中心"
+        >
           <Zap size={18} />
         </button>
 
@@ -528,52 +506,6 @@ export function Sidebar({
 
         <div className="min-h-0 flex-1 touch-pan-y overflow-y-auto overflow-x-hidden pr-0 [overscroll-behavior-y:auto]">
           <div className="flex flex-col gap-3 pb-2 pt-3 pr-1.5">
-            <section className="rounded-xl border border-[var(--border-subtle)] bg-white/40 dark:bg-black/10 px-3 py-2 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.06)]">
-              <div className="flex items-center justify-between gap-2">
-                <span className={`${SIDEBAR_SECTION_LABEL_CLASS} whitespace-nowrap`}>当前项目</span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setNewProjectName("");
-                    setNewProjectCode("");
-                    setNewProjectBidCode("");
-                    setNewProjectScenario("");
-                    setNewProjectScenarioPreset("");
-                    setNewProjectScenarioDetail("");
-                    setNewProjectScale("");
-                    setNewProjectDeliveryFeatures("");
-                    setNewProjectLanguage("");
-                    setNewProjectGroup("");
-                    setNewProjectStakeholders("");
-                    setProjectMetaOpen(false);
-                    setProjectCreateOpen(true);
-                  }}
-                  className="inline-flex items-center justify-center rounded-lg p-1.5 text-zinc-500 transition-colors hover:bg-zinc-900/40 hover:text-zinc-200"
-                  aria-label="新建项目"
-                  title="新建项目"
-                >
-                  <Plus size={18} strokeWidth={2} aria-hidden />
-                </button>
-              </div>
-              <div className="mt-2 flex items-center gap-2">
-                <select
-                  value={selectedProjectId}
-                  onChange={(e) => {
-                    const id = e.target.value;
-                    setSelectedProjectId(id);
-                    setSelectedLocalProjectId(id);
-                  }}
-                  className="ui-input ui-input-focusable w-full rounded-lg px-2.5 py-2 text-xs"
-                  aria-label="选择项目"
-                >
-                  {projects.map((p) => (
-                    <option key={p.id} value={p.id}>{p.name}</option>
-                  ))}
-                </select>
-              </div>
-              <p className="mt-1 text-[10px] ui-text-muted truncate" title={selectedProjectName}>{selectedProjectName}</p>
-            </section>
-
             <SessionList
               currentThreadId={threadId}
               sessions={sessions}
@@ -928,178 +860,6 @@ export function Sidebar({
 
       {portalTrashModal}
       {portalSkillModal}
-
-      <CenteredModal
-        open={projectCreateOpen}
-        onClose={() => setProjectCreateOpen(false)}
-        title="新建项目"
-        panelClassName="w-full max-w-md"
-        footer={(
-          <div className="flex justify-end gap-2">
-            <button type="button" className="ui-btn-ghost rounded-lg px-3 py-1.5 text-xs font-medium" onClick={() => setProjectCreateOpen(false)}>
-              取消
-            </button>
-            <button
-              type="button"
-              className="ui-btn-accent rounded-lg px-3 py-1.5 text-xs font-medium"
-              onClick={() => {
-                const scenario =
-                  newProjectScenarioPreset && newProjectScenarioPreset !== "其他"
-                    ? (newProjectScenarioDetail.trim()
-                        ? `${newProjectScenarioPreset}：${newProjectScenarioDetail.trim()}`
-                        : newProjectScenarioPreset)
-                    : (newProjectScenario.trim() || newProjectScenarioDetail.trim());
-                const p = createLocalProjectWithMeta({
-                  name: newProjectName,
-                  code: newProjectCode,
-                  bidCode: newProjectBidCode,
-                  scenario,
-                  scale: newProjectScale,
-                  deliveryFeatures: newProjectDeliveryFeatures,
-                  language: newProjectLanguage,
-                  projectGroup: newProjectGroup,
-                  stakeholders: newProjectStakeholders,
-                });
-                setProjectCreateOpen(false);
-                setNewProjectName("");
-                refreshProjects();
-                setSelectedProjectId(p.id);
-              }}
-            >
-              创建
-            </button>
-          </div>
-        )}
-      >
-        <div className="space-y-2">
-          <label className="block text-xs font-medium ui-text-secondary">项目名称</label>
-          <input
-            value={newProjectName}
-            onChange={(e) => setNewProjectName(e.target.value)}
-            placeholder="例如：宁波电网智慧工勘"
-            className="ui-input ui-input-focusable w-full rounded-xl px-4 py-3 text-sm"
-            autoFocus
-          />
-          <div className="pt-1">
-            <button
-              type="button"
-              onClick={() => setProjectMetaOpen((v) => !v)}
-              className="text-[11px] ui-text-muted hover:ui-text-primary underline-offset-4 hover:underline"
-            >
-              {projectMetaOpen ? "收起更多项目信息" : "填写更多项目信息（可选）"}
-            </button>
-          </div>
-
-          {projectMetaOpen ? (
-            <div className="grid grid-cols-1 gap-3 pt-2">
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="block text-[11px] ui-text-muted mb-1">项目编码</label>
-                  <input
-                    value={newProjectCode}
-                    onChange={(e) => setNewProjectCode(e.target.value)}
-                    placeholder="例如：NB-DW-001"
-                    className="ui-input ui-input-focusable w-full rounded-lg px-3 py-2 text-xs"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[11px] ui-text-muted mb-1">投标编码</label>
-                  <input
-                    value={newProjectBidCode}
-                    onChange={(e) => setNewProjectBidCode(e.target.value)}
-                    placeholder="例如：TB-2026-xx"
-                    className="ui-input ui-input-focusable w-full rounded-lg px-3 py-2 text-xs"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="block text-[11px] ui-text-muted mb-1">场景</label>
-                  <select
-                    value={newProjectScenarioPreset}
-                    onChange={(e) => setNewProjectScenarioPreset(asScenarioPreset(e.target.value))}
-                    className="ui-input ui-input-focusable w-full rounded-lg px-3 py-2 text-xs"
-                    aria-label="选择项目场景"
-                  >
-                    <option value="">（可选）请选择</option>
-                    <option value="风冷">风冷</option>
-                    <option value="液冷">液冷</option>
-                    <option value="混合">混合</option>
-                    <option value="其他">其他</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-[11px] ui-text-muted mb-1">规模</label>
-                  <input
-                    value={newProjectScale}
-                    onChange={(e) => setNewProjectScale(e.target.value)}
-                    placeholder="如：省级/地市级/xx 条线路"
-                    className="ui-input ui-input-focusable w-full rounded-lg px-3 py-2 text-xs"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-[11px] ui-text-muted mb-1">场景补充（可选）</label>
-                <input
-                  value={newProjectScenarioPreset === "其他" ? newProjectScenario : newProjectScenarioDetail}
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    if (newProjectScenarioPreset === "其他") setNewProjectScenario(v);
-                    else setNewProjectScenarioDetail(v);
-                  }}
-                  placeholder={newProjectScenarioPreset === "其他" ? "如：智慧工勘/建模仿真/…（自由填写）" : "如：分区、机房类型、约束等"}
-                  className="ui-input ui-input-focusable w-full rounded-lg px-3 py-2 text-xs"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[11px] ui-text-muted mb-1">交付特点</label>
-                <input
-                  value={newProjectDeliveryFeatures}
-                  onChange={(e) => setNewProjectDeliveryFeatures(e.target.value)}
-                  placeholder="如：多端联动/现场闭环/高安全要求"
-                  className="ui-input ui-input-focusable w-full rounded-lg px-3 py-2 text-xs"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="block text-[11px] ui-text-muted mb-1">语言</label>
-                  <input
-                    value={newProjectLanguage}
-                    onChange={(e) => setNewProjectLanguage(e.target.value)}
-                    placeholder="如：中文/中英双语"
-                    className="ui-input ui-input-focusable w-full rounded-lg px-3 py-2 text-xs"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[11px] ui-text-muted mb-1">项目群</label>
-                  <input
-                    value={newProjectGroup}
-                    onChange={(e) => setNewProjectGroup(e.target.value)}
-                    placeholder="如：电网数字化一期"
-                    className="ui-input ui-input-focusable w-full rounded-lg px-3 py-2 text-xs"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-[11px] ui-text-muted mb-1">相关人</label>
-                <input
-                  value={newProjectStakeholders}
-                  onChange={(e) => setNewProjectStakeholders(e.target.value)}
-                  placeholder="如：甲方张三/实施李四/监理王五"
-                  className="ui-input ui-input-focusable w-full rounded-lg px-3 py-2 text-xs"
-                />
-              </div>
-            </div>
-          ) : null}
-
-          <p className="pt-1 text-[11px] ui-text-muted">项目用于区分工作区上下文（本地演示，仅存于浏览器）。</p>
-        </div>
-      </CenteredModal>
 
       {hoveredSkill?.description && tooltipPos && (
         <div

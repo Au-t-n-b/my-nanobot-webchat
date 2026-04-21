@@ -10,6 +10,7 @@ from loguru import logger
 
 from nanobot.agent.tools.base import Tool
 from nanobot.web.mission_control import MissionControlManager
+from nanobot.web.paths import normalize_file_query
 
 AGENT_HITL_SKILL_NAME = "nanobot_agent"
 AGENT_UPLOAD_RESUME_ACTION = "agent_upload"
@@ -17,6 +18,9 @@ AGENT_UPLOAD_RESUME_ACTION = "agent_upload"
 SAVE_LOCATION_ALIAS_MAP: dict[str, str] = {
     "zhgk_input": "skills/zhgk/ProjectData/Input",
     "temp_docs": "uploads/temp",
+    # Note: "desktop" is handled as a special post-copy destination. The upload itself
+    # is still staged under workspace so the UI can safely write via /api/upload.
+    "desktop": "uploads/temp",
 }
 
 
@@ -31,7 +35,8 @@ class RequestUserUploadTool(Tool):
     def description(self) -> str:
         return (
             "Request that the user upload one or more files. "
-            "You MUST pass save_location_alias (not a raw path). "
+            "Prefer passing save_relative_dir (workspace-relative directory under ~/.nanobot/workspace). "
+            "If omitted, pass save_location_alias (compat). "
             "After upload completes, the user may send another message (e.g. 继续) to resume. "
             f"Allowed aliases: {', '.join(sorted(SAVE_LOCATION_ALIAS_MAP))}."
         )
@@ -59,9 +64,35 @@ class RequestUserUploadTool(Tool):
                     "enum": list(SAVE_LOCATION_ALIAS_MAP.keys()),
                     "description": "Whitelisted save location key",
                 },
+                "save_relative_dir": {
+                    "type": "string",
+                    "description": "Workspace-relative directory (under ~/.nanobot/workspace). Takes precedence over save_location_alias when provided.",
+                },
+                "desktop_subdir": {
+                    "type": "string",
+                    "description": "Optional Desktop subfolder name when save_location_alias=desktop (e.g. new_plan_progress)",
+                },
             },
-            "required": ["title", "save_location_alias"],
+            "required": ["title"],
         }
+
+    def _validate_workspace_relative_dir(self, raw: str) -> str:
+        """Return normalized workspace-relative dir or raise ValueError (strict anti-traversal)."""
+        s = normalize_file_query(str(raw or "")).strip()
+        if not s:
+            raise ValueError("save_relative_dir is empty")
+        # Deny absolute paths & Windows drives.
+        if s.startswith("/") or s.startswith("\\") or (len(s) >= 2 and s[1] == ":"):
+            raise ValueError("save_relative_dir must be workspace-relative (absolute paths are not allowed)")
+        # Normalize and strip leading/trailing slashes.
+        s = s.strip("/").strip("\\")
+        parts = [p for p in s.split("/") if p]
+        # Deny traversal and suspicious segments.
+        if any(p in {".", ".."} for p in parts):
+            raise ValueError("save_relative_dir contains illegal segment ('.' or '..')")
+        if any(":" in p for p in parts):
+            raise ValueError("save_relative_dir contains illegal character ':'")
+        return "/".join(parts)
 
     async def execute(self, **kwargs: Any) -> Any:
         from nanobot.agent.loop import get_current_thread_id, get_pending_hitl_store
@@ -75,6 +106,8 @@ class RequestUserUploadTool(Tool):
         accept = str(kwargs.get("accept") or "").strip() or None
         multiple = bool(kwargs.get("multiple"))
         alias = str(kwargs.get("save_location_alias") or "").strip()
+        save_relative_dir_raw = str(kwargs.get("save_relative_dir") or "").strip()
+        desktop_subdir = str(kwargs.get("desktop_subdir") or "").strip()
 
         if not thread_id:
             return json.dumps({"ok": False, "error": "request_user_upload requires web chat thread context"}, ensure_ascii=False)
@@ -83,15 +116,27 @@ class RequestUserUploadTool(Tool):
         if not tool_call_id:
             return json.dumps({"ok": False, "error": "missing tool_call_id"}, ensure_ascii=False)
 
-        save_rel = SAVE_LOCATION_ALIAS_MAP.get(alias)
-        if not save_rel:
-            return json.dumps(
-                {
-                    "ok": False,
-                    "error": f"invalid save_location_alias; allowed: {list(SAVE_LOCATION_ALIAS_MAP)}",
-                },
-                ensure_ascii=False,
-            )
+        save_rel = ""
+        if save_relative_dir_raw:
+            try:
+                save_rel = self._validate_workspace_relative_dir(save_relative_dir_raw)
+            except Exception as e:
+                return json.dumps({"ok": False, "error": f"invalid save_relative_dir: {e}"}, ensure_ascii=False)
+        else:
+            if not alias:
+                return json.dumps(
+                    {"ok": False, "error": "missing save_location_alias (or provide save_relative_dir)"},
+                    ensure_ascii=False,
+                )
+            save_rel = SAVE_LOCATION_ALIAS_MAP.get(alias) or ""
+            if not save_rel:
+                return json.dumps(
+                    {
+                        "ok": False,
+                        "error": f"invalid save_location_alias; allowed: {list(SAVE_LOCATION_ALIAS_MAP)}",
+                    },
+                    ensure_ascii=False,
+                )
 
         request_id = uuid.uuid4().hex
         skill_run_id = f"agent:{thread_id}"
@@ -104,10 +149,13 @@ class RequestUserUploadTool(Tool):
             "accept": accept,
             "multiple": multiple,
             "saveRelativeDir": save_rel,
+            "saveLocationAlias": alias,
             "skillName": AGENT_HITL_SKILL_NAME,
             "toolCallId": tool_call_id,
             "kind": "agent_upload",
         }
+        if alias == "desktop" and desktop_subdir:
+            payload["desktopSubdir"] = desktop_subdir
 
         envelope: dict[str, Any] = {
             "event": "hitl.file_request",

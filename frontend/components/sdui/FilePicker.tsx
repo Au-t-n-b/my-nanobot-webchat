@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Upload, CheckCircle2, AlertTriangle, Check } from "lucide-react";
-import type { SduiFilePickerNode } from "@/lib/sdui";
+import type { SduiFilePickerNode, SduiUploadedFileRecord } from "@/lib/sdui";
 import { useSkillUiRuntime } from "@/components/sdui/SkillUiRuntimeProvider";
 import { SduiArtifactGrid } from "@/components/sdui/SduiArtifactGrid";
 import { formatLegacyModuleActionBlockedMessage, useLegacyModuleActionAllowed } from "@/lib/legacyModuleGate";
@@ -42,6 +42,8 @@ export function SduiFilePicker({
   helpText,
   accept,
   multiple,
+  submitted,
+  uploads,
   moduleId,
   nextAction,
   cardId,
@@ -51,7 +53,7 @@ export function SduiFilePicker({
   stepId,
   hitlRequestId,
 }: Props) {
-  const { syncState, postToAgent } = useSkillUiRuntime();
+  const { syncState, postToAgent, postToAgentSilently, lockFilePickerCard } = useSkillUiRuntime();
   const inputRef = useRef<HTMLInputElement | null>(null);
   const submitAnchorRef = useRef<HTMLDivElement | null>(null);
   const [state, setState] = useState<UploadState>({ status: "idle" });
@@ -95,6 +97,30 @@ export function SduiFilePicker({
     setDragOver(false);
   }, [skillHitlWaveKey, isSkillHitl]);
 
+  // Rehydrate from persisted chat-card node state (time capsule).
+  useEffect(() => {
+    const locked = Boolean(submitted);
+    const list = Array.isArray(uploads) ? uploads : [];
+    if (!locked || list.length === 0) return;
+    // Do not override while uploading.
+    if (state.status === "uploading") return;
+    setHitlSubmitted(true);
+    setDragOver(false);
+    setState({ status: "idle" });
+    setUploadedFiles(
+      list
+        .filter((x): x is SduiUploadedFileRecord => Boolean(x && typeof x === "object"))
+        .map((x) => ({
+          fileId: String(x.fileId ?? "").trim(),
+          name: String(x.name ?? "").trim(),
+          logicalPath: typeof x.logicalPath === "string" ? x.logicalPath : undefined,
+          savedDir: typeof x.savedDir === "string" ? x.savedDir : undefined,
+          uploadedAt: Number.isFinite(Number(x.uploadedAt)) ? Number(x.uploadedAt) : Date.now(),
+        }))
+        .filter((x) => x.fileId && x.name),
+    );
+  }, [submitted, uploads, state.status]);
+
   const uploadOne = useCallback(
     (file: File) =>
       new Promise<{ fileId: string; logicalPath?: string }>((resolve, reject) => {
@@ -133,14 +159,14 @@ export function SduiFilePicker({
     [purpose, saveRelativeDir],
   );
 
-  const submitSkillHitlResult = useCallback(() => {
+  const submitSkillHitlResult = useCallback(async () => {
     if (hitlSubmitted || !isSkillHitl) return;
     const skill = (skillName ?? "").trim();
     const namespace = (stateNamespace ?? "").trim();
     const sid = (stepId ?? "").trim();
     if (uploadedFiles.length === 0) return;
     const latest = uploadedFiles[uploadedFiles.length - 1]!;
-    postToAgent(
+    await postToAgent(
       JSON.stringify({
         type: "chat_card_intent",
         verb: "skill_runtime_result",
@@ -159,6 +185,20 @@ export function SduiFilePicker({
       }),
     );
     setHitlSubmitted(true);
+    const cid = (cardId ?? "").trim();
+    if (cid && uploadedFiles.length) {
+      lockFilePickerCard?.(cid, uploadedFiles);
+    }
+
+    // Auto-resume for generic tool uploads: once skill_runtime_result is persisted to the session,
+    // silently kick off the next reasoning turn so the user doesn't need to type "继续".
+    const isGenericToolUpload = skill === "nanobot_agent" && !(moduleId ?? "").trim() && !(nextAction ?? "").trim();
+    if (isGenericToolUpload) {
+      const prompt =
+        "【系统通知】用户已完成文件上传。请读取刚写入的 request_user_upload 工具结果，" +
+        "根据文件信息继续输出下一步响应，并在回复中回显文件名与保存路径/标识符（如有）。";
+      await postToAgentSilently?.(prompt);
+    }
   }, [
     hitlSubmitted,
     isSkillHitl,
@@ -168,6 +208,11 @@ export function SduiFilePicker({
     stepId,
     uploadedFiles,
     postToAgent,
+    postToAgentSilently,
+    lockFilePickerCard,
+    moduleId,
+    nextAction,
+    cardId,
   ]);
 
   const finishUpload = useCallback(
@@ -272,9 +317,14 @@ export function SduiFilePicker({
   );
 
   const skillLocked = isSkillHitl && hitlSubmitted;
+  const isSubmitted = skillLocked;
+
+  const hasUploads = uploadedFiles.length > 0;
+  const showInlineError = state.status === "error";
+  const showUploading = state.status === "uploading";
 
   const onPick = () => {
-    if (state.status === "uploading" || skillLocked) return;
+    if (state.status === "uploading" || isSubmitted) return;
     inputRef.current?.click();
   };
 
@@ -288,7 +338,7 @@ export function SduiFilePicker({
   const onDragOver = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    if (state.status === "uploading" || skillLocked) return;
+    if (state.status === "uploading" || isSubmitted) return;
     setDragOver(true);
   };
 
@@ -302,7 +352,7 @@ export function SduiFilePicker({
     e.preventDefault();
     e.stopPropagation();
     setDragOver(false);
-    if (state.status === "uploading" || skillLocked) return;
+    if (state.status === "uploading" || isSubmitted) return;
     const files = e.dataTransfer.files ? Array.from(e.dataTransfer.files) : [];
     if (!files.length) return;
     await finishUpload(files);
@@ -310,101 +360,88 @@ export function SduiFilePicker({
 
   return (
     <div
-      className={[
-        "rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-2)] p-4",
-        skillLocked ? "pointer-events-none opacity-70" : "",
-      ].join(" ")}
+      className="bg-transparent p-0 m-0"
       data-testid="sdui-file-picker"
     >
       <div className="flex items-start gap-3">
-        <div className="mt-0.5 h-9 w-9 rounded-lg flex items-center justify-center bg-[var(--surface-3)] border border-[var(--border-subtle)]">
-          <Upload className="h-4 w-4 ui-text-secondary" />
-        </div>
         <div className="min-w-0 flex-1">
-          <div className="text-sm font-semibold ui-text-primary">{label}</div>
-          {helpText ? <div className="mt-1 text-xs ui-text-secondary leading-relaxed">{helpText}</div> : null}
-          {(saveRelativeDir ?? "").trim() ? (
-            <div className="mt-1 font-mono text-[10px] ui-text-muted opacity-90">
-              保存目录（workspace 相对）：{(saveRelativeDir ?? "").trim().replace(/\\/g, "/").replace(/\/$/, "")}/
+          {/* Intentionally minimal: outer chat card already provides chrome. */}
+          {helpText ? <div className="text-xs ui-text-secondary leading-relaxed">{helpText}</div> : null}
+
+          {!isSubmitted ? (
+            <div
+              role="button"
+              aria-label="点击选择或将文件拖拽至此上传"
+              tabIndex={showUploading ? -1 : 0}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  onPick();
+                }
+              }}
+              onDragOver={onDragOver}
+              onDragLeave={onDragLeave}
+              onDrop={onDrop}
+              onClick={onPick}
+              className={[
+                "mt-3 min-h-[112px] rounded-xl border-2 border-dashed px-4 py-7 text-center transition-colors cursor-pointer select-none flex flex-col items-center justify-center gap-2",
+                dragOver
+                  ? "border-[var(--accent)] bg-[color-mix(in_oklab,var(--accent)_10%,transparent)]"
+                  : "border-[var(--border-subtle)] bg-transparent hover:bg-white/5 hover:border-[var(--accent)]/50",
+                showUploading ? "pointer-events-none opacity-80" : "",
+              ].join(" ")}
+            >
+              <Upload className="h-7 w-7 ui-text-muted opacity-60" aria-hidden />
+              <p className="text-sm font-medium ui-text-primary">点击选择，或将文件拖拽至此</p>
             </div>
           ) : null}
 
-          <div
-            role="button"
-            aria-label="点击选择或将文件拖拽至此上传"
-            tabIndex={skillLocked ? -1 : 0}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault();
-                onPick();
-              }
-            }}
-            onDragOver={onDragOver}
-            onDragLeave={onDragLeave}
-            onDrop={onDrop}
-            onClick={onPick}
-            className={[
-              "mt-3 min-h-[120px] rounded-xl border-2 border-dashed px-4 py-8 text-center transition-colors cursor-pointer select-none flex flex-col items-center justify-center gap-2",
-              dragOver
-                ? "border-[var(--accent)] bg-[color-mix(in_oklab,var(--accent)_12%,var(--surface-2))]"
-                : "border-[var(--border-subtle)] bg-[var(--surface-3)]/40 hover:border-[var(--accent)]/50",
-              state.status === "uploading" ? "pointer-events-none opacity-80" : "",
-              skillLocked ? "pointer-events-none opacity-60" : "",
-            ].join(" ")}
-          >
-            <Upload className="h-8 w-8 ui-text-muted opacity-60" aria-hidden />
-            <p className="text-sm font-medium ui-text-primary">点击选择，或将文件拖拽至此</p>
-          </div>
+          <input
+            ref={inputRef}
+            type="file"
+            className="hidden"
+            accept={accept}
+            multiple={Boolean(multiple)}
+            onChange={onChange}
+            disabled={isSubmitted}
+          />
 
-          <div className="mt-3 flex items-center gap-2 flex-wrap">
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                onPick();
-              }}
-              disabled={state.status === "uploading" || skillLocked}
-              className={[
-                "rounded-lg px-3 py-1.5 text-sm font-medium ui-btn-accent inline-flex items-center gap-1.5",
-                state.status === "uploading" || skillLocked ? "opacity-70 cursor-not-allowed" : "",
-              ].join(" ").trim()}
-            >
-              {uploadedFiles.length > 0 ? (
-                <Check className="h-4 w-4" aria-hidden />
+          {!isSubmitted ? (
+            <div className="mt-3 flex items-center gap-2 flex-wrap">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onPick();
+                }}
+                disabled={showUploading}
+                className={[
+                  "rounded-lg px-3 py-1.5 text-sm font-medium ui-btn-accent inline-flex items-center gap-1.5",
+                  showUploading ? "opacity-70 cursor-not-allowed" : "",
+                ].join(" ").trim()}
+              >
+                {hasUploads ? <Check className="h-4 w-4" aria-hidden /> : null}
+                {showUploading
+                  ? "上传中…"
+                  : hasUploads
+                    ? multiple
+                      ? "继续添加文件"
+                      : "重新选择文件"
+                    : "选择文件"}
+              </button>
+              {showInlineError ? (
+                <span className="inline-flex items-center gap-1 text-xs" style={{ color: "var(--danger)" }}>
+                  <AlertTriangle className="h-4 w-4" aria-hidden />
+                  上传失败：{state.message}
+                </span>
               ) : null}
-              {state.status === "uploading"
-                ? "上传中…"
-                : uploadedFiles.length > 0
-                  ? multiple
-                    ? "继续添加文件"
-                    : "重新选择文件"
-                  : "选择文件"}
-            </button>
-            <input
-              ref={inputRef}
-              type="file"
-              className="hidden"
-              accept={accept}
-              multiple={Boolean(multiple)}
-              onChange={onChange}
-              disabled={skillLocked}
-            />
-            {state.status === "success" ? (
-              <span className="inline-flex items-center gap-1 text-xs" style={{ color: "var(--success)" }}>
-                <CheckCircle2 className="h-4 w-4" aria-hidden />
-                已上传 {state.count} 个文件，最近一个：{state.filename}
-              </span>
-            ) : state.status === "error" ? (
-              <span className="inline-flex items-center gap-1 text-xs" style={{ color: "var(--danger)" }}>
-                <AlertTriangle className="h-4 w-4" aria-hidden />
-                上传失败：{state.message}
-              </span>
-            ) : state.status === "uploading" ? (
-              <span className="text-xs ui-text-secondary">上传中… {Math.round(state.progress * 100)}%</span>
-            ) : null}
-          </div>
+              {showUploading ? (
+                <span className="text-xs ui-text-secondary">上传中… {Math.round(state.progress * 100)}%</span>
+              ) : null}
+            </div>
+          ) : null}
 
-          {state.status === "uploading" ? (
+          {!isSubmitted && state.status === "uploading" ? (
             <div className="mt-3 h-2 w-full rounded-full bg-[var(--surface-3)] overflow-hidden border border-[var(--border-subtle)]">
               <div
                 className="h-full rounded-full"
@@ -416,10 +453,10 @@ export function SduiFilePicker({
             </div>
           ) : null}
 
-          {uploadedFiles.length > 0 ? (
+          {hasUploads ? (
             <div className="mt-4">
               <SduiArtifactGrid
-                title="已选择文件"
+                title={isSubmitted ? "已成功上传以下文件" : "已挂载文件"}
                 mode="input"
                 artifacts={uploadedFiles.map((item) => ({
                   id: item.fileId,
@@ -439,7 +476,7 @@ export function SduiFilePicker({
                 disabled={uploadedFiles.length === 0 || state.status === "uploading"}
                 onClick={(e) => {
                   e.stopPropagation();
-                  submitSkillHitlResult();
+                  void submitSkillHitlResult();
                 }}
                 className={[
                   "w-full min-h-[44px] rounded-lg px-4 py-3 text-sm font-semibold ui-btn-accent",
@@ -449,16 +486,26 @@ export function SduiFilePicker({
               >
                 完成上传并继续
               </button>
-              <p className="mt-2 text-center text-xs ui-text-secondary">
-                上传完成后请点击「完成上传并继续」，以继续流程
-              </p>
             </div>
           ) : null}
 
-          {isSkillHitl && hitlSubmitted ? (
-            <div className="mt-5 flex items-center justify-center gap-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-3)] py-3 text-sm font-semibold text-[var(--success)]">
-              <CheckCircle2 className="h-5 w-5 shrink-0" aria-hidden />
-              已提交
+          {isSubmitted ? (
+            <div className="mt-5">
+              <button
+                type="button"
+                disabled
+                className="w-full min-h-[44px] rounded-lg px-4 py-3 text-sm font-semibold opacity-60 cursor-not-allowed"
+                style={{
+                  border: "1px solid var(--border-subtle)",
+                  background: "color-mix(in oklab, var(--surface-2) 55%, transparent)",
+                  color: "var(--text-primary)",
+                }}
+              >
+                <span className="inline-flex items-center justify-center gap-2">
+                  <CheckCircle2 className="h-5 w-5 shrink-0" aria-hidden />
+                  已提交
+                </span>
+              </button>
             </div>
           ) : null}
         </div>

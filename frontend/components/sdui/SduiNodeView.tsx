@@ -235,6 +235,7 @@ export function SduiNodeView({ node, pathPrefix = "root" }: Props) {
           skillName={node.skillName}
           stateNamespace={node.stateNamespace}
           stepId={node.stepId}
+          submittedValue={node.submittedValue}
         />
       );
 

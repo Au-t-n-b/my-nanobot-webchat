@@ -1,5 +1,7 @@
 "use client";
 
+import { bumpWorkbenchStorageScope } from "@/lib/workbenchStorageKeys";
+
 /**
  * Local demo projects: stored in localStorage only.
  * Intended for UI scoping (current project), not a server-side boundary.
@@ -29,6 +31,14 @@ export type LocalProject = {
 
 const PROJECTS_KEY = "nanobot_local_projects_v1";
 const SELECTED_KEY = "nanobot_selected_project_v1";
+
+/** 列表或选中变化时派发，供顶栏等订阅刷新（detail 无固定形状） */
+export const NANOBOT_LOCAL_PROJECTS_CHANGED = "nanobot_local_projects_changed";
+
+function bumpLocalProjectsListeners(): void {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent(NANOBOT_LOCAL_PROJECTS_CHANGED));
+}
 
 function safeParseJson(raw: string | null): unknown {
   if (!raw) return null;
@@ -86,6 +96,7 @@ export function getSelectedLocalProjectId(): string | null {
 export function setSelectedLocalProjectId(projectId: string): void {
   if (typeof window === "undefined") return;
   window.localStorage.setItem(SELECTED_KEY, projectId);
+  bumpWorkbenchStorageScope();
 }
 
 export function createLocalProject(name: string): LocalProject {
@@ -99,12 +110,13 @@ export function createLocalProject(name: string): LocalProject {
   const next = [project, ...projects];
   window.localStorage.setItem(PROJECTS_KEY, JSON.stringify(next));
   setSelectedLocalProjectId(project.id);
+  bumpLocalProjectsListeners();
   return project;
 }
 
 export function createLocalProjectWithMeta(meta: Omit<LocalProject, "id" | "createdAt">): LocalProject {
   if (typeof window === "undefined") {
-    return { id: "server", name: meta.name.trim() || "默认项目", createdAt: Date.now(), ...meta };
+    return { ...meta, id: "server", name: meta.name.trim() || "默认项目", createdAt: Date.now() };
   }
   const now = Date.now();
   const project: LocalProject = {
@@ -124,7 +136,56 @@ export function createLocalProjectWithMeta(meta: Omit<LocalProject, "id" | "crea
   const next = [project, ...projects];
   window.localStorage.setItem(PROJECTS_KEY, JSON.stringify(next));
   setSelectedLocalProjectId(project.id);
+  bumpLocalProjectsListeners();
   return project;
+}
+
+/**
+ * 从列表中移除项目。若当前选中被删：有剩余则选中第一项，否则清空选中键。
+ * 不自动创建默认项目（与 ensureAtLeastOneLocalProject 区分）。
+ */
+export function deleteLocalProject(id: string): { projects: LocalProject[]; selectedId: string | null } {
+  if (typeof window === "undefined") return { projects: [], selectedId: null };
+  const trimmed = id.trim();
+  if (!trimmed) return { projects: listLocalProjects(), selectedId: getSelectedLocalProjectId() };
+
+  const projects = listLocalProjects();
+  const next = projects.filter((p) => p.id !== trimmed);
+  try {
+    window.localStorage.setItem(PROJECTS_KEY, JSON.stringify(next));
+  } catch {
+    return { projects, selectedId: getSelectedLocalProjectId() };
+  }
+
+  const curSel = getSelectedLocalProjectId();
+  let selectedId: string | null = curSel;
+
+  const resolveSelection = (list: LocalProject[], previous: string | null) => {
+    if (!previous || !list.some((p) => p.id === previous)) {
+      if (list.length > 0) {
+        const first = list[0]!.id;
+        setSelectedLocalProjectId(first);
+        return first;
+      }
+      try {
+        window.localStorage.removeItem(SELECTED_KEY);
+        bumpWorkbenchStorageScope();
+      } catch {
+        /* ignore */
+      }
+      return null;
+    }
+    return previous;
+  };
+
+  if (curSel === trimmed) {
+    selectedId = resolveSelection(next, null);
+  } else {
+    selectedId = resolveSelection(next, curSel);
+  }
+
+  bumpLocalProjectsListeners();
+  return { projects: next, selectedId };
 }
 
 export function ensureAtLeastOneLocalProject(): { projects: LocalProject[]; selectedId: string } {

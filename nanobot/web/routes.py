@@ -1439,8 +1439,13 @@ async def handle_workspace_upload(request: web.Request) -> web.Response:
     try:
         if save_dir_raw:
             norm_dir = normalize_file_query(save_dir_raw).strip("/")
+            # Strict anti-traversal: deny absolute & drive paths early with explicit errors.
+            if norm_dir.startswith("/") or norm_dir.startswith("\\") or re.match(r"^[A-Za-z]:", norm_dir):
+                return web.json_response({"detail": "invalid targetDir (must be workspace-relative)"}, status=400)
             if not norm_dir or ".." in norm_dir.split("/"):
                 return web.json_response({"detail": "invalid targetDir"}, status=400)
+            if ":" in norm_dir:
+                return web.json_response({"detail": "invalid targetDir (illegal character ':')"}, status=400)
             rel = f"{norm_dir}/{filename}"
         else:
             rel = f"uploads/{purpose}/{uuid.uuid4().hex}_{filename}"

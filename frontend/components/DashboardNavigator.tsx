@@ -31,9 +31,12 @@ type Props = {
   skillUiPatchQueue?: readonly SkillUiDataPatchEvent[] | null;
   skillUiBootstrapEvent: SkillUiBootstrapEvent | null | undefined;
   onOpenPreview: (path: string) => void;
-  postToAgent: (text: string) => void;
+  postToAgent: (text: string) => void | Promise<void>;
+  postToAgentSilently?: (text: string) => void | Promise<void>;
   isAgentRunning: boolean;
   activeSkillName?: string | null;
+  /** 总览 vs Skill 模块大盘切换（供外层控制顶栏/项目区等） */
+  onViewChange?: (view: "overview" | "module") => void;
 };
 
 function extractModuleId(syntheticPath: string): string | null {
@@ -64,11 +67,17 @@ export function DashboardNavigator({
   skillUiBootstrapEvent,
   onOpenPreview,
   postToAgent,
+  postToAgentSilently,
   isAgentRunning,
   activeSkillName,
+  onViewChange,
 }: Props) {
   const latestSkillUiPatch = skillUiPatchQueue?.length ? skillUiPatchQueue[skillUiPatchQueue.length - 1] : null;
   const [view, setView] = useState<"overview" | "module">("overview");
+
+  useEffect(() => {
+    onViewChange?.(view);
+  }, [view, onViewChange]);
   const [modules, setModules] = useState<Map<string, ModuleRow>>(new Map());
   const [visible, setVisible] = useState(true);
   const userOverrideRef = useRef(false);
@@ -91,6 +100,7 @@ export function DashboardNavigator({
   useEffect(() => {
     const name = activeSkillName?.trim();
     if (!name) return;
+    if (name === "nanobot_agent") return;
     setModules((prev) => {
       if (prev.has(name)) return prev;
       const next = new Map(prev);
@@ -145,6 +155,7 @@ export function DashboardNavigator({
   useEffect(() => {
     const name = activeSkillName?.trim();
     if (!name) return;
+    if (name === "nanobot_agent") return;
     if (userOverrideRef.current) return;
     const knownByOverview = overviewModules.some((item) => item.moduleId === name);
     if (!modules.has(name) && !knownByOverview) return;
@@ -264,6 +275,7 @@ export function DashboardNavigator({
           skillUiPatchQueue={skillUiPatchQueue ?? []}
           onOpenPreview={onOpenPreview}
           postToAgent={postToAgent}
+          postToAgentSilently={postToAgentSilently}
           isAgentRunning={isAgentRunning}
           activeSkillName={activeSkillName}
         />

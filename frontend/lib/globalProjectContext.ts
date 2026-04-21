@@ -1,5 +1,6 @@
 "use client";
 
+import { bumpWorkbenchStorageScope } from "@/lib/workbenchStorageKeys";
 import { ensureAtLeastOneLocalProject, listLocalProjects, type LocalProject } from "@/lib/localProjects";
 
 export type GlobalUser = {
@@ -80,12 +81,15 @@ export function writeGlobalProjectContext(next: Omit<GlobalProjectContext, "upda
   if (typeof window === "undefined") return;
   const payload: GlobalProjectContext = { ...next, updatedAt: Date.now() };
   window.localStorage.setItem(CTX_KEY, JSON.stringify(payload));
+  bumpWorkbenchStorageScope();
 }
 
 export function patchGlobalProjectContext(patch: Partial<Pick<GlobalProjectContext, "user" | "project" | "stage">>): void {
   if (typeof window === "undefined") return;
   const cur = readGlobalProjectContext();
   if (!cur) return;
+  const prevUserId = cur.user.id;
+  const prevProjectId = cur.project.id;
   const merged: GlobalProjectContext = {
     ...cur,
     user: patch.user ? { ...cur.user, ...patch.user } : cur.user,
@@ -94,12 +98,16 @@ export function patchGlobalProjectContext(patch: Partial<Pick<GlobalProjectConte
     updatedAt: Date.now(),
   };
   window.localStorage.setItem(CTX_KEY, JSON.stringify(merged));
+  if (merged.user.id !== prevUserId || merged.project.id !== prevProjectId) {
+    bumpWorkbenchStorageScope();
+  }
 }
 
 export function clearGlobalProjectContext(): void {
   if (typeof window === "undefined") return;
   window.localStorage.removeItem(CTX_KEY);
   window.localStorage.removeItem(ACCESS_KEY);
+  bumpWorkbenchStorageScope();
 }
 
 export function grantWorkspaceAccess(): void {

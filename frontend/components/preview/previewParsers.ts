@@ -6,6 +6,7 @@ import mermaid from "mermaid";
 import type { PreviewKind } from "@/lib/previewKind";
 import JSZip from "jszip";
 import type { ParserContext, PreviewParser, PreviewResolution } from "./previewTypes";
+import { PREVIEW_LIMITS } from "./preview.config";
 
 export type TextPayload = { type: "text"; text: string };
 export type MarkdownPayload = { type: "markdown"; text: string };
@@ -61,10 +62,10 @@ export type PreviewPayload =
   | ZipArchivePayload
   | { type: "none" };
 
-const MAX_PARSE_BYTES = 5 * 1024 * 1024; // 5MB
-const MAX_GRID_ROWS = 1000;
-const MAX_GRID_COLS = 50;
-const MAX_ZIP_ENTRIES = 1000;
+const MAX_PARSE_BYTES = PREVIEW_LIMITS.MAX_PARSE_BYTES;
+const MAX_GRID_ROWS = PREVIEW_LIMITS.MAX_GRID_ROWS;
+const MAX_GRID_COLS = PREVIEW_LIMITS.MAX_GRID_COLS;
+const MAX_ZIP_ENTRIES = PREVIEW_LIMITS.MAX_ZIP_ENTRIES;
 
 async function fetchOk(resolution: PreviewResolution): Promise<Response> {
   if (!resolution.url) throw new Error("missing preview url");

@@ -1,12 +1,13 @@
 "use client";
 
 import type JSZip from "jszip";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ZipArchivePayload, ZipTreeNode } from "../previewParsers";
 import type { BaseRendererProps } from "../previewTypes";
 import { PreviewFileViewer } from "../PreviewFileViewer";
+import { PREVIEW_LIMITS } from "../preview.config";
 
-const MAX_ENTRY_BYTES = 10 * 1024 * 1024; // 10MB
+const MAX_ENTRY_BYTES = PREVIEW_LIMITS.MAX_ZIP_ENTRY_BYTES;
 
 function isDir(node: ZipTreeNode): node is Extract<ZipTreeNode, { type: "dir" }> {
   return node.type === "dir";
@@ -20,6 +21,36 @@ function flattenForSearch(root: ZipTreeNode, out: ZipTreeNode[] = []): ZipTreeNo
   out.push(root);
   if (root.type === "dir") root.children.forEach((c) => flattenForSearch(c, out));
   return out;
+}
+
+function parentDirPath(path: string): string | null {
+  const p = path.replace(/\\/g, "/").replace(/^\/+/, "");
+  const idx = p.lastIndexOf("/");
+  if (idx <= 0) return "/";
+  return p.slice(0, idx + 1);
+}
+
+function collectExpandableParents(filePath: string): string[] {
+  const out: string[] = [];
+  let cur = parentDirPath(filePath);
+  while (cur) {
+    out.push(cur);
+    if (cur === "/") break;
+    // strip trailing slash and step up
+    const trimmed = cur.replace(/\/+$/, "");
+    const idx = trimmed.lastIndexOf("/");
+    cur = idx >= 0 ? trimmed.slice(0, idx + 1) || "/" : "/";
+  }
+  return out;
+}
+
+function pruneTree(node: ZipTreeNode, keep: Set<string>): ZipTreeNode | null {
+  if (node.type === "file") return keep.has(node.path) ? node : null;
+  const keptChildren = node.children
+    .map((c) => pruneTree(c, keep))
+    .filter((x): x is ZipTreeNode => Boolean(x));
+  if (keptChildren.length === 0) return keep.has(node.path) ? { ...node, children: [] } : null;
+  return { ...node, children: keptChildren };
 }
 
 function FileTreeNodeView({
@@ -104,6 +135,7 @@ export function ArchiveRenderer(
 ) {
   const root = props.payload.tree;
   const zip = props.payload.zip;
+  const totalFiles = props.payload.totalFiles ?? 0;
 
   const [openPaths, setOpenPaths] = useState<Set<string>>(() => new Set([root.path]));
   const [activePath, setActivePath] = useState<string | null>(null);
@@ -125,11 +157,45 @@ export function ArchiveRenderer(
   };
 
   const searchable = useMemo(() => flattenForSearch(root).filter((n) => n.type === "file"), [root]);
+
   const filteredFiles = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return null;
     return searchable.filter((n) => n.path.toLowerCase().includes(q)).slice(0, 200);
   }, [query, searchable]);
+
+  const queryKeepSet = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return null;
+    const keep = new Set<string>();
+    keep.add(root.path);
+    // keep matched files + all parent dirs
+    for (const n of searchable) {
+      if (n.type !== "file") continue;
+      if (!n.path.toLowerCase().includes(q)) continue;
+      keep.add(n.path);
+      collectExpandableParents(n.path).forEach((p) => keep.add(p));
+    }
+    return keep;
+  }, [query, searchable, root.path]);
+
+  const effectiveRoot = useMemo(() => {
+    if (!queryKeepSet) return root;
+    return pruneTree(root, queryKeepSet) ?? root;
+  }, [root, queryKeepSet]);
+
+  // 命中子节点时，强制展开所有父节点（避免“搜到了但看不见”）
+  useEffect(() => {
+    if (!queryKeepSet) return;
+    setOpenPaths((prev) => {
+      const next = new Set(prev);
+      for (const p of queryKeepSet) {
+        if (p.endsWith("/")) next.add(p);
+      }
+      next.add(root.path);
+      return next;
+    });
+  }, [queryKeepSet, root.path]);
 
   const selectFile = async (path: string) => {
     setError(null);
@@ -204,12 +270,18 @@ export function ArchiveRenderer(
       ) : null}
 
       <div className="flex items-center gap-2">
-        <input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="搜索 ZIP 内文件（按路径）…"
-          className="w-full rounded-md border border-[var(--border-subtle)] bg-[var(--surface-2)] px-2 py-1 text-xs ui-text-secondary focus:outline-none focus:ring-0 focus:border-[var(--accent)]"
-        />
+        {totalFiles > PREVIEW_LIMITS.ZIP_SEARCH_THRESHOLD_FILES ? (
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="搜索 ZIP 内文件（按路径）…"
+            className="w-full rounded-md border border-[var(--border-subtle)] bg-[var(--surface-2)] px-2 py-1 text-xs ui-text-secondary focus:outline-none focus:ring-0 focus:border-[var(--accent)]"
+          />
+        ) : (
+          <div className="text-xs ui-text-muted">
+            共 {totalFiles} 个文件
+          </div>
+        )}
         {loadingPath ? (
           <span className="text-xs ui-text-muted shrink-0" title={loadingPath}>
             解压中…
@@ -246,7 +318,7 @@ export function ArchiveRenderer(
       ) : null}
 
       <div className="rounded-xl border border-[var(--border-subtle)] p-2 max-h-[520px] overflow-auto">
-        <FileTreeNodeView node={root} openPaths={openPaths} toggleDir={toggleDir} onSelectFile={selectFile} depth={0} />
+        <FileTreeNodeView node={effectiveRoot} openPaths={openPaths} toggleDir={toggleDir} onSelectFile={selectFile} depth={0} />
       </div>
     </div>
   );

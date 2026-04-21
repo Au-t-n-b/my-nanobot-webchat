@@ -15,8 +15,8 @@
             "id": "stepper-main",
             "mode": "horizontal",
             "steps": [
-              { "label": "启动", "status": "running" },
-              { "label": "子任务摘要", "status": "waiting" }
+              { "id": "hybrid_demo:s1", "label": "启动", "status": "running" },
+              { "id": "hybrid_demo:s2", "label": "子任务摘要", "status": "waiting" }
             ]
           },
           {

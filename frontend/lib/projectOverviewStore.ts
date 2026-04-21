@@ -114,15 +114,26 @@ function mergeTaskSteps(
   return [...merged.values()];
 }
 
+/** 混合模式子任务模块：仅用于局部 UI，不得计入项目总览的全局进度。 */
+export function isHybridTaskModuleId(moduleId: string): boolean {
+  return String(moduleId).startsWith("hybrid:");
+}
+
+function modulesForMainProjectProgress(modules: TaskStatusPayload["modules"]): TaskStatusPayload["modules"] {
+  return modules.filter((m) => !isHybridTaskModuleId(m.id));
+}
+
 function summarizeModules(modules: TaskStatusPayload["modules"]) {
-  const completedCount = modules.filter((item) => item.status === "completed").length;
-  const activeCount = modules.filter((item) => item.status === "running").length;
-  const pendingCount = Math.max(0, modules.length - completedCount - activeCount);
+  const main = modulesForMainProjectProgress(modules);
+  const completedCount = main.filter((item) => item.status === "completed").length;
+  const activeCount = main.filter((item) => item.status === "running").length;
+  const pendingCount = Math.max(0, main.length - completedCount - activeCount);
+  const totalCount = main.length;
   return {
     activeCount,
     pendingCount,
     completedCount,
-    completionRate: modules.length ? Math.round((completedCount / modules.length) * 100) : 0,
+    completionRate: totalCount ? Math.round((completedCount / totalCount) * 100) : 0,
   };
 }
 
@@ -131,11 +142,17 @@ export function mergeTaskStatusSnapshot(
   incoming: TaskStatusPayload,
 ): TaskStatusPayload {
   if (!previous) {
+    const modules = incoming.modules ?? [];
+    const summary = summarizeModules(modules);
+    const main = modulesForMainProjectProgress(modules);
     return {
       updatedAt: incoming.updatedAt ?? null,
-      overall: incoming.overall ?? DEFAULT_OVERALL,
-      summary: incoming.summary ?? summarizeModules(incoming.modules ?? []),
-      modules: incoming.modules ?? [],
+      overall: {
+        doneCount: summary.completedCount,
+        totalCount: main.length,
+      },
+      summary,
+      modules,
     };
   }
 
@@ -154,11 +171,12 @@ export function mergeTaskStatusSnapshot(
 
   const modules = [...mergedById.values()];
   const summary = summarizeModules(modules);
+  const main = modulesForMainProjectProgress(modules);
   return {
     updatedAt: incoming.updatedAt ?? previous.updatedAt ?? null,
     overall: {
       doneCount: summary.completedCount,
-      totalCount: modules.length,
+      totalCount: main.length,
     },
     summary,
     modules,

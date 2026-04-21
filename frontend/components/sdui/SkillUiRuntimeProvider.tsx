@@ -1,5 +1,11 @@
 "use client";
 
+/**
+ * SDUI 运行时：Button / FilePicker 等通过 `postToAgent` / `postToAgentSilently` 回传 JSON intent。
+ * Skill-First 混合模式下的受控子任务由 **driver → stdout → bridge** 触发，不经过本层；
+ * 但若将来需要由卡片触发 `skill_runtime_event`，仍应复用上述静默通道以保持行为一致。
+ */
+
 import {
   createContext,
   useCallback,
@@ -11,6 +17,7 @@ import {
   type ReactNode,
 } from "react";
 import { expandInputPlaceholders } from "@/lib/sdui";
+import type { SduiUploadedFileRecord } from "@/lib/sdui";
 import { useProjectOverviewStore } from "@/lib/projectOverviewStore";
 
 type SyncBehavior = "debounce" | "immediate";
@@ -177,7 +184,16 @@ export function useSyncState(args: {
 }
 
 export type SkillUiRuntimeContextValue = {
-  postToAgent: (text: string) => void;
+  postToAgent: (text: string) => void | Promise<void>;
+  /** 不入聊天流的静默触发（用于 Auto-resume 等） */
+  postToAgentSilently?: (text: string) => void | Promise<void>;
+  /** 将上传卡片锁定态写回聊天历史（用于刷新回放） */
+  lockFilePickerCard?: (cardId: string, uploads: SduiUploadedFileRecord[]) => void;
+  /**
+   * Optional: send plain text back to the main chat input (non-skill context).
+   * Used by present_choices inlined as ChoiceCard in the message stream.
+   */
+  onSendText?: (text: string, opts?: { cardId?: string; submittedValue?: string }) => void;
   getInputValue: (id: string) => string;
   setInputValue: (id: string, value: string) => void;
   openPreview: (path: string) => void;
@@ -192,7 +208,10 @@ const SkillUiRuntimeContext = createContext<SkillUiRuntimeContextValue | null>(n
 
 type Props = {
   children: ReactNode;
-  postToAgentRaw: (text: string) => void;
+  postToAgentRaw: (text: string) => void | Promise<void>;
+  postToAgentSilentlyRaw?: (text: string) => void | Promise<void>;
+  lockFilePickerCardRaw?: (cardId: string, uploads: SduiUploadedFileRecord[]) => void;
+  onSendTextRaw?: (text: string, opts?: { cardId?: string; submittedValue?: string }) => void;
   onOpenPreview?: (path: string) => void;
   syncStateRaw?: (args: { key: string; value: unknown; behavior?: "debounce" | "immediate" }) => void;
   docId?: string;
@@ -202,6 +221,9 @@ type Props = {
 export function SkillUiRuntimeProvider({
   children,
   postToAgentRaw,
+  postToAgentSilentlyRaw,
+  lockFilePickerCardRaw,
+  onSendTextRaw,
   onOpenPreview,
   syncStateRaw,
   docId,
@@ -252,9 +274,42 @@ export function SkillUiRuntimeProvider({
       } catch {
         // Not a JSON envelope; allow passthrough.
       }
-      postToAgentRaw(expanded);
+      return postToAgentRaw(expanded);
     },
     [postToAgentRaw, getInputValue, legacyRegistry.loaded, legacyRegistry.moduleIds],
+  );
+
+  const postToAgentSilently = useCallback(
+    (text: string) => {
+      if (!postToAgentSilentlyRaw) return;
+      const expanded = expandInputPlaceholders(text, getInputValue);
+      // Keep the same legacy gating as postToAgent to avoid opening an unexpected escape hatch.
+      try {
+        const parsed = JSON.parse(expanded) as unknown;
+        if (
+          parsed &&
+          typeof parsed === "object" &&
+          (parsed as { type?: unknown }).type === "chat_card_intent" &&
+          (parsed as { verb?: unknown }).verb === "module_action"
+        ) {
+          const payload = (parsed as { payload?: unknown }).payload as unknown;
+          const mid =
+            payload && typeof payload === "object" ? String((payload as { moduleId?: unknown }).moduleId ?? "") : "";
+          const moduleId = mid.trim();
+          if (!moduleId || !legacyRegistry.loaded || !legacyRegistry.moduleIds.has(moduleId)) {
+            console.warn("[SkillUiRuntime] blocked legacy module_action (silent)", {
+              moduleId,
+              loaded: legacyRegistry.loaded,
+            });
+            return;
+          }
+        }
+      } catch {
+        // Not a JSON envelope; allow passthrough.
+      }
+      return postToAgentSilentlyRaw(expanded);
+    },
+    [postToAgentSilentlyRaw, getInputValue, legacyRegistry.loaded, legacyRegistry.moduleIds],
   );
 
   const openPreview = useCallback(
@@ -273,6 +328,9 @@ export function SkillUiRuntimeProvider({
   const value = useMemo<SkillUiRuntimeContextValue>(
     () => ({
       postToAgent,
+      postToAgentSilently,
+      lockFilePickerCard: lockFilePickerCardRaw,
+      onSendText: onSendTextRaw,
       getInputValue,
       setInputValue,
       openPreview,
@@ -286,7 +344,18 @@ export function SkillUiRuntimeProvider({
         }
       },
     }),
-    [postToAgent, getInputValue, setInputValue, openPreview, syncStateRaw, canInternal, syncStateInternal],
+    [
+      postToAgent,
+      postToAgentSilently,
+      lockFilePickerCardRaw,
+      onSendTextRaw,
+      getInputValue,
+      setInputValue,
+      openPreview,
+      syncStateRaw,
+      canInternal,
+      syncStateInternal,
+    ],
   );
 
   return <SkillUiRuntimeContext.Provider value={value}>{children}</SkillUiRuntimeContext.Provider>;

@@ -12,6 +12,8 @@ type Props = {
   runModel?: string | null;
   /** 等待模型流式响应时为胶囊加微弱扫光 */
   isLoading?: boolean;
+  /** 混合模式：受控 Agent 子任务（TaskStatus 中 `hybrid:*` 模块） */
+  hybridSubtaskHint?: string | null;
 };
 
 function statusMeta(runStatus: RunStatus): { label: string; className: string; icon: ReactNode } {
@@ -30,7 +32,14 @@ function statusMeta(runStatus: RunStatus): { label: string; className: string; i
 }
 
 /** 单行状态胶囊：降噪；完成后 3s 自动收起文案，把纵向空间还给对话 */
-export function StepLogs({ stepLogs, runStatus, statusMessage, runModel, isLoading = false }: Props) {
+export function StepLogs({
+  stepLogs,
+  runStatus,
+  statusMessage,
+  runModel,
+  isLoading = false,
+  hybridSubtaskHint = null,
+}: Props) {
   const [open, setOpen] = useState(false);
   const [autoCompact, setAutoCompact] = useState(false);
 
@@ -43,12 +52,12 @@ export function StepLogs({ stepLogs, runStatus, statusMessage, runModel, isLoadi
     return () => window.clearTimeout(id);
   }, [runStatus, statusMessage]);
 
-  if (!stepLogs.length && runStatus === "idle") return null;
+  if (!stepLogs.length && runStatus === "idle" && !hybridSubtaskHint) return null;
 
   const meta = statusMeta(runStatus);
   const hasLogs = stepLogs.length > 0;
   const hideEntirely =
-    runStatus === "completed" && autoCompact && !hasLogs && !open;
+    runStatus === "completed" && autoCompact && !hasLogs && !open && !hybridSubtaskHint;
 
   if (hideEntirely) return null;
 
@@ -110,6 +119,19 @@ export function StepLogs({ stepLogs, runStatus, statusMessage, runModel, isLoadi
           ))}
         </ul>
       )}
+
+      {hybridSubtaskHint ? (
+        <div
+          className={
+            "flex flex-wrap items-center gap-x-2 gap-y-0.5 rounded-lg border px-3 py-1.5 text-[10px] leading-tight " +
+            "border-[color-mix(in_oklab,var(--border-subtle)_90%,transparent)] " +
+            "bg-[color-mix(in_oklab,var(--surface-2)_55%,transparent)] text-[var(--text-secondary)]"
+          }
+        >
+          <span className="shrink-0 font-semibold tracking-wide text-[var(--text-muted)]">Agent 子任务</span>
+          <span className="min-w-0 truncate max-w-[min(100%,28rem)]">{hybridSubtaskHint}</span>
+        </div>
+      ) : null}
     </div>
   );
 }

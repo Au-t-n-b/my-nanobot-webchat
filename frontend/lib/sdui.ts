@@ -332,7 +332,7 @@ export function applySduiPatch(doc: SduiDocument, patch: SduiPatch): SduiDocumen
         );
         if (!safeNext.length) continue;
         const artifactDedupeKey = (it: SduiArtifactItem): string => {
-          const p = it.path.trim().replace(/\\/g, "/");
+          const p = String(it.path ?? "").trim().replace(/\\/g, "/");
           return p ? p.toLowerCase() : `id:${it.id}`;
         };
         const merged = [...prev];
@@ -370,7 +370,14 @@ export function applySduiPatch(doc: SduiDocument, patch: SduiPatch): SduiDocumen
       const patchValue = op.value as unknown;
       if (!isRecord(patchValue)) continue;
       // Enforce type match to avoid corrupting the tree.
-      if (typeof patchValue.type !== "string" || patchValue.type !== existing.type) continue;
+      if (typeof patchValue.type !== "string" || patchValue.type !== existing.type) {
+        const want = String(patchValue.type);
+        const got = String(existing.type);
+        console.warn(
+          `[SDUI] merge 已丢弃：节点 id=${id} 类型不匹配（文档中为 ${got}，patch 为 ${want}）。右栏不会更新，请检查 dashboard 节点类型或 patch 载荷。`,
+        );
+        continue;
+      }
       deepMergeInPlace(existing as unknown as Record<string, unknown>, patchValue);
     }
   }
@@ -387,6 +394,19 @@ export type SduiArtifactItem = {
   path?: string;
   kind?: SduiArtifactKind;
   status?: SduiArtifactStatus;
+};
+
+/**
+ * FilePicker 上传结果的最小可回放信息（“时间胶囊”）。
+ * - 只保留前端渲染与文件预览/下载所需字段
+ * - 用于将已提交上传卡片固化到聊天历史中，支持刷新回放
+ */
+export type SduiUploadedFileRecord = {
+  fileId: string;
+  name: string;
+  logicalPath?: string;
+  savedDir?: string;
+  uploadedAt?: number;
 };
 
 export type SduiArtifactGridNode = {
@@ -439,6 +459,8 @@ export type SduiChoiceCardNode = {
   skillName?: string;
   /** 与 PendingHitlStore.request_id 一致（skill HITL envelope payload.requestId） */
   hitlRequestId?: string;
+  /** present_choices 内联卡片：用户提交后的锁定值（用于刷新回放） */
+  submittedValue?: string;
   stateNamespace?: string;
   stepId?: string;
   flex?: number;
@@ -607,6 +629,10 @@ export type SduiFilePickerNode = SduiOptionalId & {
   helpText?: string;
   accept?: string;
   multiple?: boolean;
+  /** 已完成/锁定：用于刷新后直接进入只读态 */
+  submitted?: boolean;
+  /** 已上传文件列表（最小回放信息） */
+  uploads?: SduiUploadedFileRecord[];
   moduleId?: string;
   nextAction?: string;
   skillName?: string;
@@ -852,3 +878,7 @@ export function parseSduiDocument(data: unknown): { ok: true; doc: SduiDocument 
   };
   return { ok: true, doc };
 }
+
+/** 混合模式子任务 payload 类型（见 `docs/hybrid-mode-protocol.md`） */
+export type { SkillAgentTaskExecutePayload } from "./skillHybridProtocol";
+export { buildSkillAgentTaskExecuteEnvelope, hybridSubtaskHintFromTaskStatus } from "./skillHybridProtocol";

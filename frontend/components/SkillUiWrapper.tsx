@@ -28,7 +28,9 @@ function skillUiPatchDebug(message: string, extra?: Record<string, unknown>) {
 type Props = {
   syntheticPath: string;
   /** 封装自 sendMessage，用于 Button / DataGrid 等回传 Intent */
-  postToAgent?: (text: string) => void;
+  postToAgent?: (text: string) => void | Promise<void>;
+  /** 不入聊天流的静默触发 */
+  postToAgentSilently?: (text: string) => void | Promise<void>;
   /** Agent 是否在运行（用于下降沿强刷 dataFile） */
   isAgentRunning?: boolean;
   /** open_preview 动作打开预览 */
@@ -72,10 +74,15 @@ function UnknownSkillUiPanel({ component, hint }: { component: string; hint?: st
 /**
  * 解析 skill-ui://，仅挂载注册表中的顶层外壳（当前 SDUI 固定为 SduiView），
  * 通过 GET /api/file 拉取 dataFile JSON，并由 SduiView 按文档递归渲染。
+ *
+ * 混合模式 patch 路由：所有 `SkillUiDataPatch` 必须与当前面板的 `syntheticPath` 及
+ * `patch.docId` 一致；服务端按 docId 单调递增 `revision`。多子任务共享同一 docId 时
+ * 不得跳过队列或本地直写 state，以免低 revision 覆盖高 revision。
  */
 export function SkillUiWrapper({
   syntheticPath,
   postToAgent: postToAgentProp,
+  postToAgentSilently: postToAgentSilentlyProp,
   isAgentRunning = false,
   onOpenPreview,
   incomingPatchEvent = null,
@@ -102,12 +109,23 @@ export function SkillUiWrapper({
   const postToAgentRaw = useCallback(
     (text: string) => {
       if (postToAgentProp) {
-        postToAgentProp(text);
+        return postToAgentProp(text);
       } else {
         console.warn("[SkillUiWrapper] postToAgent 未注入，忽略回传:", text.slice(0, 200));
       }
     },
     [postToAgentProp],
+  );
+
+  const postToAgentSilentlyRaw = useCallback(
+    (text: string) => {
+      if (postToAgentSilentlyProp) {
+        return postToAgentSilentlyProp(text);
+      }
+      // Fallback: if silent channel not provided, degrade to normal post.
+      return postToAgentRaw(text);
+    },
+    [postToAgentSilentlyProp, postToAgentRaw],
   );
 
   const loadData = useCallback(
@@ -155,10 +173,29 @@ export function SkillUiWrapper({
             }
           }
         }
-        const text = await res.text();
-        if (!res.ok) {
-          throw new Error(text || `HTTP ${res.status}`);
+        if (!res.ok && res.status === 404 && /(?:^|\/)data\/dashboard\.json$/i.test(dataFileTried)) {
+          // Quietly ignore missing dashboards: many tool-only flows do not ship a module dashboard.
+          // Render an empty doc instead of a red error box to reduce noise.
+          const emptyDoc = {
+            schemaVersion: 1,
+            type: "SduiDocument",
+            meta: { docId: "dashboard:missing", role: "dashboard" },
+            root: { type: "Stack", gap: "md", children: [] },
+          } as const;
+          const parsedDoc = parseSduiDocument(emptyDoc);
+          if (parsedDoc.ok) {
+            setBaseDoc(parsedDoc.doc);
+            setData(parsedDoc.doc);
+          } else {
+            setBaseDoc(null);
+            setData(emptyDoc);
+          }
+          setError(null);
+          return;
         }
+
+        const text = await res.text();
+        if (!res.ok) throw new Error(text || `HTTP ${res.status}`);
         let json: unknown;
         try {
           json = text.trim() === "" ? undefined : JSON.parse(text);
@@ -390,11 +427,16 @@ export function SkillUiWrapper({
   return (
     <SkillUiRuntimeProvider
       postToAgentRaw={postToAgentRaw}
+      postToAgentSilentlyRaw={postToAgentSilentlyRaw}
       onOpenPreview={onOpenPreview}
       docId={resolvedDocId}
       enableInternalSync
     >
-      <div className="h-full min-h-0">
+      {/*
+        SDUI 内常见 position:fixed + inset:0 铺满「视口」；不设包含块时会盖住 ModuleDashboard 顶栏（总览）等兄弟区域。
+        transform 使 fixed 相对本容器定位，避免挡掉返回总览。
+      */}
+      <div className="relative h-full min-h-0 overflow-hidden isolate" style={{ transform: "translateZ(0)" }}>
         <Inner {...injected} />
       </div>
     </SkillUiRuntimeProvider>

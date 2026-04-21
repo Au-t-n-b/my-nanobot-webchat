@@ -1,10 +1,7 @@
 "use client";
 
-import { useEffect, useId, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { FileSearch, Loader2, X as XIcon } from "lucide-react";
-import * as XLSX from "xlsx";
-import mammoth from "mammoth/mammoth.browser.js";
-import mermaid from "mermaid";
 import type { PreviewKind } from "@/lib/previewKind";
 import { resolvePreview } from "./previewResolver";
 import { BrowserRenderer } from "./renderers/BrowserRenderer";
@@ -17,6 +14,7 @@ import { TableRenderer } from "./renderers/TableRenderer";
 import { MermaidRenderer } from "./renderers/MermaidRenderer";
 import { BinaryRenderer } from "./renderers/BinaryRenderer";
 import type { PreviewResolution } from "./previewTypes";
+import { defaultParser, parserRegistry, type PreviewPayload } from "./previewParsers";
 
 export type PreviewTabItem = { id: string; path: string; label: string };
 
@@ -36,12 +34,9 @@ type PreviewState =
   | { status: "idle" }
   | { status: "loading" }
   | { status: "error"; message: string }
-  | { status: "embed"; kind: "image" | "pdf" | "html"; url: string }
-  | { status: "text"; text: string; markdown: boolean; lang?: string }
-  | { status: "html"; html: string }
-  | { status: "table"; rows: string[][] }
-  | { status: "mermaid"; svg: string; source: string }
-  | { status: "binary"; url: string; name: string };
+  | { status: "idle" }
+  | { status: "loading" }
+  | { status: "error"; message: string };
 
 // Map file extensions to Prism language names
 const EXT_TO_LANG: Record<string, string> = {
@@ -80,71 +75,26 @@ function FilePreviewBody({
   const resolution: PreviewResolution = useMemo(() => resolvePreview(path), [path]);
   const url = resolution.url;
   const kind: PreviewKind = resolution.kind;
-  const mermaidId = useId().replace(/:/g, "");
+  const [payload, setPayload] = useState<PreviewPayload | null>(null);
 
   useEffect(() => {
-    // browser / skill-ui：由 renderer 直接渲染，无需预取
-    if (resolution.fetch === "none") {
-      if (kind === "binary" && url) {
-        const name = path.split(/[/\\]/).pop() ?? "file";
-        setState({ status: "binary", url, name });
-      } else if ((kind === "image" || kind === "pdf" || kind === "html") && url) {
-        setState({ status: "embed", kind, url });
-      } else {
-        // browser / skill-ui
-        setState({ status: "idle" });
-      }
-      return;
-    }
-
     let cancelled = false;
     setState({ status: "loading" });
+    setPayload(null);
 
     (async () => {
       try {
-        if (!url) throw new Error("missing preview url");
-        const res = await fetch(url);
-        if (!res.ok) {
-          const t = await res.text().catch(() => "");
-          throw new Error(t || `HTTP ${res.status}`);
-        }
-
-        if (resolution.fetch === "text") {
-          const text = await res.text();
-          if (cancelled) return;
-          if (kind === "mermaid") {
-            mermaid.initialize({ startOnLoad: false, theme: "dark", securityLevel: "strict" });
-            const { svg } = await mermaid.render(`mmd-${mermaidId}`, text);
-            if (!cancelled) setState({ status: "mermaid", svg, source: text });
-            return;
-          }
-          if (kind === "md") {
-            setState({ status: "text", text, markdown: true });
-            return;
-          }
-          const lang = getLangFromPath(path);
-          setState({ status: "text", text, markdown: false, lang });
+        // browser / skill-ui / iframe-like / binary 都不需要 parser（保持旧行为）
+        if (resolution.fetch === "none") {
+          if (!cancelled) setState({ status: "idle" });
           return;
         }
 
-        if (resolution.fetch === "arrayBuffer" && kind === "xlsx") {
-          const buf = await res.arrayBuffer();
-          if (cancelled) return;
-          const wb = XLSX.read(buf, { type: "array" });
-          const sheetName = wb.SheetNames[0];
-          if (!sheetName) throw new Error("empty workbook");
-          const sheet = wb.Sheets[sheetName];
-          const rows = XLSX.utils.sheet_to_json<string[]>(sheet, { header: 1, defval: "" }) as string[][];
-          setState({ status: "table", rows });
-          return;
-        }
-
-        if (resolution.fetch === "arrayBuffer" && kind === "docx") {
-          const buf = await res.arrayBuffer();
-          if (cancelled) return;
-          const { value } = await mammoth.convertToHtml({ arrayBuffer: buf });
-          setState({ status: "html", html: value });
-        }
+        const parser = parserRegistry[resolution.kind] ?? defaultParser;
+        const data = await parser(resolution);
+        if (cancelled) return;
+        setPayload(data);
+        setState({ status: "idle" });
       } catch (e) {
         if (!cancelled)
           setState({ status: "error", message: e instanceof Error ? e.message : String(e) });
@@ -152,7 +102,7 @@ function FilePreviewBody({
     })();
 
     return () => { cancelled = true; };
-  }, [path, url, kind, mermaidId, resolution.fetch]);
+  }, [resolution]);
 
   if (kind === "browser") {
     return <BrowserRenderer path={path} resolution={resolution} onClosePanel={onClosePanel} />;
@@ -160,6 +110,17 @@ function FilePreviewBody({
 
   if (kind === "skill-ui") {
     return <SkillUiNoticeRenderer />;
+  }
+
+  // embed/binary：保持旧逻辑（不走 parser）
+  if (resolution.fetch === "none") {
+    if (kind === "binary" && url) {
+      const name = path.split(/[/\\]/).pop() ?? "file";
+      return <BinaryRenderer path={path} resolution={resolution} url={url} name={name} />;
+    }
+    if ((kind === "image" || kind === "pdf" || kind === "html") && url) {
+      return <EmbedRenderer path={path} resolution={resolution} url={url} embedKind={kind} />;
+    }
   }
 
   if (state.status === "loading") {
@@ -180,16 +141,14 @@ function FilePreviewBody({
     );
   }
 
-  if (state.status === "embed") {
-    return <EmbedRenderer path={path} resolution={resolution} url={state.url} embedKind={state.kind} />;
-  }
+  if (!payload) return null;
 
-  if (state.status === "text" && state.markdown) {
+  if (payload.type === "markdown") {
     return (
       <MarkdownRenderer
         path={path}
         resolution={resolution}
-        text={state.text}
+        text={payload.text}
         onOpenPath={onOpenPath}
         activeSkillName={activeSkillName}
         onFillInput={onFillInput}
@@ -197,24 +156,21 @@ function FilePreviewBody({
     );
   }
 
-  if (state.status === "text") {
-    return <CodeRenderer path={path} resolution={resolution} code={state.text} lang={state.lang} />;
+  if (payload.type === "text") {
+    const lang = getLangFromPath(path);
+    return <CodeRenderer path={path} resolution={resolution} code={payload.text} lang={lang} />;
   }
 
-  if (state.status === "html") {
-    return <HtmlRenderer path={path} resolution={resolution} html={state.html} />;
+  if (payload.type === "html") {
+    return <HtmlRenderer path={path} resolution={resolution} html={payload.html} />;
   }
 
-  if (state.status === "table") {
-    return <TableRenderer path={path} resolution={resolution} rows={state.rows} />;
+  if (payload.type === "table") {
+    return <TableRenderer path={path} resolution={resolution} rows={payload.rows} />;
   }
 
-  if (state.status === "mermaid") {
-    return <MermaidRenderer path={path} resolution={resolution} svg={state.svg} source={state.source} />;
-  }
-
-  if (state.status === "binary") {
-    return <BinaryRenderer path={path} resolution={resolution} url={state.url} name={state.name} />;
+  if (payload.type === "mermaid") {
+    return <MermaidRenderer path={path} resolution={resolution} svg={payload.svg} source={payload.source} />;
   }
 
   return null;

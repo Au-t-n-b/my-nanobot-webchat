@@ -13,6 +13,8 @@ import { HtmlRenderer } from "./renderers/HtmlRenderer";
 import { TableRenderer } from "./renderers/TableRenderer";
 import { MermaidRenderer } from "./renderers/MermaidRenderer";
 import { BinaryRenderer } from "./renderers/BinaryRenderer";
+import { DataGridRenderer } from "./renderers/DataGridRenderer";
+import { XlsxRenderer } from "./renderers/XlsxRenderer";
 import type { PreviewResolution } from "./previewTypes";
 import { defaultParser, parserRegistry, type PreviewPayload } from "./previewParsers";
 
@@ -161,12 +163,52 @@ function FilePreviewBody({
     return <CodeRenderer path={path} resolution={resolution} code={payload.text} lang={lang} />;
   }
 
+  if (payload.type === "datagrid") {
+    const lang = getLangFromPath(path);
+    const SourceRenderer = ({ text }: { text: string }) => (
+      <CodeRenderer path={path} resolution={resolution} code={text} lang={lang ?? "json"} />
+    );
+    return (
+      <DataGridRenderer
+        path={path}
+        resolution={resolution}
+        payload={{
+          sourceText: payload.sourceText,
+          columns: payload.columns,
+          rows: payload.rows,
+          isTruncated: payload.isTruncated,
+          warning: payload.warning,
+        }}
+        SourceRenderer={SourceRenderer}
+      />
+    );
+  }
+
   if (payload.type === "html") {
     return <HtmlRenderer path={path} resolution={resolution} html={payload.html} />;
   }
 
   if (payload.type === "table") {
     return <TableRenderer path={path} resolution={resolution} rows={payload.rows} />;
+  }
+
+  if (payload.type === "xlsx") {
+    return (
+      <XlsxRenderer
+        path={path}
+        resolution={resolution}
+        payload={{
+          sheets: payload.sheets.map((s) => ({
+            name: s.name,
+            rows: s.rows,
+            isTruncated: s.isTruncated,
+            warning: s.isTruncated
+              ? `⚠️ 预览已截断：当前文件过大，仅展示前 1000 行 / 50 列。请下载原文件查看完整数据。`
+              : undefined,
+          })),
+        }}
+      />
+    );
   }
 
   if (payload.type === "mermaid") {

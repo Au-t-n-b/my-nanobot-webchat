@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { BaseDataGrid } from "@/components/dataGrid/BaseDataGrid";
 import type { BaseRendererProps } from "../previewTypes";
 
@@ -9,6 +9,8 @@ export type XlsxPayload = {
     name: string;
     rows: string[][];
     isTruncated: boolean;
+    totalRows?: number;
+    totalColumns?: number;
     warning?: string;
   }>;
 };
@@ -28,8 +30,32 @@ function rowsToGrid(rows: string[][]): { columns: Array<{ key: string; label: st
 
 export function XlsxRenderer(props: BaseRendererProps & { payload: XlsxPayload }) {
   const sheets = props.payload.sheets ?? [];
-  const [active, setActive] = useState(0);
-  const activeSheet = sheets[active] ?? sheets[0];
+  const [activeName, setActiveName] = useState<string | null>(sheets[0]?.name ?? null);
+  const [query, setQuery] = useState("");
+
+  useEffect(() => {
+    if (!sheets.length) {
+      setActiveName(null);
+      return;
+    }
+    if (activeName && sheets.some((s) => s.name === activeName)) return;
+    setActiveName(sheets[0]!.name);
+  }, [activeName, sheets]);
+
+  const filteredSheets = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return sheets;
+    return sheets.filter((s) => s.name.toLowerCase().includes(q));
+  }, [query, sheets]);
+
+  const activeSheet = useMemo(() => {
+    if (!filteredSheets.length) return null;
+    if (activeName) {
+      const hit = filteredSheets.find((s) => s.name === activeName);
+      if (hit) return hit;
+    }
+    return filteredSheets[0] ?? null;
+  }, [activeName, filteredSheets]);
 
   const grid = useMemo(() => {
     if (!activeSheet) return null;
@@ -40,14 +66,19 @@ export function XlsxRenderer(props: BaseRendererProps & { payload: XlsxPayload }
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex items-center gap-2 overflow-x-auto">
-        {sheets.map((s, idx) => {
-          const selected = idx === active;
+      <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 overflow-x-auto min-w-0">
+          {filteredSheets.map((s) => {
+            const selected = s.name === activeSheet.name;
+            const meta =
+              typeof s.totalRows === "number" && typeof s.totalColumns === "number"
+                ? `${s.totalRows}×${s.totalColumns}`
+                : null;
           return (
             <button
-              key={`${s.name}-${idx}`}
+              key={s.name}
               type="button"
-              onClick={() => setActive(idx)}
+              onClick={() => setActiveName(s.name)}
               className={[
                 "shrink-0 rounded-md border px-2 py-1 text-xs transition-colors",
                 selected
@@ -56,10 +87,24 @@ export function XlsxRenderer(props: BaseRendererProps & { payload: XlsxPayload }
               ].join(" ")}
               title={s.name}
             >
-              {s.name}
+              <span className="inline-flex items-center gap-1">
+                <span className="truncate max-w-[10rem]">{s.name}</span>
+                {s.isTruncated ? <span title="已截断">⚠️</span> : null}
+                {meta ? <span className="ui-text-muted">({meta})</span> : null}
+              </span>
             </button>
           );
         })}
+        </div>
+
+        {sheets.length >= 6 ? (
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="搜索 Sheet…"
+            className="shrink-0 w-[160px] rounded-md border border-[var(--border-subtle)] bg-[var(--surface-2)] px-2 py-1 text-xs ui-text-secondary focus:outline-none focus:ring-0 focus:border-[var(--accent)]"
+          />
+        ) : null}
       </div>
 
       {activeSheet.isTruncated ? (

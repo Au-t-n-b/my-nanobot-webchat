@@ -202,6 +202,8 @@ function FilePreviewBody({
             name: s.name,
             rows: s.rows,
             isTruncated: s.isTruncated,
+            totalRows: s.totalRows,
+            totalColumns: s.totalColumns,
             warning: s.isTruncated
               ? `⚠️ 预览已截断：当前文件过大，仅展示前 1000 行 / 50 列。请下载原文件查看完整数据。`
               : undefined,

@@ -19,7 +19,7 @@ export function resolvePreview(path: string): PreviewResolution {
   if (kind === "binary") return { path, kind, url, fetch: "none" };
   if (kind === "image" || kind === "pdf" || kind === "html") return { path, kind, url, fetch: "none" };
 
-  if (kind === "xlsx" || kind === "docx") return { path, kind, url, fetch: "arrayBuffer" };
+  if (kind === "xlsx" || kind === "docx" || kind === "zip") return { path, kind, url, fetch: "arrayBuffer" };
   // md / mermaid / text
   return { path, kind, url, fetch: "text" };
 }

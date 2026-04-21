@@ -3,6 +3,7 @@ import { normalizeSyntheticSkillUiPath } from "@/lib/skillUiRegistry";
 export type PreviewKind =
   | "browser"
   | "skill-ui"
+  | "zip"
   | "image"
   | "pdf"
   | "html"
@@ -19,6 +20,7 @@ export function previewKindFromPath(path: string): PreviewKind {
 
   const i = path.lastIndexOf(".");
   const ext = i >= 0 ? path.slice(i + 1).toLowerCase() : "";
+  if (ext === "zip") return "zip";
   if (["png", "jpg", "jpeg", "gif", "webp", "svg"].includes(ext)) return "image";
   if (ext === "pdf") return "pdf";
   if (["html", "htm"].includes(ext)) return "html";

@@ -19,8 +19,15 @@ export type PreviewResolution = {
 
 export type PreviewContent = string | ArrayBuffer;
 
+export interface ParserContext {
+  initialBuffer?: ArrayBuffer;
+}
+
 // 输入：Resolver 给出的元数据；输出：Renderer 需要的核心数据（解析后的 payload）
-export type PreviewParser<T = unknown> = (resolution: PreviewResolution) => Promise<T>;
+export type PreviewParser<T = unknown> = (
+  resolution: PreviewResolution,
+  context?: ParserContext,
+) => Promise<T>;
 
 export interface BaseRendererProps {
   path: string;

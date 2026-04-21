@@ -107,12 +107,12 @@ packages = ["nanobot"]
 "nanobot" = "nanobot"
 
 [tool.hatch.build.targets.wheel.force-include]
-"bridge" = "nanobot/bridge"
+"bridge-legacy-whatsapp" = "nanobot/whatsapp_bridge_legacy"
 
 [tool.hatch.build.targets.sdist]
 include = [
     "nanobot/",
-    "bridge/",
+    "bridge-legacy-whatsapp/",
     "README.md",
     "LICENSE",
 ]

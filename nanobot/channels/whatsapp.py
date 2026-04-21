@@ -260,8 +260,8 @@ def _ensure_bridge_setup() -> Path:
 
     # Find source bridge
     current_file = Path(__file__)
-    pkg_bridge = current_file.parent.parent / "bridge"
-    src_bridge = current_file.parent.parent.parent / "bridge"
+    pkg_bridge = current_file.parent.parent / "whatsapp_bridge_legacy"
+    src_bridge = current_file.parent.parent.parent / "bridge-legacy-whatsapp"
 
     source = None
     if (pkg_bridge / "package.json").exists():

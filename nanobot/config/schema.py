@@ -160,6 +160,26 @@ class ToolsConfig(Base):
     mcp_servers: dict[str, MCPServerConfig] = Field(default_factory=dict)
 
 
+class BridgeSdkConfig(Base):
+    """Platform Runtime ThirdPartyAgentProvider (nanobot/bridge) — optional."""
+
+    enabled: bool = False
+    provider_id: str = "nanobot-internal-chat"
+    max_concurrent_runs_per_session: int = 1
+    max_concurrent_outbound_per_session: int = 1
+
+
+class InternalChatConfig(Base):
+    """Internal assistant / WeLink proxy targets for agent-bridge-provider (secrets via env only)."""
+
+    api_base_url: str = ""
+    assistant_id_env: str = "INTERNAL_CHAT_ASSISTANT_ID"
+    assistant_secret_env: str = "INTERNAL_CHAT_ASSISTANT_SECRET"
+    welink_auth_token_env: str = "WELINK_AUTH_TOKEN"
+    timeout_ms: int = 60_000
+    stream_path: str = "/welink/chat/stream"
+
+
 class Config(BaseSettings):
     """Root configuration for nanobot."""
 
@@ -168,6 +188,8 @@ class Config(BaseSettings):
     providers: ProvidersConfig = Field(default_factory=ProvidersConfig)
     gateway: GatewayConfig = Field(default_factory=GatewayConfig)
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
+    bridge_sdk: BridgeSdkConfig = Field(default_factory=BridgeSdkConfig)
+    internal_chat: InternalChatConfig = Field(default_factory=InternalChatConfig)
 
     @property
     def workspace_path(self) -> Path:

@@ -96,6 +96,8 @@ npm run dev
 nanobot/
   nanobot/          # Python 包（Agent、通道、AGUI aiohttp 等）
   frontend/         # Next.js 前端（AGUI 界面）
+  bridge/           # TypeScript：对接公司内部平台的 agent-bridge-sdk v2「ThirdPartyAgentProvider」实现（与 AgentLoop / channel 解耦）
+  bridge-legacy-whatsapp/   # TypeScript：原 WhatsApp（Baileys）接入层，已从根目录 `bridge/` 迁出；打包进 wheel 时为 nanobot/whatsapp_bridge_legacy
   scripts/            # setup.ps1 / setup.sh / setup.cjs、dev.cjs、node-env-for-next.cjs
   frontend/scripts/   # next-dev.cjs（npm run dev 入口，净化子进程环境后启动 next dev）
   package.json        # 根目录：npm run setup / npm run dev
@@ -108,6 +110,18 @@ nanobot/
     claw-skill-dev-manual-v2.0.md
     claw-skill-dev-manual-v3.0.md
 ```
+
+**说明**：历史文档若仍写根目录 `bridge/`（WhatsApp），请以 **`bridge-legacy-whatsapp/`** 为准；**`bridge/`** 目录现为上述 **agent-bridge-sdk v2 Provider** 包，二者职责不同。
+
+### 公司内部平台 Provider（WeLink 初版，可选）
+
+1. **本机先起 AGUI**（含 `POST /welink/chat/stream`）：`npm run dev` 或单独 `python -m nanobot agui --port 8765`。  
+2. 在 **`~/.nanobot/config.json`** 中配置 `internalChat` / `internal_chat`：`apiBaseUrl`（或 `api_base_url`）指向 AGUI 根地址（如 `http://127.0.0.1:8765`），`streamPath` 默认 `/welink/chat/stream` 一般无需改。  
+3. **环境变量**（与 Provider 契约及现网 WeLink 路由一致）：  
+   - `INTERNAL_CHAT_ASSISTANT_ID`、`INTERNAL_CHAT_ASSISTANT_SECRET`：平台侧要求的助手 ID/密钥（命令阶段会校验）。  
+   - 若 AGUI 为 `/welink/chat/stream` 配置了鉴权，再设置 **`WELINK_AUTH_TOKEN`**（与后端 `WELINK_AUTH_TOKEN` 一致），请求头会带 `Authorization`。  
+4. **`bridge/` 包**：`cd bridge && npm install && npm run build`；由**公司平台 Runtime** 加载 `dist` 产物并调用 `createBridgeProvider()` / `ThirdPartyAgentProvider` SPI。`createSession` 的 **`title`** 须为 JSON：`{"welink":{"sendUserAccount":"…","topicId":…}}`（与 WeLink 会话对齐，详见 [`bridge/README.md`](./bridge/README.md)）。  
+5. 无 Runtime 时，可用临时脚本 `import { createBridgeProvider } from './dist/index.js'` 在本机顺序调用 `createSession` → `runMessage` → 消费 `facts` 与 `result()` 做冒烟（仍须完成步骤 1–3）。
 
 ---
 

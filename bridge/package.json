@@ -1,26 +1,30 @@
 {
-  "name": "nanobot-whatsapp-bridge",
+  "name": "@nanobot/agent-bridge-provider",
   "version": "0.1.0",
-  "description": "WhatsApp bridge for nanobot using Baileys",
+  "private": true,
+  "description": "ThirdPartyAgentProvider (agent-bridge-sdk v2) + WeLink nanobot proxy — platform Runtime loadable",
   "type": "module",
-  "main": "dist/index.js",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist", "src"],
   "scripts": {
     "build": "tsc",
-    "start": "node dist/index.js",
-    "dev": "tsc && node dist/index.js"
-  },
-  "dependencies": {
-    "@whiskeysockets/baileys": "7.0.0-rc.9",
-    "ws": "^8.17.1",
-    "qrcode-terminal": "^0.12.0",
-    "pino": "^9.0.0"
-  },
-  "devDependencies": {
-    "@types/node": "^20.14.0",
-    "@types/ws": "^8.5.10",
-    "typescript": "^5.4.0"
+    "typecheck": "tsc --noEmit",
+    "test": "npm run build && node --test dist/tests/welink-session-meta.test.js dist/tests/concurrency-guard.test.js dist/tests/fact-factory.test.js dist/tests/outbound-controller.test.js dist/tests/bridge-provider-smoke.test.js",
+    "smoke:local": "npm run build && node scripts/smoke-local.mjs",
+    "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\""
   },
   "engines": {
     "node": ">=20.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.0"
   }
 }

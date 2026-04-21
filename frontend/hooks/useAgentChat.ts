@@ -1,17 +1,21 @@
 "use client";
 
 import { startTransition, useCallback, useEffect, useRef, useState } from "react";
-import { getLocalStorage } from "@/lib/browserStorage";
+import { getLocalStorage, safeRemoveItem, safeSetItem } from "@/lib/browserStorage";
+import {
+  getScopedChatKeys,
+  LEGACY_CHAT,
+  maybeMigrateChatFromLegacy,
+  maybeMigrateLegacyChatCardBlob,
+} from "@/lib/chatLocalPersistence";
 import { applyTaskStatusSnapshot } from "@/lib/projectOverviewStore";
+import { getWorkbenchChatStorageScope } from "@/lib/workbenchStorageScope";
+import { WORKBENCH_SCOPE_CHANGED_EVENT } from "@/lib/workbenchStorageKeys";
 import { parseSduiDocument } from "@/lib/sdui";
-import type { SduiNode, SduiPatch, SkillUiBootstrapEvent } from "@/lib/sdui";
+import type { SduiNode, SduiPatch, SduiUploadedFileRecord, SkillUiBootstrapEvent } from "@/lib/sdui";
 
 export type { SkillUiBootstrapEvent };
 
-const CURRENT_THREAD_STORAGE_KEY = "nanobot_agui_current_thread_id";
-const THREAD_MESSAGES_STORAGE_KEY = "nanobot_agui_messages_by_thread";
-const SESSION_SUMMARIES_STORAGE_KEY = "nanobot_agui_sessions";
-const LEGACY_MESSAGES_STORAGE_KEY = "nanobot_agui_messages";
 const MESSAGES_CAP = 50;
 const MESSAGES_MAX_BYTES = 1.8 * 1024 * 1024;
 const STREAM_IDLE_TIMEOUT_MS = 90_000;   // 90 s — SSE proxy may buffer; heartbeat fires every 10 s
@@ -27,6 +31,8 @@ export type AgentMessage = {
   id: string;
   role: "user" | "assistant";
   content: string;
+  /** Unix ms — UI 展示发送/完成时间（旧会话可能缺省） */
+  createdAt?: number;
   /** File paths inferred from tool-execution step logs during this message's run */
   artifacts?: string[];
   kind?: "text" | "chat_card";
@@ -70,7 +76,7 @@ export type TaskStatusPayload = {
   modules: Array<{
     id: string;
     name: string;
-    status: "pending" | "running" | "completed";
+    status: "pending" | "running" | "completed" | "failed" | "skipped";
     steps: Array<{ id: string; name: string; done: boolean }>;
   }>;
 };
@@ -108,12 +114,13 @@ function sanitizeMessages(msgs: AgentMessage[]): AgentMessage[] {
   return toSave;
 }
 
-function loadMessageMap(): Record<string, AgentMessage[]> {
+function loadMessageMap(scope: string): Record<string, AgentMessage[]> {
   if (typeof window === "undefined") return {};
   const ls = getLocalStorage();
   if (!ls) return {};
+  maybeMigrateChatFromLegacy(ls, scope);
   try {
-    const raw = ls.getItem(THREAD_MESSAGES_STORAGE_KEY);
+    const raw = ls.getItem(getScopedChatKeys(scope).messagesByThread);
     if (!raw) return {};
     const parsed: unknown = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object") return {};
@@ -133,7 +140,7 @@ function loadLegacyMessages(): AgentMessage[] {
   const ls = getLocalStorage();
   if (!ls) return [];
   try {
-    const raw = ls.getItem(LEGACY_MESSAGES_STORAGE_KEY);
+    const raw = ls.getItem(LEGACY_CHAT.legacyMessages);
     if (!raw) return [];
     const parsed: unknown = JSON.parse(raw);
     return Array.isArray(parsed) ? sanitizeMessages(parsed as AgentMessage[]) : [];
@@ -142,13 +149,13 @@ function loadLegacyMessages(): AgentMessage[] {
   }
 }
 
-function saveMessageMap(map: Record<string, AgentMessage[]>) {
+function saveMessageMap(map: Record<string, AgentMessage[]>, scope: string) {
   const ls = getLocalStorage();
   if (!ls) return;
   const sanitized = Object.fromEntries(
     Object.entries(map).map(([threadId, msgs]) => [threadId, sanitizeMessages(msgs)]),
   );
-  ls.setItem(THREAD_MESSAGES_STORAGE_KEY, JSON.stringify(sanitized));
+  safeSetItem(ls, getScopedChatKeys(scope).messagesByThread, JSON.stringify(sanitized));
 }
 
 function clipText(text: string, max: number): string {
@@ -156,7 +163,11 @@ function clipText(text: string, max: number): string {
   return normalized.length > max ? `${normalized.slice(0, max - 1)}…` : normalized;
 }
 
-function deriveSessionSummary(threadId: string, messages: AgentMessage[], updatedAt = Date.now()): SessionSummary {
+function deriveSessionSummary(
+  threadId: string,
+  messages: AgentMessage[],
+  prevSummary?: SessionSummary | null,
+): SessionSummary {
   const firstUser = messages.find((m) => m.role === "user" && m.content.trim());
   const lastMessage = [...messages].reverse().find((m) => m.content.trim() || m.kind === "chat_card");
   const titleSource = firstUser?.content || lastMessage?.content || "新对话";
@@ -166,6 +177,8 @@ function deriveSessionSummary(threadId: string, messages: AgentMessage[], update
       : lastMessage
         ? clipText(lastMessage.content, 42)
         : "还没有消息";
+  const fromMessages = messages.reduce((acc, m) => Math.max(acc, m.createdAt ?? 0), 0);
+  const updatedAt = fromMessages > 0 ? fromMessages : prevSummary?.updatedAt ?? Date.now();
   return {
     id: threadId,
     title: clipText(titleSource, 24),
@@ -175,12 +188,13 @@ function deriveSessionSummary(threadId: string, messages: AgentMessage[], update
   };
 }
 
-function loadSessionSummaries(): SessionSummary[] {
+function loadSessionSummaries(scope: string): SessionSummary[] {
   if (typeof window === "undefined") return [];
   const ls = getLocalStorage();
   if (!ls) return [];
+  maybeMigrateChatFromLegacy(ls, scope);
   try {
-    const raw = ls.getItem(SESSION_SUMMARIES_STORAGE_KEY);
+    const raw = ls.getItem(getScopedChatKeys(scope).sessions);
     if (!raw) return [];
     const parsed: unknown = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
@@ -192,11 +206,12 @@ function loadSessionSummaries(): SessionSummary[] {
   }
 }
 
-function saveSessionSummaries(summaries: SessionSummary[]) {
+function saveSessionSummaries(summaries: SessionSummary[], scope: string) {
   const ls = getLocalStorage();
   if (!ls) return;
-  ls.setItem(
-    SESSION_SUMMARIES_STORAGE_KEY,
+  safeSetItem(
+    ls,
+    getScopedChatKeys(scope).sessions,
     JSON.stringify([...summaries].sort((a, b) => b.updatedAt - a.updatedAt)),
   );
 }
@@ -263,6 +278,33 @@ function newId(): string {
   return `id_${Date.now()}_${Math.random().toString(16).slice(2)}`;
 }
 
+function buildPresentChoicesChatCard(args: {
+  threadId: string;
+  runId: string;
+  choices: ChoiceItem[];
+}): AgentMessage {
+  const tid = (args.threadId || "").trim() || "unknown";
+  const rid = (args.runId || "").trim() || newId();
+  const cardId = `present_choices:${tid}:${rid}`;
+  return {
+    id: newId(),
+    role: "assistant",
+    content: "",
+    kind: "chat_card",
+    chatCard: {
+      cardId,
+      docId: `chat:${tid}`,
+      title: "需要你的输入 · 选项确认",
+      node: {
+        type: "ChoiceCard",
+        id: `choice-${cardId}`,
+        title: "请选择下一步操作",
+        options: args.choices.map((c) => ({ id: c.value, label: c.label })),
+      },
+    },
+  } satisfies AgentMessage;
+}
+
 function applySseBlocks(
   buffer: string,
   onBlock: (rec: { event: string; data: Record<string, unknown> }) => void,
@@ -287,6 +329,7 @@ function aguiRequestPath(path: string): string {
 }
 
 export function useAgentChat() {
+  const [scopeEpoch, setScopeEpoch] = useState(0);
   const [threadId, setThreadId] = useState("");
   const [messages, setMessages] = useState<AgentMessage[]>([]);
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
@@ -330,27 +373,60 @@ export function useAgentChat() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
+    const bump = () => setScopeEpoch((n) => n + 1);
+    window.addEventListener(WORKBENCH_SCOPE_CHANGED_EVENT, bump);
+    window.addEventListener("storage", bump);
+    return () => {
+      window.removeEventListener(WORKBENCH_SCOPE_CHANGED_EVENT, bump);
+      window.removeEventListener("storage", bump);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    abortRef.current?.abort();
+    const scope = getWorkbenchChatStorageScope();
     const ls = getLocalStorage();
-    const messageMap = loadMessageMap();
-    let tid = ls?.getItem(CURRENT_THREAD_STORAGE_KEY) ?? null;
-    const initialSessions = loadSessionSummaries();
+    if (!ls) return;
+    maybeMigrateChatFromLegacy(ls, scope);
+    const keys = getScopedChatKeys(scope);
+    const messageMap = loadMessageMap(scope);
+    let tid = ls.getItem(keys.currentThread) ?? null;
+    const initialSessions = loadSessionSummaries(scope);
     if (!tid) tid = newId();
     if (!messageMap[tid]) {
+      maybeMigrateLegacyChatCardBlob(ls, scope, tid);
       const legacy = loadLegacyMessages();
       if (legacy.length > 0) {
         messageMap[tid] = legacy;
-        saveMessageMap(messageMap);
-        ls?.removeItem(LEGACY_MESSAGES_STORAGE_KEY);
+        saveMessageMap(messageMap, scope);
+        safeRemoveItem(ls, LEGACY_CHAT.legacyMessages);
       }
     }
-    const ensured = upsertSessionSummary(initialSessions, deriveSessionSummary(tid, messageMap[tid] ?? []));
-    ls?.setItem(CURRENT_THREAD_STORAGE_KEY, tid);
-    saveSessionSummaries(ensured);
+    const prevS = initialSessions.find((s) => s.id === tid);
+    const ensured = upsertSessionSummary(
+      initialSessions,
+      deriveSessionSummary(tid, messageMap[tid] ?? [], prevS),
+    );
+    safeSetItem(ls, keys.currentThread, tid);
+    saveSessionSummaries(ensured, scope);
     setSessions(ensured);
     setThreadId(tid);
     setMessages(messageMap[tid] ?? []);
+    setStepLogs([]);
+    setError(null);
+    setPendingTool(null);
+    setPendingChoices(null);
+    setIsLoading(false);
+    setRunStatus("idle");
+    setStatusMessage("准备就绪");
+    setEffectiveModel(null);
+    setSkillUiPatchQueue([]);
+    setSkillUiBootstrapEvent(null);
+    setTaskStatusEvent(null);
+    setActiveModuleIds(new Set());
     hydratedRef.current = true;
-  }, []);
+  }, [scopeEpoch]);
 
   useEffect(() => {
     if (!hydratedRef.current || !threadId) return;
@@ -360,32 +436,35 @@ export function useAgentChat() {
     let cancelled = false;
     const handle = window.setTimeout(() => {
       if (cancelled) return;
-      const messageMap = loadMessageMap();
+      const scope = getWorkbenchChatStorageScope();
+      const messageMap = loadMessageMap(scope);
       messageMap[threadId] = sanitizeMessages(messages);
-      saveMessageMap(messageMap);
-      const nextSessions = upsertSessionSummary(loadSessionSummaries(), deriveSessionSummary(threadId, messages));
-      saveSessionSummaries(nextSessions);
+      saveMessageMap(messageMap, scope);
+      const summaries = loadSessionSummaries(scope);
+      const prev = summaries.find((s) => s.id === threadId);
+      const nextSessions = upsertSessionSummary(summaries, deriveSessionSummary(threadId, messages, prev));
+      saveSessionSummaries(nextSessions, scope);
       setSessions(nextSessions);
     }, 180);
     return () => {
       cancelled = true;
       window.clearTimeout(handle);
     };
-  }, [messages, threadId]);
+  }, [messages, threadId, scopeEpoch]);
 
   const deleteMessage = useCallback(
     (id: string) => {
       setMessages((prev) => {
         const next = prev.filter((m) => m.id !== id);
         if (threadId) {
-          const messageMap = loadMessageMap();
+          const scope = getWorkbenchChatStorageScope();
+          const messageMap = loadMessageMap(scope);
           messageMap[threadId] = sanitizeMessages(next);
-          saveMessageMap(messageMap);
-          const nextSummaries = upsertSessionSummary(
-            loadSessionSummaries(),
-            deriveSessionSummary(threadId, next),
-          );
-          saveSessionSummaries(nextSummaries);
+          saveMessageMap(messageMap, scope);
+          const summ = loadSessionSummaries(scope);
+          const prevS = summ.find((s) => s.id === threadId);
+          const nextSummaries = upsertSessionSummary(summ, deriveSessionSummary(threadId, next, prevS));
+          saveSessionSummaries(nextSummaries, scope);
           setSessions(nextSummaries);
         }
         return next;
@@ -414,11 +493,14 @@ export function useAgentChat() {
         clearChatUndoRef.current = null;
       }
       if (typeof window !== "undefined" && threadId) {
-        const messageMap = loadMessageMap();
+        const scope = getWorkbenchChatStorageScope();
+        const messageMap = loadMessageMap(scope);
         messageMap[threadId] = [];
-        saveMessageMap(messageMap);
-        const nextSessions = upsertSessionSummary(loadSessionSummaries(), deriveSessionSummary(threadId, []));
-        saveSessionSummaries(nextSessions);
+        saveMessageMap(messageMap, scope);
+        const summ = loadSessionSummaries(scope);
+        const prevS = summ.find((s) => s.id === threadId);
+        const nextSessions = upsertSessionSummary(summ, deriveSessionSummary(threadId, [], prevS));
+        saveSessionSummaries(nextSessions, scope);
         setSessions(nextSessions);
       }
       setMessages([]);
@@ -446,14 +528,14 @@ export function useAgentChat() {
     setStatusMessage(snap.statusMessage);
     setEffectiveModel(snap.effectiveModel);
     if (typeof window !== "undefined") {
-      const messageMap = loadMessageMap();
+      const scope = getWorkbenchChatStorageScope();
+      const messageMap = loadMessageMap(scope);
       messageMap[threadId] = sanitizeMessages(snap.messages);
-      saveMessageMap(messageMap);
-      const nextSessions = upsertSessionSummary(
-        loadSessionSummaries(),
-        deriveSessionSummary(threadId, snap.messages),
-      );
-      saveSessionSummaries(nextSessions);
+      saveMessageMap(messageMap, scope);
+      const summ = loadSessionSummaries(scope);
+      const prevS = summ.find((s) => s.id === threadId);
+      const nextSessions = upsertSessionSummary(summ, deriveSessionSummary(threadId, snap.messages, prevS));
+      saveSessionSummaries(nextSessions, scope);
       setSessions(nextSessions);
     }
     return true;
@@ -463,14 +545,61 @@ export function useAgentChat() {
     setPendingChoices(null);
   }, []);
 
+  const lockPresentChoicesCard = useCallback((cardId: string, submittedValue: string) => {
+    const cid = (cardId || "").trim();
+    const v = (submittedValue || "").trim();
+    if (!cid || !v) return;
+    setMessages((prev) =>
+      prev.map((m) => {
+        if (m.kind !== "chat_card" || !m.chatCard || m.chatCard.cardId !== cid) return m;
+        const node = m.chatCard.node as any;
+        if (!node || typeof node !== "object" || node.type !== "ChoiceCard") return m;
+        if (String(node.submittedValue ?? "").trim()) return m;
+        return {
+          ...m,
+          chatCard: {
+            ...m.chatCard,
+            node: { ...node, submittedValue: v },
+          },
+        };
+      }),
+    );
+  }, []);
+
+  const lockFilePickerCard = useCallback((cardId: string, uploads: SduiUploadedFileRecord[]) => {
+    const cid = (cardId || "").trim();
+    const list = Array.isArray(uploads) ? uploads : [];
+    if (!cid || list.length === 0) return;
+    setMessages((prev) =>
+      prev.map((m) => {
+        if (m.kind !== "chat_card" || !m.chatCard || m.chatCard.cardId !== cid) return m;
+        const node = m.chatCard.node as any;
+        if (!node || typeof node !== "object" || node.type !== "FilePicker") return m;
+        if (Boolean(node.submitted) && Array.isArray(node.uploads) && node.uploads.length) return m;
+        return {
+          ...m,
+          chatCard: {
+            ...m.chatCard,
+            node: { ...node, submitted: true, uploads: list },
+          },
+        };
+      }),
+    );
+  }, []);
+
   const createSession = useCallback(() => {
     abortRef.current?.abort();
     setActiveModuleIds(new Set());
     const nextThreadId = newId();
     if (typeof window !== "undefined") {
-      getLocalStorage()?.setItem(CURRENT_THREAD_STORAGE_KEY, nextThreadId);
-      const nextSessions = upsertSessionSummary(loadSessionSummaries(), deriveSessionSummary(nextThreadId, []));
-      saveSessionSummaries(nextSessions);
+      const scope = getWorkbenchChatStorageScope();
+      const keys = getScopedChatKeys(scope);
+      const ls = getLocalStorage();
+      if (ls) safeSetItem(ls, keys.currentThread, nextThreadId);
+      const summ = loadSessionSummaries(scope);
+      const prevNew = summ.find((s) => s.id === nextThreadId);
+      const nextSessions = upsertSessionSummary(summ, deriveSessionSummary(nextThreadId, [], prevNew));
+      saveSessionSummaries(nextSessions, scope);
       setSessions(nextSessions);
     }
     setThreadId(nextThreadId);
@@ -491,25 +620,30 @@ export function useAgentChat() {
       abortRef.current?.abort();
       if (typeof window === "undefined") return;
 
-      const messageMap = loadMessageMap();
+      const scope = getWorkbenchChatStorageScope();
+      const messageMap = loadMessageMap(scope);
       delete messageMap[deleteThreadId];
-      saveMessageMap(messageMap);
+      saveMessageMap(messageMap, scope);
 
-      const nextSessions = loadSessionSummaries().filter((s) => s.id !== deleteThreadId);
-      saveSessionSummaries(nextSessions);
+      const nextSessions = loadSessionSummaries(scope).filter((s) => s.id !== deleteThreadId);
+      saveSessionSummaries(nextSessions, scope);
       setSessions(nextSessions);
 
       // If deleting the active session, switch to a remaining one (or create a new empty session)
       if (deleteThreadId === threadId) {
         setActiveModuleIds(new Set());
         const nextThreadId = nextSessions[0]?.id ?? newId();
-        getLocalStorage()?.setItem(CURRENT_THREAD_STORAGE_KEY, nextThreadId);
+        const keys = getScopedChatKeys(scope);
+        const ls = getLocalStorage();
+        if (ls) safeSetItem(ls, keys.currentThread, nextThreadId);
 
         if (!messageMap[nextThreadId]) {
           messageMap[nextThreadId] = [];
-          saveMessageMap(messageMap);
-          const ensured = upsertSessionSummary(loadSessionSummaries(), deriveSessionSummary(nextThreadId, []));
-          saveSessionSummaries(ensured);
+          saveMessageMap(messageMap, scope);
+          const summ = loadSessionSummaries(scope);
+          const prevNew = summ.find((s) => s.id === nextThreadId);
+          const ensured = upsertSessionSummary(summ, deriveSessionSummary(nextThreadId, [], prevNew));
+          saveSessionSummaries(ensured, scope);
           setSessions(ensured);
         }
 
@@ -534,8 +668,11 @@ export function useAgentChat() {
     abortRef.current?.abort();
     setActiveModuleIds(new Set());
     if (typeof window !== "undefined") {
-      getLocalStorage()?.setItem(CURRENT_THREAD_STORAGE_KEY, nextThreadId);
-      const messageMap = loadMessageMap();
+      const scope = getWorkbenchChatStorageScope();
+      const keys = getScopedChatKeys(scope);
+      const ls = getLocalStorage();
+      if (ls) safeSetItem(ls, keys.currentThread, nextThreadId);
+      const messageMap = loadMessageMap(scope);
       setMessages(messageMap[nextThreadId] ?? []);
     }
     setThreadId(nextThreadId);
@@ -782,7 +919,20 @@ export function useAgentChat() {
               );
             }
             if (Array.isArray(data.choices)) {
-              setPendingChoices(data.choices as ChoiceItem[]);
+              const list = (data.choices as unknown[])
+                .map((x) => ({
+                  label: typeof (x as any)?.label === "string" ? String((x as any).label).trim() : "",
+                  value: typeof (x as any)?.value === "string" ? String((x as any).value).trim() : "",
+                }))
+                .filter((x) => x.label && x.value);
+              if (showInTranscript && list.length > 0) {
+                const tid = typeof data.threadId === "string" ? data.threadId : threadId;
+                const rid = typeof data.runId === "string" ? data.runId : newId();
+                setMessages((prev) => [...prev, buildPresentChoicesChatCard({ threadId: tid || threadId, runId: rid, choices: list })]);
+                setPendingChoices(null);
+              } else {
+                setPendingChoices(list.length > 0 ? list : null);
+              }
             }
             if (data.error && typeof data.error === "object" && data.error !== null) {
               const err = data.error as { code?: string; message?: string };
@@ -1081,6 +1231,7 @@ export function useAgentChat() {
     /** 兼容仅关心「最后一条」的组件（如路由 syntheticPath） */
     skillUiPatchEvent: skillUiPatchQueue.at(-1) ?? null,
     skillUiBootstrapEvent,
+    /** 最近一次 TaskStatusUpdate；混合子任务模块 id 形如 `hybrid:{skillName}`（见 hybridSubtaskHintFromTaskStatus） */
     taskStatusEvent,
     activeModuleIds,
     sendMessage,
@@ -1088,6 +1239,8 @@ export function useAgentChat() {
     stopGenerating,
     approveTool,
     clearPendingChoices,
+    lockPresentChoicesCard,
+    lockFilePickerCard,
     clearChat,
     undoClearChat,
     deleteMessage,

@@ -14,12 +14,14 @@
  * Usage (from repo nanobot/bridge/ after npm run build):
  *   node scripts/smoke-local.mjs
  */
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, join } from "node:path";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = join(__dirname, "..");
-const { createBridgeProvider } = await import(join(root, "dist", "index.js"));
+// Windows: dynamic import() requires a file:// URL, not a bare D:\... path (ERR_UNSUPPORTED_ESM_URL_SCHEME).
+const entry = pathToFileURL(join(root, "dist", "index.js")).href;
+const { createBridgeProvider } = await import(entry);
 
 const sendUser = process.env.SMOKE_SEND_USER?.trim() || "testuser";
 const topicId = process.env.SMOKE_TOPIC_ID?.trim() || "topic-local-1";

@@ -3,7 +3,7 @@
 import type JSZip from "jszip";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ZipArchivePayload, ZipTreeNode } from "../previewParsers";
-import type { BaseRendererProps } from "../previewTypes";
+import type { BaseRendererProps, FileInsightReport } from "../previewTypes";
 import { PreviewFileViewer } from "../PreviewFileViewer";
 import { PREVIEW_LIMITS } from "../preview.config";
 
@@ -131,6 +131,7 @@ export function ArchiveRenderer(
     onOpenPath: (path: string) => void;
     activeSkillName?: string | null;
     onFillInput?: (text: string) => void;
+    onPreviewInsightRequest?: (path: string) => Promise<FileInsightReport>;
   }
 ) {
   const root = props.payload.tree;
@@ -249,6 +250,7 @@ export function ArchiveRenderer(
             onOpenPath={props.onOpenPath}
             activeSkillName={props.activeSkillName}
             onFillInput={props.onFillInput}
+            onPreviewInsightRequest={props.onPreviewInsightRequest}
           />
           <p className="mt-3 text-xs ui-text-muted">
             若文本出现乱码（如 GBK/ANSI），请下载原文件查看。

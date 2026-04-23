@@ -2,6 +2,7 @@
 
 import { useMemo } from "react";
 import { FileSearch, X as XIcon } from "lucide-react";
+import type { FileInsightReport } from "./previewTypes";
 import { PreviewFileViewer } from "./PreviewFileViewer";
 
 export type PreviewTabItem = { id: string; path: string; label: string };
@@ -16,6 +17,7 @@ type Props = {
   onOpenPath: (path: string) => void;
   activeSkillName?: string | null;
   onFillInput?: (text: string) => void;
+  onPreviewInsightRequest?: (path: string) => Promise<FileInsightReport>;
 };
 
 // ─── PreviewPanel (exported) ─────────────────────────────────────────────────
@@ -29,6 +31,7 @@ export function PreviewPanel({
   onOpenPath,
   activeSkillName,
   onFillInput,
+  onPreviewInsightRequest,
 }: Props) {
   const tabs = useMemo(() => {
     const out: Array<{ id: string; label: string; path: string; kind: "preview" }> = [];
@@ -121,6 +124,7 @@ export function PreviewPanel({
               activeSkillName={activeSkillName}
               onFillInput={onFillInput}
               onClosePanel={onClose}
+              onPreviewInsightRequest={onPreviewInsightRequest}
             />
           ) : (
             <div className="flex h-full items-center justify-center">

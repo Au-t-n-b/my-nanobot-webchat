@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Loader2 } from "lucide-react";
 import type { PreviewKind } from "@/lib/previewKind";
 import { resolvePreview } from "./previewResolver";
@@ -13,11 +13,12 @@ import { HtmlRenderer } from "./renderers/HtmlRenderer";
 import { TableRenderer } from "./renderers/TableRenderer";
 import { MermaidRenderer } from "./renderers/MermaidRenderer";
 import { BinaryRenderer } from "./renderers/BinaryRenderer";
+import { InsightRenderer } from "./renderers/InsightRenderer";
 import { DataGridRenderer } from "./renderers/DataGridRenderer";
 import { XlsxRenderer } from "./renderers/XlsxRenderer";
 import { ArchiveRenderer } from "./renderers/ArchiveRenderer";
 import { defaultParser, parserRegistry, type PreviewPayload } from "./previewParsers";
-import type { PreviewResolution } from "./previewTypes";
+import type { FileInsightReport, PreviewFileMeta, PreviewResolution } from "./previewTypes";
 
 export type PreviewFileViewerProps = {
   path: string;
@@ -26,6 +27,8 @@ export type PreviewFileViewerProps = {
   onFillInput?: (text: string) => void;
   initialBuffer?: ArrayBuffer;
   onClosePanel?: () => void;
+  /** Workbench 注入：发 skill.agent_task_execute + 订阅 SkillAgentTaskResult */
+  onPreviewInsightRequest?: (path: string) => Promise<FileInsightReport>;
 };
 
 type PreviewState =
@@ -57,11 +60,65 @@ export function PreviewFileViewer({
   onFillInput,
   initialBuffer,
   onClosePanel,
+  onPreviewInsightRequest,
 }: PreviewFileViewerProps) {
   const [state, setState] = useState<PreviewState>({ status: "loading" });
   const resolution: PreviewResolution = useMemo(() => resolvePreview(path), [path]);
   const kind: PreviewKind = resolution.kind;
   const [payload, setPayload] = useState<PreviewPayload | null>(null);
+  const [insightState, setInsightState] = useState<"idle" | "requesting" | "ready" | "error">("idle");
+  const [reportData, setReportData] = useState<FileInsightReport | null>(null);
+  const [insightError, setInsightError] = useState<string | null>(null);
+  const [binaryMeta, setBinaryMeta] = useState<PreviewFileMeta>({});
+
+  useEffect(() => {
+    setInsightState("idle");
+    setReportData(null);
+    setInsightError(null);
+    setBinaryMeta({});
+  }, [path]);
+
+  useEffect(() => {
+    const fileUrl = resolution.url;
+    if (kind !== "binary" || !fileUrl) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const r = await fetch(fileUrl, { method: "HEAD" });
+        const cl = r.headers.get("content-length");
+        if (cancelled) return;
+        if (cl) {
+          const n = Number(cl);
+          if (Number.isFinite(n) && n >= 0) setBinaryMeta({ sizeBytes: n });
+        }
+      } catch {
+        // ignore HEAD failures (CORS / auth); CTA 仍可按无 meta 展示
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [kind, resolution.url]);
+
+  const resolutionWithMeta = useMemo(
+    () => ({ ...resolution, meta: { ...resolution.meta, ...binaryMeta } }),
+    [resolution, binaryMeta],
+  );
+
+  const handleRequestInsight = useCallback(async () => {
+    if (!onPreviewInsightRequest) return;
+    setInsightState("requesting");
+    setInsightError(null);
+    setReportData(null);
+    try {
+      const r = await onPreviewInsightRequest(path);
+      setReportData(r);
+      setInsightState("ready");
+    } catch (e) {
+      setInsightState("error");
+      setInsightError(e instanceof Error ? e.message : String(e));
+    }
+  }, [onPreviewInsightRequest, path]);
 
   useEffect(() => {
     let cancelled = false;
@@ -101,7 +158,22 @@ export function PreviewFileViewer({
     const url = resolution.url;
     if (kind === "binary" && url) {
       const name = path.split(/[/\\]/).pop() ?? "file";
-      return <BinaryRenderer path={path} resolution={resolution} url={url} name={name} />;
+      return (
+        <div className="flex flex-col gap-2">
+          <BinaryRenderer
+            path={path}
+            resolution={resolutionWithMeta}
+            url={url}
+            name={name}
+            insightStatus={insightState}
+            insightError={insightError}
+            onRequestInsight={onPreviewInsightRequest ? handleRequestInsight : undefined}
+          />
+          {insightState === "ready" && reportData ? (
+            <InsightRenderer path={path} report={reportData} />
+          ) : null}
+        </div>
+      );
     }
     if ((kind === "image" || kind === "pdf" || kind === "html") && url) {
       return <EmbedRenderer path={path} resolution={resolution} url={url} embedKind={kind} />;
@@ -211,6 +283,7 @@ export function PreviewFileViewer({
         onOpenPath={onOpenPath}
         activeSkillName={activeSkillName}
         onFillInput={onFillInput}
+        onPreviewInsightRequest={onPreviewInsightRequest}
       />
     );
   }

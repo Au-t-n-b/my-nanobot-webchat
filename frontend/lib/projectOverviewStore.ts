@@ -265,7 +265,7 @@ function matchTaskModule(
 }
 
 export function selectProjectOverviewModules(snapshot: ProjectOverviewState): ProjectOverviewModuleView[] {
-  return composeProjectRegistryItems(snapshot.registryItems).map((item) => {
+  const views = composeProjectRegistryItems(snapshot.registryItems).map((item) => {
     const taskModule = matchTaskModule(snapshot.taskStatus, item);
     const steps = taskModule?.steps ?? [];
     const doneCount = steps.filter((step) => step.done).length;
@@ -291,6 +291,28 @@ export function selectProjectOverviewModules(snapshot: ProjectOverviewState): Pr
       currentStepLabel: steps[doneCount]?.name ?? (totalCount ? "已完成" : "待开始"),
       steps,
     };
+  });
+
+  // --- Data Sanitizer: 强制串行状态推导（避免 1&3 同时 running 的脏流） ---
+  // currentIndex：索引最靠后的、且 (status=running 或已有进度) 的模块
+  // - 已有进度：doneCount>0 或 progressPct>0
+  const currentIndex = (() => {
+    for (let i = views.length - 1; i >= 0; i -= 1) {
+      const m = views[i]!;
+      const hasProgress = (m.doneCount ?? 0) > 0 || (m.progressPct ?? 0) > 0;
+      if (m.status === "running" || hasProgress) return i;
+    }
+    return -1;
+  })();
+
+  if (currentIndex < 0) {
+    return views.map((m) => (m.status === "idle" ? m : { ...m, status: "idle" }));
+  }
+
+  return views.map((m, i) => {
+    if (i < currentIndex) return m.status === "completed" ? m : { ...m, status: "completed" };
+    if (i === currentIndex) return m.status === "running" ? m : { ...m, status: "running" };
+    return m.status === "idle" ? m : { ...m, status: "idle" };
   });
 }
 

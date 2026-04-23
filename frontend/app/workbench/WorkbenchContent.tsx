@@ -15,14 +15,27 @@ import { Sidebar } from "@/components/Sidebar";
 import { ModelSelector } from "@/components/ModelSelector";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { useAgentChat, type ChoiceItem } from "@/hooks/useAgentChat";
+import type { FileInsightReport } from "@/components/preview/previewTypes";
+import { coerceFileInsightReport } from "@/lib/fileInsightReport";
+import { buildSkillAgentTaskExecuteEnvelope } from "@/lib/skillHybridProtocol";
 import type { SduiUploadedFileRecord } from "@/lib/sdui";
 import { hybridSubtaskHintFromTaskStatus } from "@/lib/skillHybridProtocol";
+import {
+  buildProjectGuideColdStartUserPrompt,
+  isProjectGuideColdStartSettled,
+  projectGuideColdStartStorageKey,
+  PROJECT_GUIDE_COLD_START_DONE_BAD,
+  PROJECT_GUIDE_COLD_START_OK,
+} from "@/lib/projectGuideColdStart";
 import { useTheme } from "@/hooks/useTheme";
 import { DashboardNavigator } from "@/components/DashboardNavigator";
 import { ControlCenterPanel } from "@/components/ControlCenterPanel";
+import { ModuleStepper } from "@/components/dashboard/ModuleStepper";
 import {
   hydrateProjectOverview,
   resetProjectOverviewSessionState,
+  selectProjectOverviewModules,
+  useProjectOverviewStore,
 } from "@/lib/projectOverviewStore";
 import {
   isBaseLayerDashboardSkillUi,
@@ -113,6 +126,7 @@ export default function WorkbenchContent() {
     activeModuleIds,
     sendMessage,
     sendSilentMessage,
+    sendChatRequest,
     stopGenerating,
     approveTool,
     clearPendingChoices,
@@ -124,8 +138,11 @@ export default function WorkbenchContent() {
     switchSession,
     lockPresentChoicesCard,
     lockFilePickerCard,
+    subscribeSkillAgentTaskResult,
   } = useAgentChat();
   const { setTheme } = useTheme();
+  const overviewModules = useProjectOverviewStore(selectProjectOverviewModules);
+  const activeModuleId = useProjectOverviewStore((snapshot) => snapshot.activeModuleId);
   const [inputPrefill, setInputPrefill] = useState("");
   const [previewTabs, setPreviewTabs] = useState<Array<{ id: string; path: string; label: string }>>([]);
   /** 右栏当前激活 Tab：具体 previewTab.id(path) */
@@ -165,6 +182,12 @@ export default function WorkbenchContent() {
   const [selectedProvider, setSelectedProvider] = useState<string>("");
   const [agentProfiles, setAgentProfiles] = useState<Array<{ name: string; provider: string; model: string; models: string[] }>>([]);
   const lastInputRef = useRef("");
+  /** 防止 React Strict Mode 或重挂载对同一会话双发 project_guide 冷启动 */
+  const projectGuideColdStartInFlightRef = useRef(false);
+  const sendChatRequestRef = useRef(sendChatRequest);
+  const isLoadingRef = useRef(isLoading);
+  sendChatRequestRef.current = sendChatRequest;
+  isLoadingRef.current = isLoading;
   const draggingRef = useRef<null | "chat" | "preview">(null);
   const dragStartX = useRef(0);
   const dragStartWidth = useRef(0);
@@ -182,6 +205,89 @@ export default function WorkbenchContent() {
 
   const isAgentRunning =
     isLoading || runStatus === "running" || runStatus === "awaitingApproval";
+
+  useEffect(() => {
+    projectGuideColdStartInFlightRef.current = false;
+  }, [threadId]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const tid = (threadId || "").trim();
+    if (!tid) return;
+    const key = projectGuideColdStartStorageKey(tid);
+    if (isProjectGuideColdStartSettled(window.sessionStorage.getItem(key))) return;
+    if (projectGuideColdStartInFlightRef.current) return;
+    let cancelled = false;
+    let activeTimer: number | null = null;
+    const arm = (fn: () => void, ms: number) => {
+      if (activeTimer != null) window.clearTimeout(activeTimer);
+      activeTimer = window.setTimeout(fn, ms) as number;
+    };
+    const MAX_LOADING_WAIT = 50;
+
+    const sendOnce = () => {
+      if (cancelled) return;
+      if (isProjectGuideColdStartSettled(window.sessionStorage.getItem(key))) return;
+      if (projectGuideColdStartInFlightRef.current) return;
+      const tidNow = (threadId || "").trim();
+      if (tidNow !== tid) return;
+      projectGuideColdStartInFlightRef.current = true;
+      const coldPrompt = buildProjectGuideColdStartUserPrompt();
+      void sendChatRequestRef
+        .current(coldPrompt, selectedModel, {
+          showInTranscript: false,
+          showAssistantInTranscript: true,
+          showCompletionMessage: true,
+        })
+        .then((ok) => {
+          projectGuideColdStartInFlightRef.current = false;
+          if (cancelled) return;
+          try {
+            window.sessionStorage.setItem(key, ok ? PROJECT_GUIDE_COLD_START_OK : PROJECT_GUIDE_COLD_START_DONE_BAD);
+          } catch {
+            /* ignore */
+          }
+        })
+        .catch(() => {
+          projectGuideColdStartInFlightRef.current = false;
+          if (cancelled) return;
+          try {
+            window.sessionStorage.setItem(key, PROJECT_GUIDE_COLD_START_DONE_BAD);
+          } catch {
+            /* ignore */
+          }
+        });
+    };
+
+    let waitCount = 0;
+    const schedule = () => {
+      if (cancelled) return;
+      if (isProjectGuideColdStartSettled(window.sessionStorage.getItem(key))) return;
+      if (isLoadingRef.current) {
+        waitCount += 1;
+        if (waitCount < MAX_LOADING_WAIT) {
+          arm(schedule, 100);
+        } else {
+          try {
+            window.sessionStorage.setItem(key, PROJECT_GUIDE_COLD_START_DONE_BAD);
+          } catch {
+            /* 放弃，避免 isLoading/回调引用抖动导致反复冷启动、界面狂闪 */
+          }
+        }
+        return;
+      }
+      sendOnce();
+    };
+
+    arm(() => {
+      queueMicrotask(schedule);
+    }, 0);
+
+    return () => {
+      cancelled = true;
+      if (activeTimer != null) window.clearTimeout(activeTimer);
+    };
+  }, [threadId, selectedModel]);
 
   const hybridSubtaskHint = useMemo(
     () => hybridSubtaskHintFromTaskStatus(taskStatusEvent),
@@ -542,6 +648,80 @@ export default function WorkbenchContent() {
     skillNameInferredFromChatCards ||
     skillNameInferredFromMessages ||
     moduleIdInferredFromMessages;
+
+  const onPreviewInsightRequest = useCallback(
+    async (filePath: string): Promise<FileInsightReport> => {
+      const p = (filePath || "").trim();
+      if (!p) throw new Error("empty_path");
+      if (!threadId) throw new Error("no_thread");
+      const taskId = `preview-insight-${
+        typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+          ? crypto.randomUUID()
+          : `${Date.now()}-${Math.random().toString(16).slice(2)}`
+      }`;
+      const goal =
+        `仅分析工作区内相对路径 \`${p}\`：` +
+        "使用允许的工具 read_file_head / read_file_tail / read_hex_dump / list_dir 读取有限片段，" +
+        "输出严格符合 FileInsightReport 的 JSON（字段 file_type_guess, summary, risk_level, extracted_snippets, next_action_suggestion）。不得编造未读到的内容。";
+
+      return await new Promise<FileInsightReport>((resolve, reject) => {
+        let settled = false;
+        const timer = window.setTimeout(() => {
+          if (settled) return;
+          settled = true;
+          unsubscribe();
+          reject(new Error("洞察请求超时"));
+        }, 120_000);
+
+        const unsubscribe = subscribeSkillAgentTaskResult((evt) => {
+          if (evt.taskId !== taskId) return;
+          if (settled) return;
+          settled = true;
+          window.clearTimeout(timer);
+          unsubscribe();
+          if (evt.ok && evt.report) {
+            const coerced = coerceFileInsightReport(evt.report);
+            if (!coerced) {
+              reject(new Error("invalid_report_shape"));
+              return;
+            }
+            resolve(coerced);
+          } else {
+            reject(new Error(evt.error || "insight_failed"));
+          }
+        });
+
+        const envelope = buildSkillAgentTaskExecuteEnvelope({
+          threadId,
+          skillName: (dashboardActiveSkillName || "nanobot_preview").trim() || "nanobot_preview",
+          skillRunId: `run-preview-insight-${threadId}`,
+          payload: {
+            taskId,
+            stepId: "preview.file_insight",
+            goal,
+            resultDelivery: "sse",
+            maxIterations: 8,
+            resultSchema: { type: "FileInsightReport" },
+          },
+        });
+
+        const intent = {
+          type: "chat_card_intent" as const,
+          verb: "skill_runtime_event" as const,
+          payload: envelope,
+        };
+
+        void sendSilentMessage(JSON.stringify(intent), selectedModel).catch((e) => {
+          if (settled) return;
+          settled = true;
+          window.clearTimeout(timer);
+          unsubscribe();
+          reject(e instanceof Error ? e : new Error(String(e)));
+        });
+      });
+    },
+    [threadId, subscribeSkillAgentTaskResult, sendSilentMessage, selectedModel, dashboardActiveSkillName],
+  );
 
   const handleFillInput = useCallback((text: string) => {
     setInputPrefill(text);
@@ -1152,7 +1332,7 @@ export default function WorkbenchContent() {
             className={
               zenMode
                 ? "flex-1 min-w-0 min-h-0 flex flex-col bg-[var(--paper-chat)] rounded-2xl shadow-[var(--shadow-card)] ring-1 ring-black/[0.05] dark:ring-white/10 overflow-hidden"
-                : "shrink-0 min-h-0 flex flex-col bg-[var(--paper-chat)] rounded-2xl shadow-[var(--shadow-card)] ring-1 ring-black/[0.05] dark:ring-white/10 overflow-hidden"
+                : "shrink-0 min-w-0 min-h-0 flex flex-col bg-[var(--paper-chat)] rounded-2xl shadow-[var(--shadow-card)] ring-1 ring-black/[0.05] dark:ring-white/10 overflow-hidden"
             }
             style={zenMode ? { minWidth: CHAT_MIN } : { width: chatWidth, minWidth: CHAT_MIN }}
           >
@@ -1256,7 +1436,15 @@ export default function WorkbenchContent() {
                 </button>
               </div>
             </div>
-            <div className="flex-1 min-h-0">
+            <div className="min-w-0 shrink-0 overflow-visible relative z-20">
+              <ModuleStepper
+                modules={overviewModules}
+                activeModuleId={activeModuleId}
+                onSelectModule={undefined}
+                className="pb-2"
+              />
+            </div>
+            <div className="flex-1 min-w-0 min-h-0">
               <ChatArea
                 messages={messages}
                 stepLogs={stepLogs}
@@ -1374,6 +1562,7 @@ export default function WorkbenchContent() {
                 onOpenPath={openFilePreview}
                 activeSkillName={dashboardActiveSkillName}
                 onFillInput={handleFillInput}
+                onPreviewInsightRequest={onPreviewInsightRequest}
               />
             </div>
           </div>

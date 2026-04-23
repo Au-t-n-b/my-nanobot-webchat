@@ -148,6 +148,13 @@ body {
   100% { transform: translateX(60%); }
 }
 
+/* Module stepper: subtle flowing highlight */
+@keyframes module-stepper-shimmer {
+  0% { transform: translateX(-120%); opacity: 0; }
+  20% { opacity: 0.55; }
+  100% { transform: translateX(120%); opacity: 0; }
+}
+
 body {
   min-height: 100vh;
 }

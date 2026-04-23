@@ -392,3 +392,203 @@ class ListDirTool(_FsTool):
             return f"Error: {e}"
         except Exception as e:
             return f"Error listing directory: {e}"
+
+
+# ---------------------------------------------------------------------------
+# Preview insight: capped reads (bounded bytes / lines; no full-file slurp)
+# ---------------------------------------------------------------------------
+
+_HEAD_TAIL_MAX_RAW = 256 * 1024
+_HEX_MAX_BYTES_HARD = 512
+_DEFAULT_HEAD_LINES = 100
+_MAX_HEAD_LINES = 200
+_DEFAULT_HEX_BYTES = 256
+
+
+def _clamp_preview_int(val: Any, lo: int, hi: int, default: int) -> int:
+    try:
+        n = int(val)
+    except (TypeError, ValueError):
+        n = default
+    return max(lo, min(hi, n))
+
+
+class ReadFileHeadTool(_FsTool):
+    """Read only the first N lines from the start of a file (UTF-8, replace errors)."""
+
+    @property
+    def name(self) -> str:
+        return "read_file_head"
+
+    @property
+    def description(self) -> str:
+        return (
+            "Read the first few lines of a text file from disk. "
+            "Hard-capped: at most 200 lines and only a small prefix of the file is read. "
+            "Use for logs or text previews without loading the whole file."
+        )
+
+    @property
+    def parameters(self) -> dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "File path relative to workspace"},
+                "lines": {
+                    "type": "integer",
+                    "description": "Number of lines from the top (default 100, max 200)",
+                    "minimum": 1,
+                    "maximum": _MAX_HEAD_LINES,
+                },
+            },
+            "required": ["path"],
+        }
+
+    async def execute(self, path: str, lines: int | None = None, **kwargs: Any) -> str:
+        try:
+            fp = self._resolve(path)
+            if not fp.exists():
+                return f"Error: File not found: {path}"
+            if not fp.is_file():
+                return f"Error: Not a file: {path}"
+            nlines = _clamp_preview_int(lines, 1, _MAX_HEAD_LINES, _DEFAULT_HEAD_LINES)
+            raw = fp.read_bytes()
+            if len(raw) > _HEAD_TAIL_MAX_RAW:
+                raw = raw[:_HEAD_TAIL_MAX_RAW]
+            text = raw.decode("utf-8", errors="replace")
+            all_lines = text.splitlines()
+            chosen = all_lines[:nlines]
+            numbered = [f"{i + 1}| {line}" for i, line in enumerate(chosen)]
+            body = "\n".join(numbered) if numbered else "(no lines in prefix)"
+            note = (
+                f"\n\n(capped read: first {len(raw)} bytes, {len(chosen)} line(s); "
+                f"tool max lines={_MAX_HEAD_LINES})"
+            )
+            return body + note
+        except PermissionError as e:
+            return f"Error: {e}"
+        except Exception as e:
+            return f"Error reading file head: {e}"
+
+
+class ReadFileTailTool(_FsTool):
+    """Read only the last N lines from the end of a file (UTF-8, replace errors)."""
+
+    @property
+    def name(self) -> str:
+        return "read_file_tail"
+
+    @property
+    def description(self) -> str:
+        return (
+            "Read the last few lines of a text file. "
+            "Hard-capped: at most 200 lines and only a small suffix window is read from disk."
+        )
+
+    @property
+    def parameters(self) -> dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "File path relative to workspace"},
+                "lines": {
+                    "type": "integer",
+                    "description": "Number of lines from the end (default 100, max 200)",
+                    "minimum": 1,
+                    "maximum": _MAX_HEAD_LINES,
+                },
+            },
+            "required": ["path"],
+        }
+
+    async def execute(self, path: str, lines: int | None = None, **kwargs: Any) -> str:
+        try:
+            fp = self._resolve(path)
+            if not fp.exists():
+                return f"Error: File not found: {path}"
+            if not fp.is_file():
+                return f"Error: Not a file: {path}"
+            nlines = _clamp_preview_int(lines, 1, _MAX_HEAD_LINES, _DEFAULT_HEAD_LINES)
+            size = fp.stat().st_size
+            if size == 0:
+                return "(empty file)"
+            read_size = min(size, _HEAD_TAIL_MAX_RAW)
+            with fp.open("rb") as f:
+                f.seek(max(0, size - read_size))
+                raw = f.read()
+            text = raw.decode("utf-8", errors="replace")
+            all_lines = text.splitlines()
+            chosen = all_lines[-nlines:] if len(all_lines) > nlines else all_lines
+            start_idx = max(0, len(all_lines) - len(chosen))
+            numbered = [f"{start_idx + i + 1}| {line}" for i, line in enumerate(chosen)]
+            body = "\n".join(numbered) if numbered else "(no lines in suffix window)"
+            note = (
+                f"\n\n(capped read: last {len(raw)} bytes of file, {len(chosen)} line(s); "
+                f"tool max lines={_MAX_HEAD_LINES})"
+            )
+            return body + note
+        except PermissionError as e:
+            return f"Error: {e}"
+        except Exception as e:
+            return f"Error reading file tail: {e}"
+
+
+class ReadHexDumpTool(_FsTool):
+    """Read a short raw hex dump from the beginning of any file."""
+
+    @property
+    def name(self) -> str:
+        return "read_hex_dump"
+
+    @property
+    def description(self) -> str:
+        return (
+            "Read at most 512 bytes from the start of a file and return an xxd-style hex dump. "
+            "Use for binary / unknown files when text tools are not appropriate."
+        )
+
+    @property
+    def parameters(self) -> dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "File path relative to workspace"},
+                "byteLimit": {
+                    "type": "integer",
+                    "description": "Bytes to dump from BOF (default 256, max 512)",
+                    "minimum": 16,
+                    "maximum": _HEX_MAX_BYTES_HARD,
+                },
+                "bytes": {
+                    "type": "integer",
+                    "description": "Alias of byteLimit (same bounds)",
+                    "minimum": 16,
+                    "maximum": _HEX_MAX_BYTES_HARD,
+                },
+            },
+            "required": ["path"],
+        }
+
+    async def execute(self, path: str, byteLimit: int | None = None, **kwargs: Any) -> str:
+        try:
+            fp = self._resolve(path)
+            if not fp.exists():
+                return f"Error: File not found: {path}"
+            if not fp.is_file():
+                return f"Error: Not a file: {path}"
+            alt = kwargs.get("bytes")
+            raw_n = byteLimit if byteLimit is not None else alt
+            nbytes = _clamp_preview_int(raw_n, 16, _HEX_MAX_BYTES_HARD, _DEFAULT_HEX_BYTES)
+            raw = fp.read_bytes()[:nbytes]
+            lines_out: list[str] = []
+            for i in range(0, len(raw), 16):
+                chunk = raw[i : i + 16]
+                hex_part = " ".join(f"{b:02x}" for b in chunk)
+                ascii_part = "".join(chr(b) if 32 <= b < 127 else "." for b in chunk)
+                lines_out.append(f"{i:08x}  {hex_part:<47}  |{ascii_part}|")
+            body = "\n".join(lines_out) if lines_out else "(empty)"
+            return body + f"\n\n(hex dump: {len(raw)} byte(s), max={_HEX_MAX_BYTES_HARD})"
+        except PermissionError as e:
+            return f"Error: {e}"
+        except Exception as e:
+            return f"Error reading hex dump: {e}"

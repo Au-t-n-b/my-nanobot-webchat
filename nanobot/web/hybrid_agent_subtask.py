@@ -10,7 +10,14 @@ from loguru import logger
 
 from nanobot.agent.skills import BUILTIN_SKILLS_DIR
 from nanobot.agent.tools.doc_text import ExtractDocTextTool
-from nanobot.agent.tools.filesystem import ListDirTool, ReadFileTool
+from nanobot.agent.tools.filesystem import (
+    ListDirTool,
+    ReadFileHeadTool,
+    ReadFileTailTool,
+    ReadFileTool,
+    ReadHexDumpTool,
+)
+from nanobot.web.file_insight_report import FileInsightReport, parse_file_insight_report_from_llm_text
 from nanobot.agent.tools.registry import ToolRegistry
 from nanobot.utils.helpers import build_assistant_message
 
@@ -44,6 +51,18 @@ def _build_tool_registry(
         tools.register(
             ReadFileTool(workspace=workspace, allowed_dir=allowed_dir, extra_allowed_dirs=extra_read)
         )
+    if "read_file_head" in allowed:
+        tools.register(
+            ReadFileHeadTool(workspace=workspace, allowed_dir=allowed_dir, extra_allowed_dirs=extra_read)
+        )
+    if "read_file_tail" in allowed:
+        tools.register(
+            ReadFileTailTool(workspace=workspace, allowed_dir=allowed_dir, extra_allowed_dirs=extra_read)
+        )
+    if "read_hex_dump" in allowed:
+        tools.register(
+            ReadHexDumpTool(workspace=workspace, allowed_dir=allowed_dir, extra_allowed_dirs=extra_read)
+        )
     if "list_dir" in allowed:
         tools.register(ListDirTool(workspace=workspace, allowed_dir=allowed_dir, extra_allowed_dirs=extra_read))
     if "extract_doc_text" in allowed:
@@ -52,14 +71,31 @@ def _build_tool_registry(
     return tools
 
 
+def _file_insight_system_prompt(*, workspace: Path) -> str:
+    schema = FileInsightReport.model_json_schema()
+    schema_hint = json.dumps(schema, ensure_ascii=False)[:4000]
+    return (
+        "你是文件预览「洞察」子任务中的受控分析助手。\n"
+        "规则：\n"
+        "1) 只使用被提供的工具获取事实，不得编造文件内容。\n"
+        "2) 最终回复必须是 **单行合法 JSON 对象**（不要 markdown、不要 ``` 围栏、不要前后解释文字）。\n"
+        "3) JSON 必须严格满足以下 JSON Schema 的字段与枚举：\n"
+        f"{schema_hint}\n"
+        "4) extracted_snippets 最多 20 条，每条建议不超过 400 字符。\n"
+        "5) 若信息不足，仍输出合法 JSON，在 summary 中说明缺什么，risk_level 可标为 warning。\n"
+        f"\n## 工作区根路径\n{workspace}\n"
+    )
+
+
 async def run_hybrid_agent_subtask(
     *,
     agent_loop: Any,
     goal: str,
     allowed_tools: list[str],
     max_iterations: int = 8,
+    output_mode: str = "summary_zh",
 ) -> dict[str, Any]:
-    """Run a small tool-using loop; returns ``{ok, text, error?}``."""
+    """Run a small tool-using loop; returns ``{ok, text, error?, report?}``."""
     if agent_loop is None:
         return {"ok": False, "error": "no_agent_loop", "text": ""}
     provider = getattr(agent_loop, "provider", None)
@@ -81,14 +117,18 @@ async def run_hybrid_agent_subtask(
     if not defs:
         return {"ok": False, "error": "no_tools_allowed", "text": ""}
 
-    system_prompt = (
-        "你是嵌在工勘 Skill 流程内的受控分析助手。\n"
-        "规则：\n"
-        "1) 只使用被提供的工具获取事实，不得编造文件内容。\n"
-        "2) 最终只输出一段简洁中文结论（建议不超过 400 字），不要输出 JSON 包裹。\n"
-        "3) 若信息不足，明确说明缺什么，仍保持简短。\n"
-        f"\n## 工作区根路径\n{workspace}\n"
-    )
+    mode = str(output_mode or "summary_zh").strip().lower()
+    if mode == "file_insight_json":
+        system_prompt = _file_insight_system_prompt(workspace=workspace)
+    else:
+        system_prompt = (
+            "你是嵌在工勘 Skill 流程内的受控分析助手。\n"
+            "规则：\n"
+            "1) 只使用被提供的工具获取事实，不得编造文件内容。\n"
+            "2) 最终只输出一段简洁中文结论（建议不超过 400 字），不要输出 JSON 包裹。\n"
+            "3) 若信息不足，明确说明缺什么，仍保持简短。\n"
+            f"\n## 工作区根路径\n{workspace}\n"
+        )
     messages: list[dict[str, Any]] = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": goal},
@@ -134,7 +174,23 @@ async def run_hybrid_agent_subtask(
                 break
 
         if final_text is None:
-            final_text = "子任务结束：在迭代上限内未得到最终自然语言结论。"
+            final_text = (
+                '{"file_type_guess":"unknown","summary":"在迭代上限内未得到模型最终输出",'
+                '"risk_level":"warning","extracted_snippets":[],"next_action_suggestion":"重试或缩小文件"}'
+                if mode == "file_insight_json"
+                else "子任务结束：在迭代上限内未得到最终自然语言结论。"
+            )
+        if mode == "file_insight_json":
+            try:
+                report = parse_file_insight_report_from_llm_text(final_text)
+                return {"ok": True, "text": final_text, "report": report.model_dump(mode="json")}
+            except Exception as e:
+                logger.warning("hybrid_agent_subtask file_insight_json parse failed | {}", e)
+                return {
+                    "ok": False,
+                    "error": f"invalid_file_insight_json: {e}",
+                    "text": (final_text or "")[:4000],
+                }
         return {"ok": True, "text": final_text}
     except Exception as e:
         logger.warning("hybrid_agent_subtask failed | {}", e)

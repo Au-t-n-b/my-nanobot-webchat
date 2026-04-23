@@ -405,13 +405,20 @@ async def _emit_skill_agent_task_execute(
     if not goal:
         return {"ok": False, "event": "skill.agent_task_execute", "error": "missing_goal"}
 
-    raw_allowed = payload.get("allowedTools")
-    if isinstance(raw_allowed, list) and raw_allowed:
-        allowed_tools = [str(x).strip() for x in raw_allowed if str(x).strip()]
+    result_delivery = str(payload.get("resultDelivery") or "dashboard").strip().lower()
+    use_sse = result_delivery == "sse"
+
+    if use_sse:
+        # Preview insight / ephemeral JSON: never delegate read_file (unbounded risk).
+        allowed_tools = ["read_file_head", "read_file_tail", "read_hex_dump", "list_dir"]
     else:
-        allowed_tools = ["read_file", "list_dir"]
-    if not allowed_tools:
-        allowed_tools = ["read_file", "list_dir"]
+        raw_allowed = payload.get("allowedTools")
+        if isinstance(raw_allowed, list) and raw_allowed:
+            allowed_tools = [str(x).strip() for x in raw_allowed if str(x).strip()]
+        else:
+            allowed_tools = ["read_file", "list_dir"]
+        if not allowed_tools:
+            allowed_tools = ["read_file", "list_dir"]
 
     try:
         max_iterations = int(payload.get("maxIterations") or 8)
@@ -455,6 +462,7 @@ async def _emit_skill_agent_task_execute(
         goal=goal,
         allowed_tools=allowed_tools,
         max_iterations=max_iterations,
+        output_mode="file_insight_json" if use_sse else "summary_zh",
     )
     ok = bool(hybrid.get("ok"))
     final_label = "子任务完成" if ok else f"失败: {str(hybrid.get('error') or '')}"[:120]
@@ -470,6 +478,39 @@ async def _emit_skill_agent_task_execute(
     text = str(hybrid.get("text") or "").strip()
     if not text:
         text = str(hybrid.get("error") or ("子任务失败" if not ok else "")).strip()
+
+    if use_sse:
+        from nanobot.agent.loop import emit_skill_agent_task_result_event
+
+        report = hybrid.get("report")
+        err = str(hybrid.get("error") or "").strip() or None
+        sse_ok = bool(ok) and isinstance(report, dict)
+        if not sse_ok and not err:
+            err = "missing_or_invalid_report"
+        try:
+            await emit_skill_agent_task_result_event(
+                {
+                    "threadId": thread_id,
+                    "taskId": task_id,
+                    "ok": sse_ok,
+                    "report": report if isinstance(report, dict) else None,
+                    "error": err,
+                }
+            )
+        except Exception as e:
+            logger.warning("skill.agent_task_execute sse result emit failed | thread_id={} | {}", thread_id, e)
+        summary = ""
+        if isinstance(report, dict):
+            summary = str(report.get("summary") or "")[:200]
+        if not summary:
+            summary = (text or final_label)[:200]
+        return {
+            "ok": True,
+            "event": "skill.agent_task_execute",
+            "taskId": task_id,
+            "subtaskOk": sse_ok,
+            "summary": summary,
+        }
 
     if synthetic_path and text:
         try:

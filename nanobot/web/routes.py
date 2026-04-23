@@ -763,6 +763,8 @@ async def _handle_chat_skill_ui_fastlane(
                 agent.reset_module_session_focus_emitter(tok)
             elif kind == "task" and hasattr(agent, "reset_task_status_emitter"):
                 agent.reset_task_status_emitter(tok)
+            elif kind == "skill_result" and hasattr(agent, "reset_skill_agent_task_result_emitter"):
+                agent.reset_skill_agent_task_result_emitter(tok)
 
     try:
         await _write("RunStarted", {"threadId": thread_id, "runId": run_id, "model": model_name})
@@ -783,6 +785,9 @@ async def _handle_chat_skill_ui_fastlane(
             async def emit_task_status(payload: dict[str, Any]) -> None:
                 await _write("TaskStatusUpdate", payload)
 
+            async def emit_skill_agent_task_result(payload: dict[str, Any]) -> None:
+                await _write("SkillAgentTaskResult", payload)
+
             emitter_stack.append(("thread", agent.set_current_thread_id(thread_id)))
             emitter_stack.append(("patch", agent.set_skill_ui_patch_emitter(emit_skill_ui_patch)))
             emitter_stack.append(("chat", agent.set_skill_ui_chat_card_emitter(emit_skill_ui_chat_card)))
@@ -791,6 +796,10 @@ async def _handle_chat_skill_ui_fastlane(
             emitter_stack.append(("focus", agent.set_module_session_focus_emitter(emit_module_session_focus)))
             if hasattr(agent, "set_task_status_emitter"):
                 emitter_stack.append(("task", agent.set_task_status_emitter(emit_task_status)))
+            if hasattr(agent, "set_skill_agent_task_result_emitter"):
+                emitter_stack.append(
+                    ("skill_result", agent.set_skill_agent_task_result_emitter(emit_skill_agent_task_result))
+                )
 
         pending_store = request.app.get(PENDING_HITL_STORE_KEY)
         resume_runner = request.app.get(SKILL_RESUME_RUNNER_KEY)
@@ -1019,6 +1028,9 @@ async def handle_chat(request: web.Request) -> web.StreamResponse | web.Response
             async def emit_task_status(payload: dict[str, Any]) -> None:
                 await safe_write("TaskStatusUpdate", payload)
 
+            async def emit_skill_agent_task_result(payload: dict[str, Any]) -> None:
+                await safe_write("SkillAgentTaskResult", payload)
+
             streamed_chunks: list[str] = []
             run_choices: list[dict[str, str]] = []
 
@@ -1117,6 +1129,11 @@ async def handle_chat(request: web.Request) -> web.StreamResponse | web.Response
             )
             token_task_status = (
                 agent.set_task_status_emitter(emit_task_status) if hasattr(agent, "set_task_status_emitter") else None
+            )
+            token_skill_agent_task_result = (
+                agent.set_skill_agent_task_result_emitter(emit_skill_agent_task_result)
+                if hasattr(agent, "set_skill_agent_task_result_emitter")
+                else None
             )
 
             async def _sse_heartbeat() -> None:
@@ -1278,6 +1295,10 @@ async def handle_chat(request: web.Request) -> web.StreamResponse | web.Response
                     agent.reset_skill_ui_bootstrap_emitter(token_skill_ui_bootstrap)
                 if token_task_status is not None and hasattr(agent, "reset_task_status_emitter"):
                     agent.reset_task_status_emitter(token_task_status)
+                if token_skill_agent_task_result is not None and hasattr(
+                    agent, "reset_skill_agent_task_result_emitter"
+                ):
+                    agent.reset_skill_agent_task_result_emitter(token_skill_agent_task_result)
     except asyncio.CancelledError:
         client_disconnected = True
         if process_task is not None and not process_task.done():

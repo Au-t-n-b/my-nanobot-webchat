@@ -6,6 +6,8 @@ const apiBase = (process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8765").re
 const staticExport = process.env.NANOBOT_STATIC_EXPORT === "1";
 
 const nextConfig: NextConfig = {
+  /** 让 Turbopack/打包器显式处理 jszip，避免仅拉代码未装依赖或解析异常时出现 Module not found */
+  transpilePackages: ["jszip"],
   ...(staticExport
     ? {
         output: "export" as const,

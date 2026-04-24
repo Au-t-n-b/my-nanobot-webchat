@@ -46,20 +46,6 @@ export function ProjectOverview({ modules, onSelectModule }: Props) {
         </div>
       )}
 
-      {modules.length > 0 && (
-        <div className="mt-auto pt-3 border-t border-[var(--border-subtle)]">
-          <div className="flex justify-between text-xs ui-text-muted mb-1">
-            <span>模块完成占比</span>
-            <span className="font-bold" style={{ color: "var(--accent)" }}>{completionPct}%</span>
-          </div>
-          <div className="h-1.5 rounded-full overflow-hidden" style={{ background: "var(--surface-3)" }}>
-            <div
-              className="h-full rounded-full transition-all duration-700"
-              style={{ width: `${completionPct}%`, background: "linear-gradient(90deg, var(--success), var(--accent))" }}
-            />
-          </div>
-        </div>
-      )}
     </div>
   );
 }

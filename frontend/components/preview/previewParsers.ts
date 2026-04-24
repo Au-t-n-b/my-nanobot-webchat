@@ -97,12 +97,6 @@ function extFromPath(path: string): string {
   return i >= 0 ? path.slice(i + 1).toLowerCase() : "";
 }
 
-function countNewlines(text: string): number {
-  let n = 0;
-  for (let i = 0; i < text.length; i++) if (text.charCodeAt(i) === 10) n++;
-  return n;
-}
-
 function hardCutColumns(cols: string[]): string[] {
   return cols.slice(0, MAX_GRID_COLS);
 }

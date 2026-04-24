@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Building2, Check, ChevronRight, Copy, FileText, FolderOpen, Globe, LogOut, Plus, RefreshCw, Settings, Trash2, Zap } from "lucide-react";
 import { CenteredConfirmModal, CenteredModal } from "@/components/CenteredModal";
 import { SessionList } from "@/components/SessionList";
-import type { AgentMessage, SessionSummary } from "@/hooks/useAgentChat";
+import type { AgentMessage, SessionSummary, TrashedSessionV1 } from "@/hooks/useAgentChat";
 import { extractIndexedFiles } from "@/lib/fileIndex";
 import { openLocation } from "@/lib/apiFile";
 import { SIDEBAR_SECTION_LABEL_CLASS } from "@/lib/sidebarTokens";
@@ -37,6 +37,10 @@ type Props = {
   onOpenQuickSettings?: () => void;
   /** Local demo auth: sign out and return to login. */
   onLogout?: () => void;
+  /** 清空会话 30 天可恢复的回收项 */
+  trashedSessions?: TrashedSessionV1[];
+  onRestoreTrashed?: (e: TrashedSessionV1) => void;
+  onDismissTrashed?: (e: TrashedSessionV1) => void;
 };
 
 type SkillItem = {
@@ -99,6 +103,9 @@ export function Sidebar({
   onOpenSkillsHub,
   onOpenQuickSettings,
   onLogout,
+  trashedSessions = [],
+  onRestoreTrashed,
+  onDismissTrashed,
 }: Props) {
   const readApiError = useCallback(
     (body: { error?: { message?: string; detail?: string } }, fallback: string) => {
@@ -513,6 +520,40 @@ export function Sidebar({
               onSelect={onSelectSession}
               onDelete={onDeleteSession}
             />
+
+            {trashedSessions.length > 0 && onRestoreTrashed && onDismissTrashed ? (
+              <section className="flex flex-col gap-1.5 rounded-lg border border-dashed border-[var(--border-subtle)] bg-[var(--surface-0)]/40 px-2 py-2">
+                <div className={`${SIDEBAR_SECTION_LABEL_CLASS} !text-[10px]`}>最近清空（30 天）</div>
+                <ul className="max-h-40 space-y-0.5 overflow-y-auto [scrollbar-width:thin]">
+                  {trashedSessions.map((e) => (
+                    <li
+                      key={`${e.sessionId}-${e.trashedAt}`}
+                      className="flex min-w-0 items-center gap-1 rounded-md px-1.5 py-1 text-[11px]"
+                    >
+                      <span className="min-w-0 flex-1 truncate" title={e.title}>
+                        {e.title} · {e.messageCount} 条
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => onRestoreTrashed(e)}
+                        className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium text-[var(--accent)] hover:underline"
+                      >
+                        恢复
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onDismissTrashed(e)}
+                        className="shrink-0 text-[10px] ui-text-muted hover:text-[var(--text-primary)]"
+                        title="从列表移除"
+                        aria-label="从回收条移除"
+                      >
+                        移除
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            ) : null}
 
             <section className="flex flex-col gap-2 min-h-0">
         <div className="flex items-center justify-between gap-2">

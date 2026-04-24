@@ -38,7 +38,7 @@ function aguiRequestPath(path: string): string {
 
 export function SduiFilePicker({
   purpose,
-  label = "上传文件",
+  label: _label = "上传文件",
   helpText,
   accept,
   multiple,
@@ -53,6 +53,7 @@ export function SduiFilePicker({
   stepId,
   hitlRequestId,
 }: Props) {
+  void _label;
   const { syncState, postToAgent, postToAgentSilently, lockFilePickerCard } = useSkillUiRuntime();
   const inputRef = useRef<HTMLInputElement | null>(null);
   const submitAnchorRef = useRef<HTMLDivElement | null>(null);

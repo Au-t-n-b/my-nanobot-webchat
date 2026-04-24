@@ -9,10 +9,6 @@ import { PREVIEW_LIMITS } from "../preview.config";
 
 const MAX_ENTRY_BYTES = PREVIEW_LIMITS.MAX_ZIP_ENTRY_BYTES;
 
-function isDir(node: ZipTreeNode): node is Extract<ZipTreeNode, { type: "dir" }> {
-  return node.type === "dir";
-}
-
 function nodeKey(node: ZipTreeNode): string {
   return `${node.type}:${node.path}`;
 }

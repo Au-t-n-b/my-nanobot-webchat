@@ -7,7 +7,17 @@ import {
   LEGACY_CHAT,
   maybeMigrateChatFromLegacy,
   maybeMigrateLegacyChatCardBlob,
+  type TrashedSessionV1,
+  readTrashedSessions,
+  recordClearedThreadToTrash,
+  removeTrashedSession,
+  parseTrashedMessages,
 } from "@/lib/chatLocalPersistence";
+import {
+  clearOfflineOutboxForScope,
+  enqueueOfflineUserSend,
+  readOfflineOutbox,
+} from "@/lib/offlineOutbox";
 import { applyTaskStatusSnapshot } from "@/lib/projectOverviewStore";
 import { getWorkbenchChatStorageScope } from "@/lib/workbenchStorageScope";
 import { WORKBENCH_SCOPE_CHANGED_EVENT } from "@/lib/workbenchStorageKeys";
@@ -15,10 +25,13 @@ import { parseSduiDocument } from "@/lib/sdui";
 import type { SduiNode, SduiPatch, SduiUploadedFileRecord, SkillUiBootstrapEvent } from "@/lib/sdui";
 
 export type { SkillUiBootstrapEvent };
+export type { TrashedSessionV1 } from "@/lib/chatLocalPersistence";
 
 const MESSAGES_CAP = 50;
 const MESSAGES_MAX_BYTES = 1.8 * 1024 * 1024;
 const STREAM_IDLE_TIMEOUT_MS = 90_000;   // 90 s — SSE proxy may buffer; heartbeat fires every 10 s
+/** 状态条等用户可见提示中的产品名（对外品牌：交付claw） */
+const STATUS_BRAND_LABEL = "交付claw";
 
 export type ChatCardAttachment = {
   cardId: string;
@@ -336,8 +349,16 @@ function aguiRequestPath(path: string): string {
   return path.startsWith("/") ? path : `/${path}`;
 }
 
+function readTrashedListFromStorage(): TrashedSessionV1[] {
+  if (typeof window === "undefined") return [];
+  const ls = getLocalStorage();
+  if (!ls) return [];
+  return readTrashedSessions(ls, getWorkbenchChatStorageScope());
+}
+
 export function useAgentChat() {
   const [scopeEpoch, setScopeEpoch] = useState(0);
+  const [trashedSessions, setTrashedSessions] = useState<TrashedSessionV1[]>(() => readTrashedListFromStorage());
   const [threadId, setThreadId] = useState("");
   const [messages, setMessages] = useState<AgentMessage[]>([]);
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
@@ -398,6 +419,10 @@ export function useAgentChat() {
       window.removeEventListener("storage", bump);
     };
   }, []);
+
+  useEffect(() => {
+    setTrashedSessions(readTrashedListFromStorage());
+  }, [scopeEpoch]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -508,6 +533,16 @@ export function useAgentChat() {
         }
       } else {
         clearChatUndoRef.current = null;
+      }
+      if (opts?.saveUndoSnapshot && typeof window !== "undefined" && threadId) {
+        const ls = getLocalStorage();
+        if (ls) {
+          const scope = getWorkbenchChatStorageScope();
+          const summ = loadSessionSummaries(scope);
+          const t = summ.find((s) => s.id === threadId)?.title ?? "会话";
+          recordClearedThreadToTrash(ls, scope, { sessionId: threadId, title: t, messages: messagesRef.current as unknown[] });
+          setTrashedSessions(readTrashedListFromStorage());
+        }
       }
       if (typeof window !== "undefined" && threadId) {
         const scope = getWorkbenchChatStorageScope();
@@ -704,6 +739,53 @@ export function useAgentChat() {
     setSkillUiPatchQueue([]);
   }, []);
 
+  const dismissTrashed = useCallback((entry: TrashedSessionV1) => {
+    if (typeof window === "undefined") return;
+    const ls = getLocalStorage();
+    if (!ls) return;
+    const scope = getWorkbenchChatStorageScope();
+    removeTrashedSession(ls, scope, entry.sessionId, entry.trashedAt);
+    setTrashedSessions(readTrashedListFromStorage());
+  }, []);
+
+  const restoreFromTrash = useCallback(
+    (entry: TrashedSessionV1) => {
+      if (typeof window === "undefined") return;
+      const scope = getWorkbenchChatStorageScope();
+      const ls = getLocalStorage();
+      if (!ls) return;
+      const safe = sanitizeMessages(parseTrashedMessages(entry) as AgentMessage[]);
+      const messageMap = loadMessageMap(scope);
+      messageMap[entry.sessionId] = safe;
+      saveMessageMap(messageMap, scope);
+      if (entry.sessionId !== threadId) {
+        abortRef.current?.abort();
+        setActiveModuleIds(new Set());
+        const keys = getScopedChatKeys(scope);
+        safeSetItem(ls, keys.currentThread, entry.sessionId);
+        setThreadId(entry.sessionId);
+        setStepLogs([]);
+        setError(null);
+        setPendingTool(null);
+        setPendingChoices(null);
+        setIsLoading(false);
+        setRunStatus("idle");
+        setEffectiveModel(null);
+        setSkillUiPatchQueue([]);
+      }
+      setMessages(safe);
+      const summ = loadSessionSummaries(scope);
+      const prevS = summ.find((s) => s.id === entry.sessionId);
+      const nextS = upsertSessionSummary(summ, deriveSessionSummary(entry.sessionId, safe, prevS));
+      saveSessionSummaries(nextS, scope);
+      setSessions(nextS);
+      setStatusMessage("已从回收站恢复");
+      removeTrashedSession(ls, scope, entry.sessionId, entry.trashedAt);
+      setTrashedSessions(readTrashedListFromStorage());
+    },
+    [threadId],
+  );
+
   const approveTool = useCallback(
     async (approved: boolean) => {
       if (!pendingTool) return;
@@ -782,6 +864,18 @@ export function useAgentChat() {
       if (!trimmed || !threadId || (isLoading && !bypassLoadingGuard)) return false;
       const showCompletionMessage = options?.showCompletionMessage === true;
 
+      if (typeof navigator !== "undefined" && !navigator.onLine) {
+        if (showUserInTranscript) {
+          const sc = getWorkbenchChatStorageScope();
+          enqueueOfflineUserSend(sc, { text: trimmed, model: (modelName ?? "") || "", at: Date.now() });
+        }
+        setError(null);
+        setIsLoading(false);
+        setRunStatus("idle");
+        setStatusMessage("离线 · 恢复后自动重试");
+        return false;
+      }
+
       abortRef.current?.abort();
       const ac = new AbortController();
       abortRef.current = ac;
@@ -791,7 +885,7 @@ export function useAgentChat() {
       setPendingChoices(null);
       setIsLoading(true);
       setRunStatus("running");
-      setStatusMessage("Nanobot 正在生成回复");
+      setStatusMessage(`${STATUS_BRAND_LABEL} 正在生成回复`);
 
       const userId = showUserInTranscript ? newId() : "";
       const asstId = showAssistantInTranscript ? newId() : "";
@@ -990,7 +1084,7 @@ export function useAgentChat() {
           } else if (event === "Heartbeat") {
             // Backend keepalive — update status bar so the user knows the
             // agent is alive; do NOT add a step log entry (would be noisy).
-            const msg = typeof data.message === "string" ? data.message : "Agent 正在处理中…";
+            const msg = typeof data.message === "string" ? data.message : `${STATUS_BRAND_LABEL} 正在处理中…`;
             setStatusMessage(msg);
           } else if (event === "ModuleSessionFocus") {
             const evtTid = String(data.threadId ?? "").trim();
@@ -1274,6 +1368,47 @@ export function useAgentChat() {
     [sendChatRequest],
   );
 
+  const sendChatForDrainRef = useRef(sendChatRequest);
+  sendChatForDrainRef.current = sendChatRequest;
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !threadId) return;
+    const runDrain = () => {
+      if (!navigator.onLine) return;
+      const scope = getWorkbenchChatStorageScope();
+      void (async () => {
+        const q = await readOfflineOutbox(scope);
+        if (q.length === 0) return;
+        for (const it of q) {
+          if (typeof navigator !== "undefined" && !navigator.onLine) break;
+          try {
+            await sendChatForDrainRef.current(it.text, it.model || undefined, { showInTranscript: true });
+          } catch {
+            break;
+          }
+        }
+        if (typeof navigator === "undefined" || navigator.onLine) {
+          await clearOfflineOutboxForScope(scope);
+        }
+        setStatusMessage("离线消息已重试发送");
+      })();
+    };
+    const onOff = () => {
+      setStatusMessage("离线 · 恢复后自动重试");
+    };
+    window.addEventListener("online", runDrain);
+    window.addEventListener("offline", onOff);
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      onOff();
+    } else {
+      runDrain();
+    }
+    return () => {
+      window.removeEventListener("online", runDrain);
+      window.removeEventListener("offline", onOff);
+    };
+  }, [scopeEpoch, threadId]);
+
   return {
     threadId,
     sessions,
@@ -1285,6 +1420,8 @@ export function useAgentChat() {
     pendingChoices,
     runStatus,
     statusMessage,
+    /** 设置状态行文案（如模型切换后提示「下一轮生效」） */
+    setStatusMessage,
     effectiveModel,
     skillUiPatchQueue,
     /** 兼容仅关心「最后一条」的组件（如路由 syntheticPath） */
@@ -1310,5 +1447,8 @@ export function useAgentChat() {
     deleteSession,
     createSession,
     switchSession,
+    trashedSessions,
+    restoreFromTrash,
+    dismissTrashed,
   };
 }

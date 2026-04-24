@@ -265,12 +265,18 @@ function matchTaskModule(
 }
 
 export function selectProjectOverviewModules(snapshot: ProjectOverviewState): ProjectOverviewModuleView[] {
-  const views = composeProjectRegistryItems(snapshot.registryItems).map((item) => {
+  const views: ProjectOverviewModuleView[] = composeProjectRegistryItems(snapshot.registryItems).map((item) => {
     const taskModule = matchTaskModule(snapshot.taskStatus, item);
     const steps = taskModule?.steps ?? [];
     const doneCount = steps.filter((step) => step.done).length;
     const totalCount = steps.length;
     const progressPct = totalCount ? Math.round((doneCount / totalCount) * 100) : 0;
+    const st: ProjectOverviewModuleView["status"] =
+      taskModule?.status === "completed"
+        ? "completed"
+        : taskModule?.status === "running"
+          ? "running"
+          : "idle";
     return {
       moduleId: item.moduleId,
       label: item.label,
@@ -279,12 +285,7 @@ export function selectProjectOverviewModules(snapshot: ProjectOverviewState): Pr
       isPlaceholder: Boolean(item.placeholder),
       taskModuleId: item.taskProgress.moduleId,
       taskModuleName: item.taskProgress.moduleName,
-      status:
-        taskModule?.status === "completed"
-          ? "completed"
-          : taskModule?.status === "running"
-            ? "running"
-            : "idle",
+      status: st,
       doneCount,
       totalCount,
       progressPct,
@@ -306,13 +307,13 @@ export function selectProjectOverviewModules(snapshot: ProjectOverviewState): Pr
   })();
 
   if (currentIndex < 0) {
-    return views.map((m) => (m.status === "idle" ? m : { ...m, status: "idle" }));
+    return views.map((m) => (m.status === "idle" ? m : { ...m, status: "idle" as const }));
   }
 
   return views.map((m, i) => {
-    if (i < currentIndex) return m.status === "completed" ? m : { ...m, status: "completed" };
-    if (i === currentIndex) return m.status === "running" ? m : { ...m, status: "running" };
-    return m.status === "idle" ? m : { ...m, status: "idle" };
+    if (i < currentIndex) return m.status === "completed" ? m : { ...m, status: "completed" as const };
+    if (i === currentIndex) return m.status === "running" ? m : { ...m, status: "running" as const };
+    return m.status === "idle" ? m : { ...m, status: "idle" as const };
   });
 }
 

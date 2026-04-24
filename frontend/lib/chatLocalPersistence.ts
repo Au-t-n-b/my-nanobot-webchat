@@ -1,5 +1,82 @@
 import { chatStorageScopeFromParts, sanitizeStorageSegment } from "@/lib/workbenchStorageKeys";
 
+const TRASH_30D_MS = 30 * 24 * 60 * 60 * 1000;
+const TRASH_MAX = 5;
+
+/** 用户清空当前会话时写入的回收项（同 scope 最多 5 条、30 天自动失效） */
+export type TrashedSessionV1 = {
+  sessionId: string;
+  title: string;
+  trashedAt: number;
+  /** 便于 UI 显示 */
+  messageCount: number;
+  /** 已序列化的消息列表（同 thread 的 AgentMessage[] JSON） */
+  messagesJson: string;
+};
+
+function trashStorageKey(scope: string): string {
+  return `trashed_sessions_v1::${sanitizeStorageSegment(scope)}`;
+}
+
+function nowTrimTrash(entries: TrashedSessionV1[]): TrashedSessionV1[] {
+  const t = Date.now();
+  return entries
+    .filter((e) => t - e.trashedAt < TRASH_30D_MS)
+    .slice(0, TRASH_MAX);
+}
+
+export function readTrashedSessions(ls: Storage, scope: string): TrashedSessionV1[] {
+  try {
+    const raw = ls.getItem(trashStorageKey(scope));
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return nowTrimTrash(parsed as TrashedSessionV1[]);
+  } catch {
+    return [];
+  }
+}
+
+export function recordClearedThreadToTrash(
+  ls: Storage,
+  scope: string,
+  payload: { sessionId: string; title: string; messages: unknown[] },
+): void {
+  if (!payload.sessionId) return;
+  const prev = readTrashedSessions(ls, scope);
+  const messagesJson = JSON.stringify(payload.messages ?? []);
+  const next: TrashedSessionV1[] = nowTrimTrash([
+    {
+      sessionId: payload.sessionId,
+      title: payload.title || "会话",
+      trashedAt: Date.now(),
+      messageCount: payload.messages.length,
+      messagesJson,
+    },
+    ...prev.filter((e) => e.sessionId !== payload.sessionId),
+  ]);
+  ls.setItem(trashStorageKey(scope), JSON.stringify(next.slice(0, TRASH_MAX)));
+}
+
+export function removeTrashedSession(ls: Storage, scope: string, sessionId: string, trashedAt: number): void {
+  const prev = readTrashedSessions(ls, scope);
+  const next = prev.filter((e) => !(e.sessionId === sessionId && e.trashedAt === trashedAt));
+  if (next.length === 0) {
+    ls.removeItem(trashStorageKey(scope));
+  } else {
+    ls.setItem(trashStorageKey(scope), JSON.stringify(next));
+  }
+}
+
+export function parseTrashedMessages(entry: TrashedSessionV1): unknown[] {
+  try {
+    const p = JSON.parse(entry.messagesJson) as unknown;
+    return Array.isArray(p) ? p : [];
+  } catch {
+    return [];
+  }
+}
+
 /** 升级前全局唯一 key（与 useAgentChat 历史一致） */
 export const LEGACY_CHAT = {
   currentThread: "nanobot_agui_current_thread_id",

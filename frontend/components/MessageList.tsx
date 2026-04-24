@@ -1,7 +1,7 @@
 "use client";
 
-import React, { Component, memo, useEffect, useMemo, useRef, useState } from "react";
-import { Bot, Check, Copy, FileText, Trash2, User } from "lucide-react";
+import React, { Component, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Bot, Check, ChevronDown, Copy, FileText, Trash2, User } from "lucide-react";
 import type { AgentMessage } from "@/hooks/useAgentChat";
 import type { SduiUploadedFileRecord } from "@/lib/sdui";
 import { AgentMarkdown } from "@/components/AgentMarkdown";
@@ -286,20 +286,79 @@ export const MessageList = memo(function MessageList({
   chatCardOnLockFilePicker,
 }: Props) {
   const bottomRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const atBottomRef = useRef(true);
+  const [showJumpToBottom, setShowJumpToBottom] = useState(false);
+
+  const lastMsg = messages.length ? messages[messages.length - 1] : null;
+  const lastStreamSig = lastMsg
+    ? `${lastMsg.id}:${(lastMsg.content?.length ?? 0)}`
+    : "";
+
+  const updateScrollState = useCallback(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const { scrollTop, scrollHeight, clientHeight } = el;
+    const dist = scrollHeight - scrollTop - clientHeight;
+    atBottomRef.current = dist < 100;
+    setShowJumpToBottom(dist > 120 && messages.length > 0);
+  }, [messages.length]);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages.length, isLoading]);
+    const el = containerRef.current;
+    if (!el) return;
+    updateScrollState();
+    el.addEventListener("scroll", updateScrollState, { passive: true });
+    return () => el.removeEventListener("scroll", updateScrollState);
+  }, [updateScrollState]);
 
-  // Pre-compute chip paths for all messages in one pass:
-  // - bare filenames are upgraded to full paths via the global artifact map
-  // - each file appears only once (in the earliest message that references it)
-  const chipPathsPerMessage = useMemo(() => buildMessageChipPaths(messages), [messages]);
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const last = messages[messages.length - 1];
+    const shouldStick = atBottomRef.current || last?.role === "user";
+    if (shouldStick) {
+      requestAnimationFrame(() => {
+        bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+        atBottomRef.current = true;
+        setShowJumpToBottom(false);
+      });
+    }
+    // 仅随流式进度/条数滚到底部，避免 messages 引用导致每 token 重绑
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages.length, lastStreamSig, isLoading]);
+
+  const messagesDigest = useMemo(
+    () => messages.map((m) => `${m.id}:${(m.content?.length ?? 0)}:${(m.artifacts?.length ?? 0)}`).join("|"),
+    [messages],
+  );
+  // Pre-compute chip paths（以 digest 为 key，流式时避免对整条历史反复全量重算）
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- 故意用 messagesDigest 代替 messages
+  const chipPathsPerMessage = useMemo(() => buildMessageChipPaths(messages), [messagesDigest]);
 
   return (
-    <div className="flex-1 min-h-0 overflow-y-auto pr-1">
-      {/* Constrain ultra-wide screens for comfortable reading */}
-      <div className="w-full max-w-4xl mx-auto">
+    <div className="relative h-full min-h-0 w-full flex-1">
+      {showJumpToBottom ? (
+        <button
+          type="button"
+          onClick={() => {
+            atBottomRef.current = true;
+            bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+            setShowJumpToBottom(false);
+          }}
+          className="absolute bottom-2 right-2 z-20 inline-flex items-center gap-1 rounded-full border border-[var(--border-subtle)] bg-[var(--surface-elevated)] px-3 py-1.5 text-[11px] font-medium text-[var(--text-primary)] shadow-[var(--shadow-card)] transition-[transform,box-shadow] duration-[220ms] ease-out hover:-translate-y-0.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)] motion-reduce:transform-none"
+          aria-label="跳到底部"
+        >
+          <ChevronDown size={14} className="shrink-0 opacity-80" aria-hidden />
+          回到底部
+        </button>
+      ) : null}
+      <div
+        ref={containerRef}
+        className="h-full min-h-0 w-full overflow-y-auto pr-0.5"
+      >
+        {/* 宽度由外层 ChatArea 约束，此处置满 */}
+        <div className="w-full">
         <ul className="flex flex-col gap-4">
           {messages.map((m, i) => {
             const isLast = i === messages.length - 1;
@@ -340,7 +399,7 @@ export const MessageList = memo(function MessageList({
                       style={
                         isUser
                           ? {
-                              background: "var(--accent-soft)",
+                              background: "color-mix(in oklab, var(--surface-2) 80%, var(--accent) 6%)",
                               border: "1px solid var(--border-subtle)",
                               color: "var(--text-primary)",
                             }
@@ -350,7 +409,11 @@ export const MessageList = memo(function MessageList({
                       {isUser ? (
                         <span className="whitespace-pre-wrap ui-text-primary leading-relaxed">{m.content}</span>
                       ) : assistantWaiting ? (
-                        <span className="ui-text-muted text-base leading-relaxed">等待回复…</span>
+                        <div className="w-full space-y-2 py-0.5" aria-busy>
+                          <div className="ui-skeleton h-3.5 w-full rounded-md" />
+                          <div className="ui-skeleton h-3.5 w-[92%] rounded-md" />
+                          <div className="ui-skeleton h-3.5 w-[70%] rounded-md" />
+                        </div>
                       ) : (
                         <>
                           <AgentMarkdown
@@ -390,6 +453,7 @@ export const MessageList = memo(function MessageList({
           </div>
         ) : null}
         <div ref={bottomRef} />
+        </div>
       </div>
     </div>
   );

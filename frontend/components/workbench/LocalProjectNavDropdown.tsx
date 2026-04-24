@@ -60,7 +60,7 @@ function ProjectOptionRow({
 
 function NewProjectAction({ onClick }: { onClick: () => void }) {
   return (
-    <div className="border-t border-[var(--border-subtle)] dark:border-white/10">
+    <div className="border-t border-[var(--border-subtle)]">
       <button
         type="button"
         onClick={onClick}
@@ -83,6 +83,10 @@ type Props = {
   onRequestDelete: (id: string) => void;
   /** 移动端等窄布局：收紧最小宽度 */
   compact?: boolean;
+  /** 与流程 Stepper 联动的当前阶段名 */
+  currentStageLabel?: string | null;
+  /** 模块完成进度 n/N */
+  moduleProgressText?: string | null;
 };
 
 export function LocalProjectNavDropdown({
@@ -92,6 +96,8 @@ export function LocalProjectNavDropdown({
   onOpenNew,
   onRequestDelete,
   compact = false,
+  currentStageLabel = null,
+  moduleProgressText = null,
 }: Props) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -117,11 +123,11 @@ export function LocalProjectNavDropdown({
 
   return (
     <div ref={rootRef} className={wrapClass}>
-      <div className="flex min-w-0 items-center gap-2 sm:gap-2.5">
+      <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5 sm:gap-x-2.5">
         <span className="hidden shrink-0 whitespace-nowrap text-xs font-bold tracking-wide ui-text-primary sm:inline sm:text-sm">
-          工作区项目
+          项目
         </span>
-        <div className="relative min-w-0 flex-1 basis-0">
+        <div className="relative min-w-0 flex-1 basis-0 max-w-full">
           <button
             type="button"
             onClick={() => setOpen((o) => !o)}
@@ -188,6 +194,32 @@ export function LocalProjectNavDropdown({
             </div>
           ) : null}
         </div>
+        {currentStageLabel ? (
+          <>
+            <span className="hidden shrink-0 text-[var(--text-muted)] sm:inline" aria-hidden>
+              ·
+            </span>
+            <span
+              className="hidden min-w-0 max-w-[12rem] truncate text-xs font-medium ui-text-secondary sm:inline sm:text-sm"
+              title={currentStageLabel}
+            >
+              {currentStageLabel}
+            </span>
+          </>
+        ) : null}
+        {moduleProgressText ? (
+          <>
+            <span className="hidden shrink-0 text-[var(--text-muted)] sm:inline" aria-hidden>
+              ·
+            </span>
+            <span
+              className="hidden tabular-nums text-xs text-[var(--text-muted)] sm:inline sm:text-sm"
+              title="阶段完成进度"
+            >
+              {moduleProgressText}
+            </span>
+          </>
+        ) : null}
       </div>
     </div>
   );

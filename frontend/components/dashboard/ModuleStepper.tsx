@@ -112,7 +112,7 @@ export function ModuleStepper({
                       aria-disabled={isDisabled}
                       onClick={() => onSelectModule?.(m.moduleId)}
                       className={[
-                        "relative z-10 group w-full rounded-xl px-2.5 py-2 transition-colors",
+                        "ui-motion relative z-10 group w-full rounded-xl px-2.5 py-2 transition-colors",
                         isDisabled
                           ? "opacity-80 cursor-default"
                           : "hover:bg-[var(--surface-2)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]",
@@ -153,13 +153,12 @@ export function ModuleStepper({
                             <span
                               className={[
                                 "relative z-20 inline-flex h-6 w-6 items-center justify-center rounded-full ring-4",
-                                "bg-transparent border-2 border-zinc-700",
+                                "bg-transparent border-2 border-zinc-600",
                                 TONE.idle.ring,
                               ].join(" ")}
                               aria-hidden="true"
-                            >
-                              <span className="h-1.5 w-1.5 rounded-full bg-zinc-700" />
-                            </span>
+                              title="未开始"
+                            />
                           )}
                         </span>
 
@@ -196,7 +195,7 @@ export function ModuleStepper({
                         aria-hidden="true"
                       >
                         <div className="absolute -top-1.5 left-1/2 -translate-x-1/2 w-3 h-3 rotate-45 border-l border-t border-[var(--border-subtle)] bg-[var(--surface-1)]" aria-hidden="true" />
-                        <div className="relative w-[13.5rem] rounded-xl border border-white/10 bg-zinc-900 shadow-xl shadow-black/60 px-3 py-2">
+                        <div className="relative w-[13.5rem] rounded-xl border border-[var(--border-strong)] bg-zinc-900 shadow-xl shadow-black/60 px-3 py-2">
                           <div className="flex items-center justify-between gap-2">
                             <div className="min-w-0">
                               <div className="text-[11px] font-semibold ui-text-primary truncate">{label}</div>

@@ -66,7 +66,7 @@ export function CommandPalette({ open, onClose, commands }: Props) {
         role="dialog"
         aria-label="命令面板"
         aria-modal="true"
-        className="w-full max-w-lg rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-1)] shadow-[var(--shadow-panel)] overflow-hidden ring-1 ring-black/5 dark:ring-white/10"
+        className="ui-motion w-full max-w-lg rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-1)] shadow-[var(--shadow-panel)] overflow-hidden ring-1 ring-[var(--border-subtle)]"
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="flex items-center gap-2 border-b border-[var(--border-subtle)] px-3 py-2">
@@ -91,7 +91,7 @@ export function CommandPalette({ open, onClose, commands }: Props) {
             <li className="px-4 py-6 text-center text-sm ui-text-muted">无匹配命令</li>
           ) : (
             filtered.map((c) => (
-              <li key={c.id} role="option">
+              <li key={c.id} role="option" aria-selected={false}>
                 <button
                   type="button"
                   className="flex w-full flex-col items-start gap-0.5 px-4 py-2.5 text-left text-sm ui-text-primary transition-colors hover:bg-[var(--surface-2)]"

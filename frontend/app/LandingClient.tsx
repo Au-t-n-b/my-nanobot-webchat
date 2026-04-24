@@ -1,22 +1,17 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   getOrInitDefaultProject,
   grantWorkspaceAccess,
   writeGlobalProjectContext,
 } from "@/lib/globalProjectContext";
-import { loginLocalUser } from "@/lib/localAuth";
+import { setAuthSession } from "@/lib/authStore";
 import { prefetchWorkbenchShell, schedulePrefetchWorkbenchShell } from "@/lib/workbenchShellPrefetch";
 import { useRedirectToWorkbenchWhenAuthed } from "@/hooks/useRedirectToWorkbenchWhenAuthed";
 import styles from "./landing.module.css";
-
-function userIdFromUsername(username: string): string {
-  const u = username.trim();
-  return `u_${u.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "user"}`;
-}
+import Link from "next/link";
 
 export default function LandingClient() {
   const router = useRouter();
@@ -74,29 +69,76 @@ export default function LandingClient() {
     if (isEntering) return;
     setLoginError(null);
     const u = username.trim();
-    const auth = loginLocalUser(u, password);
-    if (!auth.ok) {
-      setLoginError(auth.error);
+    const pwd = password;
+    if (!u) {
+      setLoginError("请输入用户名。");
+      return;
+    }
+    if (!pwd) {
+      setLoginError("请输入密码。");
       return;
     }
     setIsEntering(true);
-    const project = getOrInitDefaultProject();
-    writeGlobalProjectContext({
-      user: { id: userIdFromUsername(u), username: u, role: "member" },
-      project,
-      stage: "init",
-    });
-    grantWorkspaceAccess();
-    prefetchWorkbenchShell(router);
-    router.replace("/workbench");
-    window.setTimeout(() => {
-      const p = window.location.pathname.replace(/\/$/, "") || "/";
-      if (p !== "/workbench") {
-        window.location.replace("/workbench");
-      } else {
+    void (async () => {
+      try {
+        const r = await fetch("/api/auth/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ workId: u, password: pwd }),
+        });
+        const j = (await r.json().catch(() => ({}))) as { token?: unknown; user?: unknown; detail?: unknown };
+        if (!r.ok) {
+          setLoginError(String(j.detail || `登录失败（HTTP ${r.status}）`));
+          setIsEntering(false);
+          return;
+        }
+        const token = typeof j.token === "string" ? j.token.trim() : "";
+        const user =
+          j.user && typeof j.user === "object"
+            ? (j.user as Partial<{
+                userId: string;
+                workId: string;
+                realName: string;
+                roleCode: string;
+                accountRole: "admin" | "pd" | "employee";
+                role: "pd" | "user";
+              }>)
+            : null;
+        if (!token || !user?.userId || !user?.workId) {
+          setLoginError("登录响应缺少 token 或 user。");
+          setIsEntering(false);
+          return;
+        }
+        setAuthSession(token, {
+          userId: String(user.userId),
+          workId: String(user.workId),
+          realName: String(user.realName || user.workId),
+          roleCode: String(user.roleCode || ""),
+          accountRole: user.accountRole,
+          role: user.role,
+        });
+        const project = getOrInitDefaultProject();
+        writeGlobalProjectContext({
+          user: { id: String(user.userId), username: String(user.workId), role: "member", nickname: String(user.realName || "") },
+          project,
+          stage: "init",
+        });
+        grantWorkspaceAccess();
+        prefetchWorkbenchShell(router);
+        router.replace("/workbench");
+        window.setTimeout(() => {
+          const p = window.location.pathname.replace(/\/$/, "") || "/";
+          if (p !== "/workbench") {
+            window.location.replace("/workbench");
+          } else {
+            setIsEntering(false);
+          }
+        }, 300);
+      } catch (e) {
+        setLoginError(e instanceof Error ? e.message : String(e));
         setIsEntering(false);
       }
-    }, 300);
+    })();
   };
 
   return (

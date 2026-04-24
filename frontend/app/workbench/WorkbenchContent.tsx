@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Command, FileText, Focus, LayoutPanelLeft, Menu, PanelRight, Plus, Settings, SlidersHorizontal, X, Zap } from "lucide-react";
+import { Command, FileText, Focus, LayoutPanelLeft, Menu, PanelRight, Plus, Settings, SlidersHorizontal, UserRound, X, Zap } from "lucide-react";
 import { ChatArea } from "@/components/ChatArea";
 import { ErrorToast } from "@/components/ErrorToast";
 import { PreviewPanel } from "@/components/preview";
@@ -14,6 +14,7 @@ import { CommandPalette, type CommandPaletteItem } from "@/components/CommandPal
 import { Sidebar } from "@/components/Sidebar";
 import { ModelSelector } from "@/components/ModelSelector";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { SidebarPersonalInfo, type PersonalInfoMenuAction } from "@/components/SidebarPersonalInfo";
 import { useAgentChat } from "@/hooks/useAgentChat";
 import type { FileInsightReport } from "@/components/preview/previewTypes";
 import { coerceFileInsightReport } from "@/lib/fileInsightReport";
@@ -47,6 +48,7 @@ import {
   hasWorkspaceAccess,
   patchGlobalProjectContext,
 } from "@/lib/globalProjectContext";
+import { clearAuthSession } from "@/lib/authStore";
 import {
   createLocalProjectWithMeta,
   deleteLocalProject,
@@ -61,6 +63,7 @@ import type { WorkspaceProjectCreatePayload } from "@/lib/workspaceProjectCreate
 import { LocalProjectNavDropdown } from "@/components/workbench/LocalProjectNavDropdown";
 import { WorkbenchTopNavSlot } from "@/components/workbench/shell/WorkbenchTopNavSlot";
 import { NewWorkspaceProjectModal } from "@/components/workbench/NewWorkspaceProjectModal";
+import { WorkbenchProfilePage, type ProfileSubView } from "@/components/workbench/WorkbenchProfilePage";
 import { CenteredConfirmModal } from "@/components/CenteredModal";
 import {
   CHAT_COLUMN_MIN_PX,
@@ -72,6 +75,7 @@ import {
 
 type SystemModal = null | "controlCenter" | "remoteAssetDetail" | "remoteUpload";
 type ControlCenterTab = "config" | "settings";
+type WorkbenchModule = "overview" | "profile";
 
 function previewTabLabel(path: string): string {
   if (path.startsWith("browser://")) return "浏览器";
@@ -96,6 +100,7 @@ type WorkbenchToolsMenuItemsProps = {
   onToggleZen: () => void;
   onOpenConfig: () => void;
   onOpenAppSettings: () => void;
+  onOpenProfile: () => void;
   onClearSession: () => void;
   onTogglePreview: () => void;
   previewOpen: boolean;
@@ -110,6 +115,7 @@ function WorkbenchToolsMenuItems({
   onToggleZen,
   onOpenConfig,
   onOpenAppSettings,
+  onOpenProfile,
   onClearSession,
   onTogglePreview,
   previewOpen,
@@ -157,6 +163,10 @@ function WorkbenchToolsMenuItems({
           aria-hidden
         />
         <span>{previewOpen ? "收起右侧预览" : "打开右侧预览"}</span>
+      </button>
+      <button type="button" role="menuitem" className={workbenchMenuItemClass} onClick={() => onPick(onOpenProfile)}>
+        <UserRound size={15} className="shrink-0 text-zinc-500/80 dark:text-zinc-400/80" strokeWidth={2.25} aria-hidden />
+        <span>账号与成员</span>
       </button>
       <div className="my-1.5 h-px bg-[var(--border-subtle)]" />
       <div className="px-2 py-1 text-[10px] font-semibold tracking-wide text-slate-500">系统</div>
@@ -214,6 +224,8 @@ function extractSkillHintFromSduiNode(node: unknown): string | null {
 
 export default function WorkbenchContent() {
   const router = useRouter();
+  const [workbenchModule, setWorkbenchModule] = useState<WorkbenchModule>("overview");
+  const [profileSubView, setProfileSubView] = useState<ProfileSubView>("main");
   const {
     threadId,
     sessions,
@@ -999,6 +1011,22 @@ export default function WorkbenchContent() {
   }, [closePreview]);
 
   useEffect(() => {
+    if (workbenchModule !== "overview") {
+      setSidebarOpen(false);
+      closePreview();
+    }
+  }, [workbenchModule, closePreview]);
+
+  useEffect(() => {
+    if (workbenchModule !== "profile") setProfileSubView("main");
+  }, [workbenchModule]);
+
+  const openProfileHome = useCallback(() => {
+    setProfileSubView("main");
+    setWorkbenchModule("profile");
+  }, []);
+
+  useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
@@ -1041,9 +1069,35 @@ export default function WorkbenchContent() {
   }, [activeRightTabId, previewTabs]);
 
   const handleLogout = useCallback(() => {
+    clearAuthSession();
     clearGlobalProjectContext();
     router.replace("/");
   }, [router]);
+
+  const handlePersonalInfoMenu = useCallback(
+    (action: PersonalInfoMenuAction) => {
+      switch (action) {
+        case "profile_home":
+          setProfileSubView("main");
+          setWorkbenchModule("profile");
+          break;
+        case "settings":
+          setProfileSubView("settings");
+          setWorkbenchModule("profile");
+          break;
+        case "member_management":
+          setProfileSubView("members");
+          setWorkbenchModule("profile");
+          break;
+        case "logout":
+          handleLogout();
+          break;
+        default:
+          break;
+      }
+    },
+    [handleLogout],
+  );
 
   const openConfig = useCallback(() => {
     openControlCenter("config");
@@ -1542,6 +1596,7 @@ export default function WorkbenchContent() {
         </div>
       ) : null}
 
+      {workbenchModule === "overview" ? (
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <div
           className="z-10 w-full min-w-0 shrink-0 rounded-b-xl border-b border-[var(--border-subtle)] bg-[color-mix(in_oklab,var(--paper-card)_82%,#000000)] shadow-[0_2px_16px_rgba(0,0,0,0.35)] backdrop-blur-sm"
@@ -1643,6 +1698,7 @@ export default function WorkbenchContent() {
                         onToggleZen={toggleZenMode}
                         onOpenConfig={openConfig}
                         onOpenAppSettings={openSettings}
+                        onOpenProfile={openProfileHome}
                         onClearSession={() => {
                           clearChat({ saveUndoSnapshot: true });
                           setClearUndoToast(true);
@@ -1684,6 +1740,15 @@ export default function WorkbenchContent() {
                   <Zap size={18} />
                 </button>
                 <div className="mt-auto" />
+                <button
+                  type="button"
+                  onClick={() => setWorkbenchModule("profile")}
+                  title="账号与资料"
+                  className="nav-icon-btn"
+                  aria-label="账号与资料"
+                >
+                  <UserRound size={18} />
+                </button>
               </div>
             ))}
 
@@ -1719,6 +1784,7 @@ export default function WorkbenchContent() {
                         onToggleZen={toggleZenMode}
                         onOpenConfig={openConfig}
                         onOpenAppSettings={openSettings}
+                        onOpenProfile={openProfileHome}
                         onClearSession={() => {
                           clearChat({ saveUndoSnapshot: true });
                           setClearUndoToast(true);
@@ -1732,6 +1798,7 @@ export default function WorkbenchContent() {
                   ) : null}
                 </div>
                 <div className="min-w-0 flex-1" aria-hidden />
+                <SidebarPersonalInfo variant="nav" onMenuAction={handlePersonalInfoMenu} />
               </div>
             ) : null}
             <div className="min-h-0 min-w-0 flex-1">
@@ -1922,6 +1989,7 @@ export default function WorkbenchContent() {
                     onToggleZen={toggleZenMode}
                     onOpenConfig={openConfig}
                     onOpenAppSettings={openSettings}
+                    onOpenProfile={openProfileHome}
                     onClearSession={() => {
                       clearChat({ saveUndoSnapshot: true });
                       setClearUndoToast(true);
@@ -1948,6 +2016,7 @@ export default function WorkbenchContent() {
                 />
               </WorkbenchTopNavSlot>
             </div>
+            <SidebarPersonalInfo variant="nav" onMenuAction={handlePersonalInfoMenu} />
           </div>
         </div>
         <ChatArea
@@ -1983,6 +2052,15 @@ export default function WorkbenchContent() {
       </div>
         </div>
       </div>
+      ) : (
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-0)] shadow-[var(--shadow-card)]">
+          <WorkbenchProfilePage
+            subView={profileSubView}
+            onSubViewChange={setProfileSubView}
+            onBack={() => setWorkbenchModule("overview")}
+          />
+        </div>
+      )}
     </main>
   );
 }

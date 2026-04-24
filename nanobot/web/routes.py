@@ -59,6 +59,8 @@ from nanobot.web.task_progress import (
     normalize_task_progress_payload,
 )
 from nanobot.web.sse import format_sse
+from nanobot.web.local_auth_api import handle_auth_login, handle_auth_me, handle_auth_register
+from nanobot.web.admin_members_api import handle_admin_members_list, handle_admin_member_patch
 
 if TYPE_CHECKING:
     from nanobot.agent.loop import AgentLoop
@@ -2246,6 +2248,11 @@ async def handle_browser(request: web.Request) -> web.WebSocketResponse:
 
 
 def setup_routes(app: web.Application) -> None:
+    app.router.add_post("/api/auth/login", handle_auth_login)
+    app.router.add_get("/api/auth/me", handle_auth_me)
+    app.router.add_post("/api/auth/register", handle_auth_register)
+    app.router.add_get("/api/admin/members", handle_admin_members_list)
+    app.router.add_patch("/api/admin/members/{user_id}", handle_admin_member_patch)
     app.router.add_post("/api/chat", handle_chat)
     app.router.add_post("/api/upload", handle_workspace_upload)
     app.router.add_post("/api/skill/state/sync", handle_skill_state_sync)
@@ -2272,6 +2279,11 @@ def setup_routes(app: web.Application) -> None:
     app.router.add_post("/api/open-folder", handle_open_folder)
     app.router.add_post("/api/trash-files", handle_trash_files)
     app.router.add_get("/api/browser", handle_browser)
+    app.router.add_options("/api/auth/login", handle_options)
+    app.router.add_options("/api/auth/me", handle_options)
+    app.router.add_options("/api/auth/register", handle_options)
+    app.router.add_options("/api/admin/members", handle_options)
+    app.router.add_options("/api/admin/members/{user_id}", handle_options)
     app.router.add_options("/api/chat", handle_options)
     app.router.add_options("/api/upload", handle_options)
     app.router.add_options("/api/skill/state/sync", handle_options)

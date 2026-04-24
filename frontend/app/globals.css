@@ -20,13 +20,20 @@
   --border-strong: rgba(255, 255, 255, 0.16);
   /* 三列纵深：左右 Canvas / 中间 Paper */
   --canvas-rail: #111111;
-  --paper-chat: #18181b;
-  --paper-card: #1c1c1f;
-  --text-primary: #d4d4d8;
+  /* 中间层：略高于底色，与 App 底 (#09090b) 形成纵深 */
+  --paper-chat: #121214;
+  --paper-card: #18181b;
+  /* 悬浮层：菜单 / 强弹层（配合 ring + shadow-2xl 使用） */
+  --surface-elevated: #18181a;
+  --text-primary: #e4e4e7;
   --text-secondary: #a1a1aa;
-  --text-muted: #71717a;
+  --text-muted: #636369;
   --accent: #f59e0b;
   --accent-soft: rgba(245, 158, 11, 0.15);
+  /* 状态语义：与主操作 accent 解耦 */
+  --state-running: #f59e0b;
+  --state-success: #34d399;
+  --state-pending: #71717a;
   --success: #34d399;
   --warning: #fbbf24;
   --danger: #f87171;
@@ -38,6 +45,9 @@
   --shadow-card:
     0 1px 4px rgba(0, 0, 0, 0.28),
     inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  --shadow-float:
+    0 24px 64px rgba(0, 0, 0, 0.55),
+    0 0 0 1px rgba(255, 255, 255, 0.08);
   --scrollbar-thumb: rgba(113, 113, 122, 0.5);
 
   /* SDUI v2 semantic palette (accent stays blue in dark) */
@@ -53,6 +63,7 @@
    背景 slate-50，文字 slate-900，强阴影分层
    ───────────────────────────────────────────── */
 [data-theme="light"] {
+  --surface-elevated: #ffffff;
   --surface-0: #f8fafc;
   --surface-1: #ffffff;
   --surface-2: #f8fafc;
@@ -64,14 +75,18 @@
   --border-strong: #cbd5e1;
   --text-primary: #0f172a;
   --text-secondary: #334155;
-  --text-muted: #64748b;
+  --text-muted: #5c6570;
   --accent: #2563eb;
   --accent-soft: rgba(37, 99, 235, 0.10);
+  --state-running: #d97706;
+  --state-success: #059669;
+  --state-pending: #94a3b8;
   --success: #059669;
   --warning: #d97706;
   --danger: #dc2626;
   --shadow-panel: 0 4px 16px rgba(15, 23, 42, 0.09), 0 1px 4px rgba(15, 23, 42, 0.06);
   --shadow-card: 0 1px 3px rgba(15, 23, 42, 0.06), 0 1px 2px rgba(15, 23, 42, 0.04);
+  --shadow-float: 0 24px 48px rgba(15, 23, 42, 0.12), 0 0 0 1px rgba(15, 23, 42, 0.08);
   --scrollbar-thumb: rgba(100, 116, 139, 0.40);
 
   /* SDUI v2 semantic palette */
@@ -87,6 +102,7 @@
    背景暖米色，文字 stone-700，暖棕 accent
    ───────────────────────────────────────────── */
 [data-theme="soft"] {
+  --surface-elevated: #fafaf9;
   --surface-0: #f4efe6;
   --surface-1: #fafaf9;
   --surface-2: #f5f5f4;
@@ -98,19 +114,23 @@
   --border-strong: #d6d3d1;
   --text-primary: #44403c;
   --text-secondary: #78716c;
-  --text-muted: #a8a29e;
+  --text-muted: #978f8a;
   --accent: #b45309;
   --accent-soft: rgba(180, 83, 9, 0.12);
+  --state-running: #b45309;
+  --state-success: #4d7c0f;
+  --state-pending: #a8a29e;
   --success: #4d7c0f;
   --warning: #92400e;
   --danger: #b91c1c;
   --shadow-panel: 0 4px 20px rgba(68, 64, 60, 0.10), 0 1px 4px rgba(68, 64, 60, 0.06);
   --shadow-card: 0 1px 3px rgba(68, 64, 60, 0.07);
+  --shadow-float: 0 20px 40px rgba(68, 64, 60, 0.12), 0 0 0 1px rgba(68, 64, 60, 0.1);
   --scrollbar-thumb: rgba(168, 162, 158, 0.55);
 }
 
 @theme inline {
-  --font-sans: ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Inter", "HarmonyOS Sans SC", "PingFang SC", ui-sans-serif, system-ui, sans-serif;
   --font-mono: ui-monospace, monospace;
 }
 
@@ -118,7 +138,7 @@ html,
 body {
   background: var(--surface-0);
   color: var(--text-primary);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans);
 }
 
 /* ─────────────────────────────────────────────
@@ -280,11 +300,11 @@ body {
 }
 
 .ui-status-running {
-  color: var(--accent);
+  color: var(--state-running);
 }
 
 .ui-status-success {
-  color: var(--success);
+  color: var(--state-success);
 }
 
 .ui-status-warning {
@@ -542,5 +562,26 @@ body,
   此处仅保留容器级过渡钩子，供后续接入 framer-motion layout 或 View Transitions。
 */
 .sdui-layout-transition-hint {
-  transition: opacity 0.2s ease;
+  transition: opacity 200ms ease-out;
+}
+
+/* 微动效基线 200–260ms；减少动效时关闭位移/动画 */
+.ui-motion {
+  transition-duration: 220ms;
+  transition-timing-function: ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ui-motion {
+    transition-duration: 0.01ms !important;
+  }
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+  }
+  .ui-skeleton::after,
+  [class*="animate-"],
+  [class*="nanobot-"] {
+    animation: none !important;
+  }
 }

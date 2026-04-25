@@ -10,7 +10,7 @@ import { RemoteAssetDetailPanel } from "@/components/RemoteAssetDetailPanel";
 import { RemoteAssetUploadPanel } from "@/components/RemoteAssetUploadPanel";
 import { SearchOverlay } from "@/components/SearchOverlay";
 import { SystemShellModal } from "@/components/SystemShellModal";
-import { CommandPalette, type CommandPaletteItem } from "@/components/CommandPalette";
+import { CommandPalette } from "@/components/CommandPalette";
 import { Sidebar } from "@/components/Sidebar";
 import { ModelSelector } from "@/components/ModelSelector";
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -124,7 +124,12 @@ function WorkbenchToolsMenuItems({
 }: WorkbenchToolsMenuItemsProps) {
   return (
     <div
-      className="w-64 max-h-[min(100vh,28rem)] overflow-y-auto rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-elevated)] p-1.5 text-sm text-[var(--text-primary)] ring-1 ring-[color-mix(in_oklab,var(--border-subtle)_90%,transparent)] [box-shadow:var(--shadow-float)]"
+      className={
+        "w-64 max-h-[min(100vh,28rem)] overflow-y-auto rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-elevated)] p-1.5 text-sm text-[var(--text-primary)] " +
+        "shadow-xl shadow-black/15 ring-1 ring-black/[0.06] " +
+        "dark:border-white/10 dark:bg-[color-mix(in_oklab,var(--surface-elevated)_72%,transparent)] dark:shadow-2xl dark:shadow-black/60 dark:ring-1 dark:ring-white/10 " +
+        "supports-[backdrop-filter]:backdrop-blur-md supports-[backdrop-filter]:dark:backdrop-blur-xl"
+      }
       role="menu"
     >
       <div className="px-2 py-1 text-[10px] font-semibold tracking-wide text-slate-500">工作台与视图</div>
@@ -185,11 +190,11 @@ function WorkbenchToolsMenuItems({
         <ThemeToggle vertical />
       </div>
       <div className="my-2.5 h-px bg-[color-mix(in_oklab,var(--border-subtle)_85%,transparent)]" />
-      <p className="px-2 pb-1 text-[10px] font-medium uppercase tracking-wider text-red-400/70">危险操作</p>
+      <p className="px-2 pb-1 text-[10px] font-medium uppercase tracking-wider text-red-300">危险操作</p>
       <button
         type="button"
         role="menuitem"
-        className="w-full rounded-lg border border-red-500/20 bg-red-500/5 px-2.5 py-2.5 text-left text-sm text-red-400/90 transition-colors hover:border-red-500/35 hover:bg-red-500/10"
+        className="w-full rounded-lg bg-red-500/10 px-2.5 py-2.5 text-left text-sm font-medium text-red-400 ring-1 ring-red-500/25 transition-colors hover:bg-red-500/20"
         onClick={() => onPick(onClearSession)}
       >
         清空当前会话
@@ -246,6 +251,7 @@ export default function WorkbenchContent() {
     sendMessage,
     sendSilentMessage,
     sendChatRequest,
+    triggerRunSkill,
     stopGenerating,
     approveTool,
     clearChat,
@@ -263,6 +269,10 @@ export default function WorkbenchContent() {
   } = useAgentChat();
   const { setTheme } = useTheme();
   const overviewModules = useProjectOverviewStore(selectProjectOverviewModules);
+  const moduleStepperModules = useMemo(
+    () => overviewModules.filter((m) => m.showWorkbenchModuleStepper),
+    [overviewModules],
+  );
   const activeModuleId = useProjectOverviewStore((snapshot) => snapshot.activeModuleId);
   const { overviewStageLabel, overviewModuleProgressText } = useMemo(() => {
     const mods = overviewModules;
@@ -307,8 +317,6 @@ export default function WorkbenchContent() {
   const [previewAnimating, setPreviewAnimating] = useState(false);
   /** 应用内全屏：右侧预览区覆盖大部分视口，忽略拖拽宽度与 RIGHT_PANEL_MAX */
   const [previewImmersive, setPreviewImmersive] = useState(false);
-  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
-  const commandPaletteOpenRef = useRef(false);
   const [zenMode, setZenMode] = useState(false);
   const [workbenchToolsOpen, setWorkbenchToolsOpen] = useState(false);
   const workbenchToolsMenuRailRef = useRef<HTMLDivElement | null>(null);
@@ -575,6 +583,25 @@ export default function WorkbenchContent() {
     resetProjectOverviewSessionState();
     void hydrateProjectOverview();
   }, [threadId]);
+
+  /** 手工改 task_progress.json 存盘 / Skill 落盘后，以服务端快照为准拉齐流程进度；隐藏标签时暂停。 */
+  useEffect(() => {
+    const tick = () => {
+      if (typeof document !== "undefined" && document.hidden) return;
+      void hydrateProjectOverview(true, { taskStatusMode: "replace" });
+    };
+    const id = window.setInterval(tick, 4000);
+    const onVis = () => {
+      if (typeof document !== "undefined" && !document.hidden) {
+        void hydrateProjectOverview(true, { taskStatusMode: "replace" });
+      }
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      window.clearInterval(id);
+      document.removeEventListener("visibilitychange", onVis);
+    };
+  }, []);
 
   const refreshRuntimeMode = useCallback(async () => {
     const base = apiBase.replace(/\/$/, "");
@@ -993,13 +1020,7 @@ export default function WorkbenchContent() {
   }, []);
 
   const openCommandPalette = useCallback(() => {
-    commandPaletteOpenRef.current = true;
-    setCommandPaletteOpen(true);
-  }, []);
-
-  const closeCommandPalette = useCallback(() => {
-    commandPaletteOpenRef.current = false;
-    setCommandPaletteOpen(false);
+    window.dispatchEvent(new Event("nanobot:command-palette:open"));
   }, []);
 
   const toggleZenMode = useCallback(() => {
@@ -1009,6 +1030,61 @@ export default function WorkbenchContent() {
       return next;
     });
   }, [closePreview]);
+
+  // Phase 3: CommandPalette actions (self-managed palette triggers workbench via events).
+  useEffect(() => {
+    const onClearChat = () => {
+      clearChat({ saveUndoSnapshot: true });
+    };
+    const onClearSession = () => {
+      const ok = window.confirm("确认清空当前会话？此操作不可撤销。");
+      if (!ok) return;
+      clearChat({ saveUndoSnapshot: true });
+    };
+    const onOpenProjectSwitcher = () => {
+      // Best-effort: show overview column and scroll into dashboard; project dropdown lives there.
+      setDashboardNavigatorView("overview");
+      setZenMode(false);
+      setNavExpanded(true);
+      queueMicrotask(() => {
+        document.querySelector(".dashboard-container")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+    };
+    const onToggleZen = () => toggleZenMode();
+    const onToggleDashboard = () => {
+      console.log("[CommandPalette] toggle dashboard placeholder (no dedicated state yet)");
+    };
+    const onOpenControlCenter = () => openControlCenter("config");
+    const onSetTheme = (e: Event) => {
+      const ev = e as CustomEvent;
+      const v = String(ev.detail ?? "").trim();
+      if (v === "dark" || v === "light" || v === "soft") setTheme(v as "dark" | "light" | "soft");
+    };
+    const onTriggerRunSkill = (e: Event) => {
+      const ev = e as CustomEvent;
+      const skill = String((ev.detail as { skill?: unknown } | undefined)?.skill ?? "").trim();
+      void triggerRunSkill(skill || "cold_start_analysis", selectedModel);
+    };
+
+    window.addEventListener("nanobot:workbench:clear-chat", onClearChat as EventListener);
+    window.addEventListener("nanobot:workbench:clear-session", onClearSession as EventListener);
+    window.addEventListener("nanobot:workbench:open-project-switcher", onOpenProjectSwitcher as EventListener);
+    window.addEventListener("nanobot:workbench:toggle-zen", onToggleZen as EventListener);
+    window.addEventListener("nanobot:workbench:toggle-dashboard", onToggleDashboard as EventListener);
+    window.addEventListener("nanobot:workbench:open-control-center", onOpenControlCenter as EventListener);
+    window.addEventListener("nanobot:workbench:set-theme", onSetTheme as EventListener);
+    window.addEventListener("nanobot:workbench:trigger-run-skill", onTriggerRunSkill as EventListener);
+    return () => {
+      window.removeEventListener("nanobot:workbench:clear-chat", onClearChat as EventListener);
+      window.removeEventListener("nanobot:workbench:clear-session", onClearSession as EventListener);
+      window.removeEventListener("nanobot:workbench:open-project-switcher", onOpenProjectSwitcher as EventListener);
+      window.removeEventListener("nanobot:workbench:toggle-zen", onToggleZen as EventListener);
+      window.removeEventListener("nanobot:workbench:toggle-dashboard", onToggleDashboard as EventListener);
+      window.removeEventListener("nanobot:workbench:open-control-center", onOpenControlCenter as EventListener);
+      window.removeEventListener("nanobot:workbench:set-theme", onSetTheme as EventListener);
+      window.removeEventListener("nanobot:workbench:trigger-run-skill", onTriggerRunSkill as EventListener);
+    };
+  }, [clearChat, openControlCenter, selectedModel, setTheme, toggleZenMode, triggerRunSkill]);
 
   useEffect(() => {
     if (workbenchModule !== "overview") {
@@ -1028,18 +1104,12 @@ export default function WorkbenchContent() {
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
-        e.preventDefault();
-        openCommandPalette();
-        return;
-      }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "f") {
         e.preventDefault();
         setSearchOpen(true);
         return;
       }
       if (e.key === "Escape") {
-        if (commandPaletteOpenRef.current) return;
         if (systemModal) {
           e.preventDefault();
           closeSystemModal();
@@ -1061,12 +1131,24 @@ export default function WorkbenchContent() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [systemModal, zenMode, closeSystemModal, openCommandPalette, previewImmersive, previewWidth]);
+  }, [systemModal, zenMode, closeSystemModal, previewImmersive, previewWidth]);
 
   const activePreviewTabPath = useMemo(() => {
     if (!activeRightTabId) return null;
     return previewTabs.find((t) => t.id === activeRightTabId)?.path ?? null;
   }, [activeRightTabId, previewTabs]);
+
+  const toggleArtifactPreview = useCallback(
+    (path: string) => {
+      const normalized = normalizeSyntheticSkillUiPath(path);
+      if (activePreviewTabPath && normalized === activePreviewTabPath && previewWidth > 32) {
+        closePreview();
+        return;
+      }
+      wakePreview(normalized);
+    },
+    [activePreviewTabPath, closePreview, previewWidth, wakePreview],
+  );
 
   const handleLogout = useCallback(() => {
     clearAuthSession();
@@ -1171,216 +1253,7 @@ export default function WorkbenchContent() {
     onDismissTrashed: dismissTrashed,
   };
 
-  const paletteCommands = useMemo<CommandPaletteItem[]>(() => {
-    const switchSessionItems: CommandPaletteItem[] = sessions.map((s) => ({
-      id: `switch-session:${s.id}`,
-      label: `切换会话：${(s.title || s.id).slice(0, 40)}${(s.title || s.id).length > 40 ? "…" : ""}`,
-      hint: s.preview?.trim()?.slice(0, 64),
-      keywords: ["switch-session", "会话", s.title, s.id, s.preview || ""],
-      run: () => {
-        closeCommandPalette();
-        void switchSession(s.id);
-      },
-    }));
-
-    const switchProjectItems: CommandPaletteItem[] = localProjects.map((p) => ({
-      id: `switch-project:${p.id}`,
-      label: `切换项目：${p.name}`,
-      keywords: ["switch-project", "项目", p.name, p.id],
-      run: () => {
-        closeCommandPalette();
-        handlePickProject(p.id);
-      },
-    }));
-
-    const jumpModuleItems: CommandPaletteItem[] = overviewModules.map((m) => ({
-      id: `jump-module:${m.moduleId}`,
-      label: `跳转阶段：${(m.label || m.moduleId).replace(/\s+/g, " ")}`,
-      hint: m.syntheticPath,
-      keywords: ["jump-module", "模块", "阶段", m.moduleId, m.label || ""],
-      run: () => {
-        closeCommandPalette();
-        selectProjectModule(m.moduleId);
-        setDashboardNavigatorView("overview");
-        setZenMode(false);
-        setNavExpanded(true);
-        queueMicrotask(() => {
-          document.querySelector(".dashboard-container")?.scrollIntoView({ behavior: "smooth", block: "start" });
-        });
-      },
-    }));
-
-    const recentArtifactItems: CommandPaletteItem[] = artifacts.slice(0, 10).map((path) => {
-      const base = path.split(/[/\\]/).pop() ?? path;
-      return {
-        id: `recent-artifact:${path}`,
-        label: `最近产物：${base.length > 36 ? `${base.slice(0, 34)}…` : base}`,
-        hint: path,
-        keywords: ["recent-artifact", "产物", path, base],
-        run: () => {
-          closeCommandPalette();
-          wakePreview(path);
-        },
-      };
-    });
-
-    const runProjectGuideSkill: CommandPaletteItem = {
-      id: "run-skill:project_guide",
-      label: "冷启技能 project_guide",
-      hint: "run-skill 机制，同会话冷启动",
-      keywords: ["run-skill", "skill", "冷启", "project_guide"],
-      run: () => {
-        closeCommandPalette();
-        const cold = buildProjectGuideColdStartUserPrompt();
-        void sendChatRequest(cold, selectedModel, {
-          showInTranscript: false,
-          showAssistantInTranscript: true,
-          showCompletionMessage: true,
-        });
-      },
-    };
-
-    return [
-      {
-        id: "new-session",
-        label: "新建会话",
-        hint: "空白对话线程",
-        keywords: ["session", "新对话"],
-        run: () => {
-          closeCommandPalette();
-          createSession();
-        },
-      },
-      {
-        id: "zen-toggle",
-        label: zenMode ? "退出专注模式" : "进入专注模式",
-        hint: "隐藏侧栏与大盘，仅保留会话区",
-        keywords: ["zen", "专注", "全屏"],
-        run: () => {
-          closeCommandPalette();
-          toggleZenMode();
-        },
-      },
-      {
-        id: "expand-nav",
-        label: "展开左侧导航",
-        keywords: ["sidebar", "侧栏", "会话", "技能"],
-        run: () => {
-          closeCommandPalette();
-          setNavExpanded(true);
-        },
-      },
-      {
-        id: "show-dashboard",
-        label: "显示大盘与工作台",
-        keywords: ["dashboard", "大盘", "sdui", "模块"],
-        run: () => {
-          closeCommandPalette();
-          setZenMode(false);
-          setNavExpanded(true);
-        },
-      },
-      {
-        id: "open-preview",
-        label: "打开右侧预览抽屉",
-        keywords: ["preview", "预览", "产物"],
-        run: () => {
-          closeCommandPalette();
-          expandPreviewPanel();
-        },
-      },
-      {
-        id: "artifacts-hub",
-        label: "打开产物中心 / 关闭",
-        hint: "与预览中文件相同时会关闭",
-        keywords: ["artifacts", "产物", "文件", "openArtifactsHub"],
-        run: () => {
-          closeCommandPalette();
-          openArtifactsHub();
-        },
-      },
-      {
-        id: "skills-hub",
-        label: "展开技能侧栏",
-        keywords: ["skills", "技能"],
-        run: () => {
-          closeCommandPalette();
-          openSkillsHub();
-        },
-      },
-      {
-        id: "search-messages",
-        label: "搜索消息",
-        hint: "同 Ctrl/⌘+F",
-        keywords: ["search", "查找"],
-        run: () => {
-          closeCommandPalette();
-          setSearchOpen(true);
-        },
-      },
-      {
-        id: "control-center",
-        label: "打开控制中心",
-        keywords: ["config", "设置", "api"],
-        run: () => {
-          closeCommandPalette();
-          openControlCenter("config");
-        },
-      },
-      {
-        id: "theme-dark",
-        label: "切换为深色主题",
-        keywords: ["dark", "夜间"],
-        run: () => {
-          closeCommandPalette();
-          setTheme("dark");
-        },
-      },
-      {
-        id: "theme-light",
-        label: "切换为浅色主题",
-        keywords: ["light", "白日"],
-        run: () => {
-          closeCommandPalette();
-          setTheme("light");
-        },
-      },
-      {
-        id: "theme-soft",
-        label: "切换为护眼主题",
-        keywords: ["soft", "护眼"],
-        run: () => {
-          closeCommandPalette();
-          setTheme("soft");
-        },
-      },
-      ...switchSessionItems,
-      ...switchProjectItems,
-      ...jumpModuleItems,
-      runProjectGuideSkill,
-      ...recentArtifactItems,
-    ];
-  }, [
-    zenMode,
-    createSession,
-    toggleZenMode,
-    expandPreviewPanel,
-    openArtifactsHub,
-    openSkillsHub,
-    openControlCenter,
-    closeCommandPalette,
-    setTheme,
-    sessions,
-    switchSession,
-    localProjects,
-    handlePickProject,
-    overviewModules,
-    setDashboardNavigatorView,
-    artifacts,
-    wakePreview,
-    sendChatRequest,
-    selectedModel,
-  ]);
+  // Phase 3: CommandPalette is now self-managed (Cmd/Ctrl+K) and uses console.log placeholder actions.
 
   useEffect(() => {
     if (!clearUndoToast) return;
@@ -1436,7 +1309,7 @@ export default function WorkbenchContent() {
             <select
               value={selectedProvider}
               onChange={(e) => void applyProviderProfile(e.target.value)}
-              className="max-w-[min(100%,9rem)] cursor-pointer rounded-md border-0 bg-transparent py-1 pl-1.5 pr-6 text-xs text-[var(--text-primary)] outline-none ring-0"
+              className="w-40 min-w-0 shrink-0 cursor-pointer rounded-md border-0 bg-transparent py-1 pl-1.5 pr-6 text-xs text-[var(--text-primary)] outline-none ring-0"
               aria-label="选择提供商"
             >
               {providerOptions.map((p) => (
@@ -1460,7 +1333,7 @@ export default function WorkbenchContent() {
           }}
           models={modelOptions}
           compact={inputBarWidth < INPUT_MODEL_COMPACT_PX}
-          selectClassName="!border-0 !bg-transparent !shadow-none text-xs text-[var(--text-primary)]"
+          variant="ghost"
         />
       </>
     ),
@@ -1538,7 +1411,7 @@ export default function WorkbenchContent() {
         </SystemShellModal>
       )}
 
-      <CommandPalette open={commandPaletteOpen} onClose={closeCommandPalette} commands={paletteCommands} />
+      <CommandPalette />
 
       <NewWorkspaceProjectModal
         open={newProjectModalOpen}
@@ -1598,16 +1471,18 @@ export default function WorkbenchContent() {
 
       {workbenchModule === "overview" ? (
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <div
-          className="z-10 w-full min-w-0 shrink-0 rounded-b-xl border-b border-[var(--border-subtle)] bg-[color-mix(in_oklab,var(--paper-card)_82%,#000000)] shadow-[0_2px_16px_rgba(0,0,0,0.35)] backdrop-blur-sm"
-        >
-          <ModuleStepper
-            modules={overviewModules}
-            activeModuleId={activeModuleId}
-            onSelectModule={undefined}
-            className="px-1 pb-2.5 pt-2"
-          />
-        </div>
+        {moduleStepperModules.length > 0 ? (
+          <div
+            className="z-10 w-full min-w-0 shrink-0 rounded-b-xl border-b border-[var(--border-subtle)] bg-[color-mix(in_oklab,var(--paper-card)_82%,#000000)] shadow-[0_2px_16px_rgba(0,0,0,0.35)] backdrop-blur-sm"
+          >
+            <ModuleStepper
+              modules={moduleStepperModules}
+              activeModuleId={activeModuleId}
+              onSelectModule={undefined}
+              className="px-1 pb-2.5 pt-2"
+            />
+          </div>
+        ) : null}
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
       {/* Mobile hamburger */}
       <button
@@ -1629,7 +1504,7 @@ export default function WorkbenchContent() {
         />
       )}
       {sidebarOpen && (
-        <div className="md:hidden fixed inset-y-0 left-0 z-40 w-[21rem] p-2 bg-zinc-100 dark:bg-[#121214] rounded-r-2xl shadow-xl border-r border-zinc-200/90 dark:border-white/5">
+        <div className="md:hidden fixed inset-y-0 left-0 z-40 w-[21rem] p-2 bg-zinc-100 dark:bg-[var(--canvas-rail)] rounded-r-2xl shadow-xl border-r border-zinc-200/90 dark:border-white/5">
           <button
             type="button"
             onClick={() => setSidebarOpen(false)}
@@ -1640,6 +1515,7 @@ export default function WorkbenchContent() {
           </button>
           <Sidebar
             {...sidebarProps}
+            embedded
             onSelectSession={(id) => {
               setSidebarOpen(false);
               switchSession(id);
@@ -1649,8 +1525,10 @@ export default function WorkbenchContent() {
       )}
 
       {/* Desktop layout: navigation + chat + overview, preview uses overlay drawer */}
-      <div className="hidden md:block h-full min-h-0 overflow-x-auto">
-        <div className={`flex h-full min-h-0 gap-0 ${zenMode ? "min-w-0" : "min-w-max"}`}>
+      <div className="hidden md:block h-full min-h-0 overflow-x-auto bg-[var(--surface-0)]">
+        <div
+          className={`flex h-full min-h-0 bg-[var(--surface-0)] p-2 gap-2 lg:p-3 lg:gap-3 ${zenMode ? "min-w-0" : "min-w-max"}`}
+        >
 
           {/* Col 1: Nav strip (collapsed 44px) or full Sidebar */}
           {!zenMode &&
@@ -1757,12 +1635,12 @@ export default function WorkbenchContent() {
             className={
               zenMode
                 ? "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-2xl border border-[var(--border-subtle)] bg-[var(--paper-chat)] shadow-[var(--shadow-panel)]"
-                : "flex min-h-0 min-w-0 shrink-0 flex-col overflow-hidden rounded-2xl border border-[var(--border-subtle)] bg-[var(--paper-chat)] shadow-[var(--shadow-panel)]"
+                : "flex min-h-0 min-w-0 shrink-0 flex-col overflow-hidden rounded-2xl border border-[var(--border-subtle)] bg-[var(--paper-chat)] shadow-[var(--shadow-panel)] dark:border-0 dark:shadow-[inset_1px_0_0_rgba(255,255,255,0.05),inset_-1px_0_0_rgba(255,255,255,0.05),inset_0_1px_0_rgba(255,255,255,0.03)]"
             }
             style={zenMode ? { minWidth: CHAT_MIN } : { width: chatWidth, minWidth: CHAT_MIN }}
           >
             {showChatWorkbenchTools ? (
-              <div className="flex min-w-0 shrink-0 items-center gap-2 border-b border-[var(--border-subtle)] bg-[color-mix(in_oklab,var(--paper-chat)_85%,transparent)] px-2 pb-1.5 pt-2">
+              <div className="flex min-w-0 shrink-0 items-center gap-2 border-b border-white/5 bg-[var(--paper-chat)] px-2 pb-1.5 pt-2">
                 <div className="relative shrink-0" ref={workbenchToolsMenuChatRef}>
                   <button
                     type="button"
@@ -1815,6 +1693,8 @@ export default function WorkbenchContent() {
                 onStop={stopGenerating}
                 onApproveTool={(approved) => { void approveTool(approved); }}
                 onFileLinkClick={wakePreview}
+                activePreviewPath={activePreviewTabPath}
+                onTogglePreviewPath={toggleArtifactPreview}
                 onDeleteMessage={deleteMessage}
                 searchQuery={searchQuery}
                 disabled={isLoading || !threadId}
@@ -1851,7 +1731,7 @@ export default function WorkbenchContent() {
 
               {/* Col 3: 工作区项目（仅总览） + 大盘 */}
               <div
-                className="dashboard-container flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-2xl border-l border-[var(--border-subtle)] bg-[color-mix(in_oklab,var(--paper-card)_92%,var(--surface-0))] shadow-[inset_0_0_0_1px_var(--border-subtle),var(--shadow-card)]"
+                className="dashboard-container flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-2xl border-l border-white/5 bg-[var(--paper-card)] shadow-[var(--shadow-card)]"
                 style={{ containerType: "inline-size", containerName: "dashboard", minWidth: DASHBOARD_MIN } as React.CSSProperties}
               >
                 {dashboardNavigatorView === "overview" ? (
@@ -2031,7 +1911,9 @@ export default function WorkbenchContent() {
           onSend={handleSend}
           onStop={stopGenerating}
           onApproveTool={(approved) => { void approveTool(approved); }}
-          onFileLinkClick={openFilePreview}
+          onFileLinkClick={wakePreview}
+          activePreviewPath={activePreviewTabPath}
+          onTogglePreviewPath={toggleArtifactPreview}
           onDeleteMessage={deleteMessage}
           searchQuery={searchQuery}
           disabled={isLoading || !threadId}

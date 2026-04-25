@@ -112,7 +112,7 @@ export function ModuleStepper({
                       aria-disabled={isDisabled}
                       onClick={() => onSelectModule?.(m.moduleId)}
                       className={[
-                        "ui-motion relative z-10 group w-full rounded-xl px-2.5 py-2 transition-colors",
+                        "ui-motion relative z-10 w-full rounded-xl px-2.5 py-2 transition-colors",
                         isDisabled
                           ? "opacity-80 cursor-default"
                           : "hover:bg-[var(--surface-2)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]",
@@ -121,6 +121,8 @@ export function ModuleStepper({
                       aria-label={label}
                     >
                       <div className="flex flex-col items-center gap-1">
+                        {/* 仅此区域触发悬停弹层，避免整列 hover 误触发 */}
+                        <div className="peer flex flex-col items-center gap-1">
                         <span className="relative inline-flex h-7 w-7 items-center justify-center">
                           {/* mask background so connector never shows through the circle */}
                           <span className="absolute inset-0 rounded-full bg-[var(--surface-1)] z-10" aria-hidden="true" />
@@ -180,6 +182,7 @@ export function ModuleStepper({
                             </div>
                           </div>
                         </div>
+                        </div>
                       </div>
 
                       {/* Hover card (only on hover/focus) */}
@@ -189,13 +192,13 @@ export function ModuleStepper({
                           "z-50",
                           "opacity-0 -translate-y-2 scale-[0.99]",
                           "transition-all duration-200 ease-out",
-                          "group-hover:opacity-100 group-hover:translate-y-0 group-hover:scale-100",
-                          "group-focus-visible:opacity-100 group-focus-visible:translate-y-0 group-focus-visible:scale-100",
+                          "peer-hover:opacity-100 peer-hover:translate-y-0 peer-hover:scale-100",
+                          "peer-focus-visible:opacity-100 peer-focus-visible:translate-y-0 peer-focus-visible:scale-100",
                         ].join(" ")}
                         aria-hidden="true"
                       >
                         <div className="absolute -top-1.5 left-1/2 -translate-x-1/2 w-3 h-3 rotate-45 border-l border-t border-[var(--border-subtle)] bg-[var(--surface-1)]" aria-hidden="true" />
-                        <div className="relative w-[13.5rem] rounded-xl border border-[var(--border-strong)] bg-zinc-900 shadow-xl shadow-black/60 px-3 py-2">
+                        <div className="relative pointer-events-auto w-[16.5rem] max-w-[min(100vw-2rem,20rem)] rounded-xl border border-[var(--border-strong)] bg-zinc-900 shadow-xl shadow-black/60 px-3 py-2">
                           <div className="flex items-center justify-between gap-2">
                             <div className="min-w-0">
                               <div className="text-[11px] font-semibold ui-text-primary truncate">{label}</div>
@@ -207,6 +210,40 @@ export function ModuleStepper({
                               {pct}%
                             </div>
                           </div>
+                          {m.steps && m.steps.length > 0 ? (
+                            <ul
+                              className="mt-2 max-h-44 space-y-1.5 overflow-y-auto pr-0.5 text-left [scrollbar-width:thin]"
+                              aria-label={`${label} 子任务`}
+                            >
+                              {m.steps.map((s) => (
+                                <li
+                                  key={s.id}
+                                  className="flex items-start gap-2 text-[10px] leading-snug w-full"
+                                >
+                                  {s.done ? (
+                                    <Check className="mt-0.5 h-3 w-3 shrink-0 text-emerald-400" strokeWidth={2.5} aria-hidden />
+                                  ) : (
+                                    <span
+                                      className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full border border-zinc-500 bg-transparent"
+                                      aria-hidden
+                                    />
+                                  )}
+                                  <span className={["min-w-0 flex-1", s.done ? "text-zinc-200/90" : "text-zinc-500"].join(" ")}>
+                                    {s.name}
+                                  </span>
+                                  <span
+                                    className={[
+                                      "shrink-0 text-[9px] tabular-nums",
+                                      s.done ? "text-emerald-400/90" : "text-zinc-500",
+                                    ].join(" ")}
+                                    aria-label={s.done ? "已完成" : "未完成"}
+                                  >
+                                    {s.done ? "已完成" : "未完成"}
+                                  </span>
+                                </li>
+                              ))}
+                            </ul>
+                          ) : null}
                           <div className="relative mt-2 h-1.5 rounded-full overflow-hidden bg-[var(--surface-3)]">
                             <div
                               className="h-full rounded-full transition-[width] duration-1000 ease-out relative overflow-hidden"

@@ -10,6 +10,8 @@ export type ProjectModuleRegistryItem = {
   label: string;
   description: string;
   placeholder?: boolean;
+  /** 默认 true；为 false 时不进入工作台顶部「流程进度」条（Skill 自行在大盘内展示进度即可） */
+  showWorkbenchModuleStepper?: boolean;
   taskProgress: {
     moduleId: string;
     moduleName: string;
@@ -27,6 +29,7 @@ export type ProjectOverviewModuleView = {
   description: string;
   syntheticPath: string;
   isPlaceholder: boolean;
+  showWorkbenchModuleStepper: boolean;
   taskModuleId: string;
   taskModuleName: string;
   status: "idle" | "running" | "completed";
@@ -196,8 +199,20 @@ async function fetchTaskStatusSnapshot(): Promise<TaskStatusPayload | null> {
   return (await response.json()) as TaskStatusPayload;
 }
 
-export async function hydrateProjectOverview(force = false): Promise<void> {
+export type HydrateProjectOverviewOptions = {
+  /**
+   * ``merge``（默认）：与现有 taskStatus 做模块/步骤合并，适合与 SSE 交错更新。
+   * ``replace``：以 /api/task-status 返回为准（手工改 task_progress.json 存盘后轮询用，避免合并不降 completed）。
+   */
+  taskStatusMode?: "merge" | "replace";
+};
+
+export async function hydrateProjectOverview(
+  force = false,
+  options?: HydrateProjectOverviewOptions,
+): Promise<void> {
   if (!force && hydratePromise) return hydratePromise;
+  const taskStatusMode = options?.taskStatusMode ?? "merge";
   hydratePromise = (async () => {
     const [registryItems, taskStatus] = await Promise.all([
       fetchRegistryItems().catch(() => state.registryItems),
@@ -207,7 +222,12 @@ export async function hydrateProjectOverview(force = false): Promise<void> {
       ...prev,
       registryItems,
       registryLoaded: true,
-      taskStatus: taskStatus ? mergeTaskStatusSnapshot(prev.taskStatus, taskStatus) : prev.taskStatus,
+      taskStatus:
+        taskStatus == null
+          ? prev.taskStatus
+          : taskStatusMode === "replace"
+            ? taskStatus
+            : mergeTaskStatusSnapshot(prev.taskStatus, taskStatus),
     }));
   })();
   try {
@@ -283,6 +303,7 @@ export function selectProjectOverviewModules(snapshot: ProjectOverviewState): Pr
       description: item.description,
       syntheticPath: moduleSyntheticPathFromDataFile(item.dashboard.dataFile, item.moduleId),
       isPlaceholder: Boolean(item.placeholder),
+      showWorkbenchModuleStepper: item.showWorkbenchModuleStepper !== false,
       taskModuleId: item.taskProgress.moduleId,
       taskModuleName: item.taskProgress.moduleName,
       status: st,

@@ -32,7 +32,7 @@ export function ModuleDashboard({
   return (
     <div className="h-full min-h-0 flex flex-col">
       <div
-        className="relative z-20 flex items-stretch shrink-0 border-b border-[var(--border-subtle)] overflow-x-auto"
+        className="relative z-20 flex items-stretch shrink-0 border-b border-[var(--border-subtle)] overflow-x-auto overflow-y-visible"
         style={{ background: "var(--surface-1)" }}
       >
         <button

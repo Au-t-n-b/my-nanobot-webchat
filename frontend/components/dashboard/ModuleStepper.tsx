@@ -1,7 +1,9 @@
 "use client";
 
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ProjectOverviewModuleView } from "@/lib/projectOverviewStore";
 import { Check } from "lucide-react";
+import { createPortal } from "react-dom";
 
 type StepTone = "completed" | "running" | "idle";
 
@@ -68,6 +70,131 @@ export function ModuleStepper({
   className,
 }: Props) {
   const clickable = Boolean(onSelectModule);
+  const [hover, setHover] = useState<{
+    moduleId: string;
+    label: string;
+    tone: StepTone;
+    pct: number;
+    steps: ProjectOverviewModuleView["steps"];
+    currentStepLabel: string | null;
+    totalCount: number;
+    doneCount: number;
+    isPlaceholder: boolean | undefined;
+  } | null>(null);
+  const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null);
+  const anchorElRef = useRef<HTMLElement | null>(null);
+
+  const hoverOpen = Boolean(hover && anchorRect);
+
+  const portal = useMemo(() => {
+    if (!hoverOpen || !hover || !anchorRect) return null;
+    const top = Math.round(anchorRect.bottom + 12);
+    const left = Math.round(anchorRect.left + anchorRect.width / 2);
+    const tone = hover.tone;
+    const pct = hover.pct;
+    const label = hover.label;
+
+    return createPortal(
+      <div
+        className="fixed z-[9999] pointer-events-none"
+        style={{ top, left, transform: "translateX(-50%)" }}
+        aria-hidden="true"
+      >
+        <div className="absolute -top-1.5 left-1/2 -translate-x-1/2 w-3 h-3 rotate-45 border-l border-t border-[var(--border-subtle)] bg-[var(--surface-1)]" aria-hidden="true" />
+        <div className="relative pointer-events-auto w-[16.5rem] max-w-[min(100vw-2rem,20rem)] rounded-xl border border-[var(--border-strong)] bg-zinc-900 shadow-xl shadow-black/60 px-3 py-2">
+          <div className="flex items-center justify-between gap-2">
+            <div className="min-w-0">
+              <div className="text-[11px] font-semibold ui-text-primary truncate">{label}</div>
+              <div className="mt-0.5 text-[10px] ui-text-muted truncate">
+                {hover.currentStepLabel || (hover.totalCount ? "进行中" : "待开始")}
+              </div>
+            </div>
+            <div className="shrink-0 text-[10px] tabular-nums ui-text-muted">{pct}%</div>
+          </div>
+
+          {hover.steps && hover.steps.length > 0 ? (
+            <ul className="mt-2 max-h-44 space-y-1.5 overflow-y-auto pr-0.5 text-left [scrollbar-width:thin]">
+              {hover.steps.map((s) => (
+                <li key={s.id} className="flex items-start gap-2 text-[10px] leading-snug w-full">
+                  {s.done ? (
+                    <Check className="mt-0.5 h-3 w-3 shrink-0 text-emerald-400" strokeWidth={2.5} aria-hidden />
+                  ) : (
+                    <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full border border-zinc-500 bg-transparent" aria-hidden />
+                  )}
+                  <span className={["min-w-0 flex-1", s.done ? "text-zinc-200/90" : "text-zinc-500"].join(" ")}>
+                    {s.name}
+                  </span>
+                  <span
+                    className={[
+                      "shrink-0 text-[9px] tabular-nums",
+                      s.done ? "text-emerald-400/90" : "text-zinc-500",
+                    ].join(" ")}
+                  >
+                    {s.done ? "已完成" : "未完成"}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+
+          <div className="relative mt-2 h-1.5 rounded-full overflow-hidden bg-[var(--surface-3)]">
+            <div
+              className="h-full rounded-full transition-[width] duration-1000 ease-out relative overflow-hidden"
+              style={{
+                width: `${pct}%`,
+                background: tone === "completed" ? "#10b981" : tone === "running" ? "#f59e0b" : "#3f3f46",
+              }}
+            >
+              {tone === "running" ? (
+                <>
+                  <span
+                    className="absolute inset-0 opacity-40"
+                    style={{
+                      backgroundImage:
+                        "repeating-linear-gradient(45deg,rgba(255,255,255,0.22) 0,rgba(255,255,255,0.22) 6px,transparent 6px,transparent 12px)",
+                      backgroundSize: "16px 16px",
+                    }}
+                    aria-hidden="true"
+                  />
+                  <span
+                    className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent"
+                    style={{ transform: "translateX(-120%)", animation: "module-stepper-shimmer 1.6s ease-in-out infinite" }}
+                    aria-hidden="true"
+                  />
+                </>
+              ) : null}
+            </div>
+          </div>
+          <div className="mt-1 flex items-center justify-between gap-2 text-[10px] ui-text-muted tabular-nums">
+            <span className="truncate">
+              {hover.totalCount > 0 ? `${hover.doneCount}/${hover.totalCount}` : hover.isPlaceholder ? "规划中" : "0/0"}
+            </span>
+            <span className="shrink-0">{tone === "completed" ? "已完成" : tone === "running" ? "执行中" : "未开始"}</span>
+          </div>
+        </div>
+      </div>,
+      document.body,
+    );
+  }, [anchorRect, hover, hoverOpen]);
+
+  useEffect(() => {
+    if (!hoverOpen) return;
+    const update = () => {
+      const el = anchorElRef.current;
+      if (!el) return;
+      setAnchorRect(el.getBoundingClientRect());
+    };
+    update();
+    const onScroll = () => update();
+    const onResize = () => update();
+    window.addEventListener("scroll", onScroll, true);
+    window.addEventListener("resize", onResize);
+    return () => {
+      window.removeEventListener("scroll", onScroll, true);
+      window.removeEventListener("resize", onResize);
+    };
+  }, [hoverOpen]);
+
   return (
     <section className={["px-2 w-full min-w-0 max-w-full", className].filter(Boolean).join(" ")}>
       <div className="flex items-center justify-between gap-2">
@@ -122,7 +249,51 @@ export function ModuleStepper({
                     >
                       <div className="flex flex-col items-center gap-1">
                         {/* 仅此区域触发悬停弹层，避免整列 hover 误触发 */}
-                        <div className="peer flex flex-col items-center gap-1">
+                        <div
+                          className="relative flex flex-col items-center gap-1"
+                          onMouseEnter={(e) => {
+                            const el = e.currentTarget as unknown as HTMLElement;
+                            anchorElRef.current = el;
+                            setAnchorRect(el.getBoundingClientRect());
+                            setHover({
+                              moduleId: m.moduleId,
+                              label,
+                              tone,
+                              pct,
+                              steps: m.steps,
+                              currentStepLabel: m.currentStepLabel ?? null,
+                              totalCount: m.totalCount,
+                              doneCount: m.doneCount,
+                              isPlaceholder: m.isPlaceholder,
+                            });
+                          }}
+                          onMouseLeave={() => {
+                            anchorElRef.current = null;
+                            setAnchorRect(null);
+                            setHover(null);
+                          }}
+                          onFocus={(e) => {
+                            const el = e.currentTarget as unknown as HTMLElement;
+                            anchorElRef.current = el;
+                            setAnchorRect(el.getBoundingClientRect());
+                            setHover({
+                              moduleId: m.moduleId,
+                              label,
+                              tone,
+                              pct,
+                              steps: m.steps,
+                              currentStepLabel: m.currentStepLabel ?? null,
+                              totalCount: m.totalCount,
+                              doneCount: m.doneCount,
+                              isPlaceholder: m.isPlaceholder,
+                            });
+                          }}
+                          onBlur={() => {
+                            anchorElRef.current = null;
+                            setAnchorRect(null);
+                            setHover(null);
+                          }}
+                        >
                         <span className="relative inline-flex h-7 w-7 items-center justify-center">
                           {/* mask background so connector never shows through the circle */}
                           <span className="absolute inset-0 rounded-full bg-[var(--surface-1)] z-10" aria-hidden="true" />
@@ -184,105 +355,6 @@ export function ModuleStepper({
                         </div>
                         </div>
                       </div>
-
-                      {/* Hover card (only on hover/focus) */}
-                      <div
-                        className={[
-                          "pointer-events-none absolute left-1/2 -translate-x-1/2 top-full mt-3",
-                          "z-50",
-                          "opacity-0 -translate-y-2 scale-[0.99]",
-                          "transition-all duration-200 ease-out",
-                          "peer-hover:opacity-100 peer-hover:translate-y-0 peer-hover:scale-100",
-                          "peer-focus-visible:opacity-100 peer-focus-visible:translate-y-0 peer-focus-visible:scale-100",
-                        ].join(" ")}
-                        aria-hidden="true"
-                      >
-                        <div className="absolute -top-1.5 left-1/2 -translate-x-1/2 w-3 h-3 rotate-45 border-l border-t border-[var(--border-subtle)] bg-[var(--surface-1)]" aria-hidden="true" />
-                        <div className="relative pointer-events-auto w-[16.5rem] max-w-[min(100vw-2rem,20rem)] rounded-xl border border-[var(--border-strong)] bg-zinc-900 shadow-xl shadow-black/60 px-3 py-2">
-                          <div className="flex items-center justify-between gap-2">
-                            <div className="min-w-0">
-                              <div className="text-[11px] font-semibold ui-text-primary truncate">{label}</div>
-                              <div className="mt-0.5 text-[10px] ui-text-muted truncate">
-                                {m.currentStepLabel || (m.totalCount ? "进行中" : "待开始")}
-                              </div>
-                            </div>
-                            <div className="shrink-0 text-[10px] tabular-nums ui-text-muted">
-                              {pct}%
-                            </div>
-                          </div>
-                          {m.steps && m.steps.length > 0 ? (
-                            <ul
-                              className="mt-2 max-h-44 space-y-1.5 overflow-y-auto pr-0.5 text-left [scrollbar-width:thin]"
-                              aria-label={`${label} 子任务`}
-                            >
-                              {m.steps.map((s) => (
-                                <li
-                                  key={s.id}
-                                  className="flex items-start gap-2 text-[10px] leading-snug w-full"
-                                >
-                                  {s.done ? (
-                                    <Check className="mt-0.5 h-3 w-3 shrink-0 text-emerald-400" strokeWidth={2.5} aria-hidden />
-                                  ) : (
-                                    <span
-                                      className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full border border-zinc-500 bg-transparent"
-                                      aria-hidden
-                                    />
-                                  )}
-                                  <span className={["min-w-0 flex-1", s.done ? "text-zinc-200/90" : "text-zinc-500"].join(" ")}>
-                                    {s.name}
-                                  </span>
-                                  <span
-                                    className={[
-                                      "shrink-0 text-[9px] tabular-nums",
-                                      s.done ? "text-emerald-400/90" : "text-zinc-500",
-                                    ].join(" ")}
-                                    aria-label={s.done ? "已完成" : "未完成"}
-                                  >
-                                    {s.done ? "已完成" : "未完成"}
-                                  </span>
-                                </li>
-                              ))}
-                            </ul>
-                          ) : null}
-                          <div className="relative mt-2 h-1.5 rounded-full overflow-hidden bg-[var(--surface-3)]">
-                            <div
-                              className="h-full rounded-full transition-[width] duration-1000 ease-out relative overflow-hidden"
-                              style={{
-                                width: `${pct}%`,
-                                background:
-                                  tone === "completed" ? "#10b981" : tone === "running" ? "#f59e0b" : "#3f3f46",
-                              }}
-                            >
-                              {tone === "running" ? (
-                                <>
-                                  <span
-                                    className="absolute inset-0 opacity-40"
-                                    style={{
-                                      backgroundImage:
-                                        "repeating-linear-gradient(45deg,rgba(255,255,255,0.22) 0,rgba(255,255,255,0.22) 6px,transparent 6px,transparent 12px)",
-                                      backgroundSize: "16px 16px",
-                                    }}
-                                    aria-hidden="true"
-                                  />
-                                  <span
-                                    className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent"
-                                    style={{ transform: "translateX(-120%)", animation: "module-stepper-shimmer 1.6s ease-in-out infinite" }}
-                                    aria-hidden="true"
-                                  />
-                                </>
-                              ) : null}
-                            </div>
-                          </div>
-                          <div className="mt-1 flex items-center justify-between gap-2 text-[10px] ui-text-muted tabular-nums">
-                            <span className="truncate">
-                              {m.totalCount > 0 ? `${m.doneCount}/${m.totalCount}` : m.isPlaceholder ? "规划中" : "0/0"}
-                            </span>
-                            <span className="shrink-0">
-                              {tone === "completed" ? "已完成" : tone === "running" ? "执行中" : "未开始"}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
                     </button>
                   </li>
               );
@@ -290,6 +362,7 @@ export function ModuleStepper({
             </ol>
         </div>
       </div>
+      {portal}
     </section>
   );
 }

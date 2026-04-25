@@ -761,11 +761,10 @@ async def _dispatch_chat_intents_skill_first(
     request: web.Request,
     agent: Any,
 ) -> tuple[bool, str]:
-    """默认 Skill-First：先 ``skill_runtime_bridge``，再 legacy ``module_action``，最后 manifest。
+    """默认 Skill-First：先 ``skill_runtime_bridge``，再 manifest。
 
-    Workspace Skill（DevKit 交付）以 driver + SDUI 为主；``module_skill_runtime`` 仅作兼容回退。
+    Workspace Skill（DevKit 交付）以 driver + SDUI 为主；legacy ``module_action`` 现默认禁用。
     """
-    from nanobot.web.module_skill_runtime import dispatch_chat_card_intent
     from nanobot.web.skill_manifest_bridge import dispatch_skill_manifest_intent
     from nanobot.web.skill_runtime_bridge import dispatch_skill_runtime_intent
 
@@ -779,6 +778,23 @@ async def _dispatch_chat_intents_skill_first(
 
     sessions = getattr(agent, "sessions", None) if agent is not None else None
 
+    # Hard-disable legacy module_action unless explicitly enabled.
+    # This keeps the platform as "generic + skill-first" only.
+    verb = ""
+    try:
+        if isinstance(intent, dict):
+            verb = str(intent.get("verb") or "").strip()
+    except Exception:
+        verb = ""
+    if verb == "module_action" and not str(os.environ.get("NANOBOT_ENABLE_MODULE_ACTION") or "").strip():
+        return True, json.dumps(
+            {
+                "ok": False,
+                "error": "module_action 已禁用：请使用 skill_runtime_start（Skill-First）驱动模块流程",
+            },
+            ensure_ascii=False,
+        )
+
     handled, hitl_message = await dispatch_skill_runtime_intent(
         intent,
         thread_id=thread_id,
@@ -789,10 +805,6 @@ async def _dispatch_chat_intents_skill_first(
         session_key=thread_id,
         agent_loop=agent,
     )
-    if not handled:
-        handled, hitl_message = await dispatch_chat_card_intent(
-            intent, thread_id=thread_id, docman=docman
-        )
     if not handled:
         handled, hitl_message = await dispatch_skill_manifest_intent(
             intent, thread_id=thread_id, docman=docman

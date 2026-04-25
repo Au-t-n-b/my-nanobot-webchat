@@ -25,9 +25,9 @@ const CANONICAL_SIX = [
     subtasks: ["场景筛选与底表过滤", "勘测数据汇总", "报告生成", "审批与分发闭环"],
   },
   {
-    moduleId: "modeling_simulation_workbench",
+    moduleId: "jmfz",
     label: "建模仿真",
-    taskProgressId: "modeling_simulation_workbench",
+    taskProgressId: "jmfz",
     shortLabel: "建模仿真",
     subtasks: ["BOQ 提取", "设备确认", "创建设备", "拓扑确认", "拓扑连接"],
   },

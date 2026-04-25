@@ -117,9 +117,7 @@ Whenever you need the user to **choose between options** (e.g. selecting a scena
 - For **`module_boilerplate`**: after the user selects a strategy (e.g. their message is `balanced`, `speed`, or `quality`), your **next step MUST** be a tool call:
   `module_skill_runtime(module_id="module_boilerplate", action="upload_evidence", state={{"standard":"<same id>"}})`
   — not `present_choices`. Do not invent fake upload buttons.
-- For **`modeling_simulation_workbench`**: after the user enters the module or asks to start建模仿真, your next tool step should be
-  `module_skill_runtime(module_id="modeling_simulation_workbench", action="upload_bundle", state={{}})`.
-  After the upload completes, the flow continues as `upload_bundle_complete -> device_confirm -> create_device -> topo_confirm -> finish`.
+- For **`jmfz`** (建模仿真, `~/.nanobot/workspace/skills/jmfz/`, `flow: jmfz_skill_first`): the primary path is **Skill-First** — the dashboard button fires `skill_runtime_start` (see that skill’s `data/dashboard.json`). Instruct the user to click **开始建模仿真** on the module panel; do not rely on legacy `module_skill_runtime` upload steps for this module. The runtime driver is `runtime/driver.py` (HITL steps: upload → device confirm → topology → link → report).
 - For **`smart_survey_workbench`**: after the user enters the module or asks to start智慧工勘, your next tool step should be
   `module_skill_runtime(module_id="smart_survey_workbench", action="prepare_step1", state={{}})`.
   The flow continues as `run_step1 -> prepare_step2 -> run_step2 -> prepare_step3 -> run_step3 -> prepare_step4 -> run_step4_approve`.

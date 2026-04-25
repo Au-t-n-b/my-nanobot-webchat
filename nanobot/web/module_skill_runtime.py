@@ -5934,6 +5934,12 @@ async def run_module_action(
                 docman=docman,
                 cfg=cfg,
             )
+        elif flow == "jmfz_skill_first":
+            # 建模仿真主路径在 skills/jmfz/runtime/driver.py，由 skill_runtime_start / HITL 回执续跑，不经由本处编排。
+            result = {
+                "ok": True,
+                "summary": "建模仿真 (jmfz) 为 Skill-First：请在大盘点击「开始建模仿真」以触发 skill_runtime_start，后续阶段由 driver 在聊天流发 HITL。",
+            }
         else:
             result = {"ok": False, "error": f"unsupported flow: {flow!r}"}
     except Exception as e:

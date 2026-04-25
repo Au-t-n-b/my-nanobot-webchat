@@ -59,7 +59,7 @@ def default_task_progress_file_payload() -> dict[str, Any]:
                 ),
             },
             {
-                "moduleId": "modeling_simulation_workbench",
+                "moduleId": "jmfz",
                 "moduleName": "建模仿真",
                 "updatedAt": None,
                 "tasks": _tasks(

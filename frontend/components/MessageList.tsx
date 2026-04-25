@@ -187,14 +187,14 @@ function Avatar({ role }: { role: "user" | "assistant" }) {
   return (
     <div
       className={
-        "shrink-0 mt-0.5 w-6 h-6 rounded-full flex items-center justify-center " +
+        "shrink-0 mt-0.5 w-8 h-8 rounded-full flex items-center justify-center " +
         (role === "user" ? "bg-[var(--surface-3)]" : "ui-card")
       }
     >
       {role === "user" ? (
-        <User size={12} className="ui-text-secondary" />
+        <User size={16} className="ui-text-secondary" />
       ) : (
-        <Bot size={12} style={{ color: "var(--accent)" }} />
+        <Bot size={16} style={{ color: "var(--accent)" }} />
       )}
     </div>
   );

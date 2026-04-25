@@ -19,6 +19,7 @@ from nanobot.web.local_json_store import (
     locked,
     public_user_from_row,
     touch_last_login,
+    write_current_login_snapshot,
     upsert_project_member,
 )
 from nanobot.web.local_jwt import account_role_to_api, ensure_jwt_secret_key_runtime, sign_token
@@ -63,6 +64,12 @@ async def handle_auth_login(request: web.Request) -> web.Response:
         return _json_error("账号或密码不正确", 401)
 
     await locked(touch_last_login, str(u.get("id") or ""))
+    await locked(
+        write_current_login_snapshot,
+        user_row=u,
+        ip=request.remote,
+        user_agent=request.headers.get("User-Agent"),
+    )
     token = sign_token(user_row=u)
     return web.json_response({"token": token, "user": public_user_from_row(u)})
 

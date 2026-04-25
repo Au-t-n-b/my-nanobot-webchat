@@ -181,6 +181,31 @@ def public_user_from_row(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def write_current_login_snapshot(
+    *,
+    user_row: dict[str, Any],
+    ip: str | None = None,
+    user_agent: str | None = None,
+    reg: Path | None = None,
+) -> None:
+    """Persist the last successful login snapshot under the registry dir.
+
+    File: ``current_login.json`` (overwritten on each successful login).
+    Note: This is a "last login" record, not a durable multi-session store.
+    """
+    reg = reg or registry_dir()
+    _atomic_write_json(
+        reg / "current_login.json",
+        {
+            "schemaVersion": 1,
+            "updatedAt": _now_iso(),
+            "ip": (ip or "").strip() or None,
+            "userAgent": (user_agent or "").strip() or None,
+            "user": public_user_from_row(user_row),
+        },
+    )
+
+
 def authenticate_user(work_id: str, password: str, *, reg: Path | None = None) -> dict[str, Any] | None:
     u = find_user_by_work_id(work_id, reg=reg)
     if not u:

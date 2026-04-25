@@ -6,7 +6,7 @@ import pytest
 from aiohttp.test_utils import TestClient, TestServer
 
 from nanobot.web.app import create_app
-from nanobot.web.local_json_store import ensure_seed_users, read_users
+from nanobot.web.local_json_store import ensure_seed_users, read_users, registry_dir
 
 
 @pytest.fixture(autouse=True)
@@ -34,6 +34,11 @@ async def test_login_then_me() -> None:
         body = await r.json()
         token = body.get("token")
         assert isinstance(token, str) and token
+        # last login snapshot file should be refreshed on successful login
+        p = registry_dir() / "current_login.json"
+        assert p.is_file()
+        snap = p.read_text(encoding="utf-8")
+        assert "test" in snap
         r2 = await client.get("/api/auth/me", headers={"Authorization": f"Bearer {token}"})
         assert r2.status == 200
         me = await r2.json()

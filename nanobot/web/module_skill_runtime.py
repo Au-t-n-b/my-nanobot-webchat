@@ -279,6 +279,10 @@ def load_module_config(module_id: str) -> dict[str, Any]:
     dashboard = json.loads(dashboard_path.read_text(encoding="utf-8"))
     if not isinstance(dashboard, dict):
         raise ValueError("dashboard.json must be a JSON object")
+    from nanobot.web.sdui_stepper_trim import is_job_management_module_id, strip_sdui_stepper_nodes
+
+    if is_job_management_module_id(module_id.strip()):
+        dashboard = strip_sdui_stepper_nodes(dashboard)
     normalized_dashboard = _normalize_legacy_dashboard_document(module_id.strip(), dashboard)
     if normalized_dashboard is not dashboard:
         dashboard = normalized_dashboard
@@ -4719,6 +4723,17 @@ async def _flow_job_management_legacy(
     cfg: dict[str, Any],
 ) -> dict[str, Any]:
     """作业管理大盘：上传 → 三段排期确认 → 闭环报告。"""
+    def _jm_drop_stepper_nodes(nodes: list[tuple[str, str, dict[str, Any]]]) -> list[tuple[str, str, dict[str, Any]]]:
+        """作业管理默认不显示 SDUI Stepper（不要求改用户本地 module.json/dashboard.json）。"""
+        mid = str(module_id or "").strip().replace("-", "_")
+        if mid != "job_management":
+            return nodes
+        # 若未来需要恢复：在 module.json capabilities 里显式加 showSduiStepper=true（不影响现默认行为）
+        caps = cfg.get("capabilities") if isinstance(cfg.get("capabilities"), dict) else {}
+        if caps.get("showSduiStepper") is True:
+            return nodes
+        return [t for t in nodes if not (t[0] == SDUI_STEPPER_MAIN_ID or t[1] == "Stepper")]
+
     pusher = _pusher_for(cfg)
     doc_id = str(cfg["docId"])
     sp = synthetic_path_for_data_file(str(cfg["dataFile"]))
@@ -4741,7 +4756,7 @@ async def _flow_job_management_legacy(
             cfg,
         )
         await pusher.update_nodes(
-            [
+            _jm_drop_stepper_nodes([
                 (
                     SDUI_STEPPER_MAIN_ID,
                     "Stepper",
@@ -4771,7 +4786,7 @@ async def _flow_job_management_legacy(
                     "ArtifactGrid",
                     {"title": "已上传文件", "mode": "input", "artifacts": []},
                 ),
-            ]
+            ])
         )
         await mc.emit_guidance(
             context=f"{_brand}已就绪。请先上传作业资料包，再按引导确认各阶段排期。",
@@ -4788,7 +4803,7 @@ async def _flow_job_management_legacy(
     if action == "upload_bundle":
         upload_cfg = _upload_config(cfg, "job_bundle")
         await pusher.update_nodes(
-            [
+            _jm_drop_stepper_nodes([
                 (
                     SDUI_STEPPER_MAIN_ID,
                     "Stepper",
@@ -4813,7 +4828,7 @@ async def _flow_job_management_legacy(
                         "color": "subtle",
                     },
                 ),
-            ]
+            ])
         )
         await mc.ask_for_file(
             purpose="job_bundle",
@@ -4850,7 +4865,7 @@ async def _flow_job_management_legacy(
             cfg,
         )
         await pusher.update_nodes(
-            [
+            _jm_drop_stepper_nodes([
                 (
                     SDUI_STEPPER_MAIN_ID,
                     "Stepper",
@@ -4880,7 +4895,7 @@ async def _flow_job_management_legacy(
                         "color": "subtle",
                     },
                 ),
-            ]
+            ])
         )
         cid = str(merged.get("cardId") or state.get("cardId") or "").strip()
         if cid:
@@ -4958,7 +4973,7 @@ async def _flow_job_management_legacy(
             cfg,
         )
         await pusher.update_nodes(
-            [
+            _jm_drop_stepper_nodes([
                 (
                     SDUI_STEPPER_MAIN_ID,
                     "Stepper",
@@ -4988,7 +5003,7 @@ async def _flow_job_management_legacy(
                         "color": "subtle",
                     },
                 ),
-            ]
+            ])
         )
         await mc.emit_guidance(
             context="规划设计排期已登记。请确认工程安装排期。",
@@ -5025,7 +5040,7 @@ async def _flow_job_management_legacy(
             cfg,
         )
         await pusher.update_nodes(
-            [
+            _jm_drop_stepper_nodes([
                 (
                     SDUI_STEPPER_MAIN_ID,
                     "Stepper",
@@ -5055,7 +5070,7 @@ async def _flow_job_management_legacy(
                         "color": "subtle",
                     },
                 ),
-            ]
+            ])
         )
         await mc.emit_guidance(
             context="工程安装排期已登记。请确认集群联调排期。",
@@ -5093,7 +5108,7 @@ async def _flow_job_management_legacy(
             cfg,
         )
         await pusher.update_nodes(
-            [
+            _jm_drop_stepper_nodes([
                 (
                     SDUI_STEPPER_MAIN_ID,
                     "Stepper",
@@ -5123,7 +5138,7 @@ async def _flow_job_management_legacy(
                         "color": "subtle",
                     },
                 ),
-            ]
+            ])
         )
         await mc.emit_guidance(
             context="集群联调排期已确认。可结束本模块并生成作业闭环说明。",
@@ -5162,7 +5177,7 @@ async def _flow_job_management_legacy(
             cfg,
         )
         await pusher.update_nodes(
-            [
+            _jm_drop_stepper_nodes([
                 (
                     SDUI_STEPPER_MAIN_ID,
                     "Stepper",
@@ -5195,7 +5210,7 @@ async def _flow_job_management_legacy(
                         "color": "subtle",
                     },
                 ),
-            ]
+            ])
         )
         out_path = _write_job_management_report(
             module_id=module_id,

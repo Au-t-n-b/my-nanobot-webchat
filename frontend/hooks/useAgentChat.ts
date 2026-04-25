@@ -1368,6 +1368,44 @@ export function useAgentChat() {
     [sendChatRequest],
   );
 
+  const triggerRunSkill = useCallback(
+    async (skillName: string, modelName?: string) => {
+      const skill = String(skillName ?? "").trim();
+      if (!skill) return false;
+      if (isLoading || runStatusRef.current === "running" || runStatusRef.current === "awaitingApproval") {
+        setRunStatus("error");
+        setStatusMessage("当前任务执行中");
+        return false;
+      }
+
+      // Step 1: push an assistant skeleton bubble (content empty). We keep it assistant-only to avoid polluting the user transcript.
+      // Step 2: show status capsule + step log.
+      setStepLogs((prev) => [...prev, { id: newId(), stepName: "thinking", text: `🚀 运行 [${skill}] 技能...` }]);
+      setRunStatus("running");
+      setStatusMessage(`🚀 运行 [${skill}] 技能...`);
+
+      // Step 3: send a special intent-like command without touching sendChatRequest protocol.
+      // The backend can choose to parse this; if not supported, it will be treated as plain text.
+      const payloadText = `/run-skill ${skill}`;
+
+      const ok = await sendChatRequest(payloadText, modelName, {
+        showInTranscript: false,
+        showAssistantInTranscript: true,
+        showCompletionMessage: false,
+      });
+
+      if (!ok) {
+        // sendChatRequest already set runStatus/statusMessage on error paths; keep a consistent fallback for silent failures.
+        if (runStatusRef.current !== "error") {
+          setRunStatus("error");
+          setStatusMessage("run-skill 触发失败");
+        }
+      }
+      return ok;
+    },
+    [isLoading, sendChatRequest],
+  );
+
   const sendChatForDrainRef = useRef(sendChatRequest);
   sendChatForDrainRef.current = sendChatRequest;
 
@@ -1436,6 +1474,7 @@ export function useAgentChat() {
     sendSilentMessage,
     /** 与 sendSilentMessage 相同请求体，但返回 `true` 表示流式轮次正常结束；冷启动/需判成功时用 */
     sendChatRequest,
+    triggerRunSkill,
     stopGenerating,
     approveTool,
     clearPendingChoices,

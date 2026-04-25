@@ -1,45 +1,105 @@
-export function composeProjectRegistryItems(registryItems) {
-  /**
-   * Skill-First UI（2026-04）：项目总览作为“全局进度容器”仍需要稳定展示交付阶段。
-   * 这里返回一个**固定的 6 阶段模块序列**，并与后端/本地扫描到的 modules 合并：
-   * - 若 registryItems 中存在该 moduleId：使用其 label/description/taskProgress/dashboard 配置
-   * - 若不存在：生成 placeholder 项（用于 Stepper/总览展示），后续模块目录与 module.json 就位后自动替换
-   */
+/**
+ * 六段大流程（与 `task_progress.json` / 后端 `default_task_progress_file_payload` 的 moduleId 对齐）。
+ * 已安装的 module.json 会合并进对应阶段；未安装的段显示为占位，仍可看到子任务与进度（由 task 状态驱动）。
+ */
+const CANONICAL_SIX = [
+  {
+    moduleId: "job_management",
+    label: "作业管理",
+    taskProgressId: "job_management",
+    shortLabel: "作业管理",
+    subtasks: [
+      "作业待启动",
+      "资料已上传",
+      "规划设计排期已确认",
+      "工程安装排期已确认",
+      "集群联调排期已确认",
+      "作业闭环完成",
+    ],
+  },
+  {
+    moduleId: "smart_survey_workbench",
+    label: "智慧工勘",
+    taskProgressId: "smart_survey",
+    shortLabel: "智慧工勘",
+    subtasks: ["场景筛选与底表过滤", "勘测数据汇总", "报告生成", "审批与分发闭环"],
+  },
+  {
+    moduleId: "modeling_simulation_workbench",
+    label: "建模仿真",
+    taskProgressId: "modeling_simulation_workbench",
+    shortLabel: "建模仿真",
+    subtasks: ["BOQ 提取", "设备确认", "创建设备", "拓扑确认", "拓扑连接"],
+  },
+  {
+    moduleId: "system_design",
+    label: "系统设计",
+    taskProgressId: "system_design",
+    shortLabel: "系统设计",
+    subtasks: ["需求与范围基线", "方案与架构评审", "设计基线冻结", "变更与风险登记"],
+  },
+  {
+    moduleId: "device_install",
+    label: "设备安装",
+    taskProgressId: "device_install",
+    shortLabel: "设备安装",
+    subtasks: ["进场与验货", "安装与上电", "单机自检", "系统联线", "安规与资产标签"],
+  },
+  {
+    moduleId: "sw_deploy_commission",
+    label: "软件部署与调测",
+    taskProgressId: "sw_deploy_commission",
+    shortLabel: "软件部署与调测",
+    subtasks: ["环境基线", "应用与中间件部署", "联调对点", "性能与稳定验证", "移交与培训"],
+  },
+];
 
-  const ordered = [
-    { moduleId: "job_management", label: "作业管理" },
-    { moduleId: "zhgk", label: "智慧工勘" },
-    { moduleId: "modeling_simulation_workbench", label: "建模仿真" },
-    { moduleId: "system_design", label: "系统设计" },
-    { moduleId: "device_install", label: "设备安装" },
-    { moduleId: "sw_deploy_commission", label: "软件部署与调测" },
-  ];
+function pickSubtasksFromApi(api, c) {
+  const raw = api && api.taskProgress && Array.isArray(api.taskProgress.tasks) ? api.taskProgress.tasks : null;
+  if (raw && raw.length) {
+    return raw.map((t) => (typeof t === "string" ? t : String(t)));
+  }
+  return c.subtasks;
+}
 
-  const byId = new Map(
-    Array.isArray(registryItems)
-      ? registryItems
-          .filter((x) => x && typeof x === "object" && typeof x.moduleId === "string" && x.moduleId.trim())
-          .map((x) => [x.moduleId.trim(), x])
-      : [],
-  );
-
-  return ordered.map(({ moduleId, label }) => {
-    const existing = byId.get(moduleId);
-    if (existing) return existing;
+function mergeOne(api, c) {
+  const subtasks = pickSubtasksFromApi(api, c);
+  const taskProgressId = c.taskProgressId;
+  const moduleName =
+    (api && api.taskProgress && String(api.taskProgress.moduleName || "").trim()) || c.shortLabel;
+  if (api && typeof api === "object") {
     return {
-      moduleId,
-      label,
-      description: "",
-      placeholder: true,
+      ...api,
+      label: c.label,
+      showWorkbenchModuleStepper: true,
       taskProgress: {
-        moduleId,
-        moduleName: label,
-        tasks: [],
-      },
-      dashboard: {
-        docId: "",
-        dataFile: `skills/${moduleId}/data/dashboard.json`,
+        moduleId: taskProgressId,
+        moduleName: moduleName || c.label,
+        tasks: subtasks,
       },
     };
-  });
+  }
+  return {
+    moduleId: c.moduleId,
+    label: c.label,
+    description: "模块未安装时仍可跟踪本阶段子任务与总体进度。",
+    placeholder: true,
+    showWorkbenchModuleStepper: true,
+    taskProgress: {
+      moduleId: taskProgressId,
+      moduleName: c.shortLabel,
+      tasks: c.subtasks,
+    },
+    dashboard: { docId: "", dataFile: "" },
+  };
+}
+
+export function composeProjectRegistryItems(registryItems) {
+  const fromApi = Array.isArray(registryItems) ? registryItems : [];
+  const byId = new Map(
+    fromApi
+      .filter((x) => x && typeof x === "object" && typeof x.moduleId === "string" && x.moduleId.trim())
+      .map((x) => [String(x.moduleId).trim(), x]),
+  );
+  return CANONICAL_SIX.map((c) => mergeOne(byId.get(c.moduleId), c));
 }

@@ -8,6 +8,19 @@ from nanobot.web.skill_runtime_bridge import emit_skill_runtime_event
 from nanobot.web.skill_runtime_driver import run_skill_runtime_driver
 
 
+def _normalize_skill_first_action(*, skill_name: str, action: str) -> str:
+    """Normalize legacy/generic actions to skill-specific driver entrypoints.
+
+    Some callers still emit ``skill_runtime_start`` with ``action="start"`` (historical module template),
+    but ``job_management``'s driver expects ``jm_start`` as the default entry action.
+    """
+    sk = str(skill_name or "").strip()
+    act = str(action or "").strip()
+    if sk.lower() in {"job_management", "job-management"} and act.lower() in {"start", "guide"}:
+        return "jm_start"
+    return act
+
+
 def make_skill_first_resume_runner(
     *,
     pending_hitl_store: Any,
@@ -33,6 +46,7 @@ def make_skill_first_resume_runner(
         result: Any,
         **_ignored: Any,
     ) -> dict[str, Any]:
+        normalized_action = _normalize_skill_first_action(skill_name=skill_name, action=action)
         try:
             events = await run_skill_runtime_driver(
                 skill_name=skill_name,
@@ -40,7 +54,7 @@ def make_skill_first_resume_runner(
                     "thread_id": thread_id,
                     "skill_name": skill_name,
                     "request_id": request_id,
-                    "action": action,
+                    "action": normalized_action,
                     "status": status,
                     "result": result,
                 },

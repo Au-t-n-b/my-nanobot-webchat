@@ -46,6 +46,7 @@ SUPPORTED_SKILL_RUNTIME_EVENTS = {
     "dashboard.bootstrap",
     "dashboard.patch",
     "hitl.file_request",
+    "hitl.text_request",
     "hitl.choice_request",
     "hitl.confirm_request",
     "artifact.publish",
@@ -107,6 +108,11 @@ def _try_load_skill_dashboard_bootstrap(skill_name: str) -> dict[str, Any] | Non
         return None
     if not isinstance(document, dict):
         return None
+
+    from nanobot.web.sdui_stepper_trim import is_job_management_module_id, strip_sdui_stepper_nodes
+
+    if is_job_management_module_id(name):
+        document = strip_sdui_stepper_nodes(document)
 
     data_file = module_data_file or f"skills/{name}/data/dashboard.json"
     doc_id = (
@@ -173,6 +179,55 @@ async def _emit_file_request(
     return {
         "ok": True,
         "event": "hitl.file_request",
+        "summary": title,
+        "cardId": handle.card_id,
+        "docId": handle.doc_id,
+    }
+
+
+async def _emit_text_request(
+    *,
+    mc: MissionControlManager,
+    payload: dict[str, Any],
+    envelope: dict[str, Any] | None = None,
+    pending_hitl_store: Any = None,
+) -> dict[str, Any]:
+    title = str(payload.get("title") or "").strip() or "请填写"
+    label = str(payload.get("label") or "").strip() or None
+    placeholder = str(payload.get("placeholder") or "").strip() or None
+    submit_label = str(payload.get("submitLabel") or "").strip() or None
+    default_value = str(payload.get("defaultValue") or "").strip() or None
+    help_text = str(payload.get("helpText") or payload.get("description") or "").strip() or None
+    purpose = str(payload.get("purpose") or "").strip() or "text"
+    hitl_rid = str(payload.get("requestId") or "").strip() or None
+    final_skill_name = str(payload.get("skillName") or (envelope or {}).get("skillName") or "").strip() or None
+    if pending_hitl_store is not None and envelope is not None:
+        await pending_hitl_store.create_pending_request(envelope)
+    rows = payload.get("rows")
+    try:
+        rows_int = int(rows) if rows is not None else None
+    except (TypeError, ValueError):
+        rows_int = None
+    handle = await mc.ask_for_text_input(
+        purpose=purpose,
+        title=title,
+        label=label,
+        placeholder=placeholder,
+        rows=rows_int,
+        default_value=default_value,
+        submit_label=submit_label,
+        help_text=help_text,
+        card_id=str(payload.get("cardId") or "").strip() or None,
+        hitl_request_id=hitl_rid,
+        module_id=str(payload.get("moduleId") or "").strip() or None,
+        next_action=str(payload.get("resumeAction") or "").strip() or None,
+        skill_name=final_skill_name,
+        state_namespace=str(payload.get("stateNamespace") or "").strip() or None,
+        step_id=str(payload.get("stepId") or "").strip() or None,
+    )
+    return {
+        "ok": True,
+        "event": "hitl.text_request",
         "summary": title,
         "cardId": handle.card_id,
         "docId": handle.doc_id,
@@ -253,6 +308,10 @@ async def _emit_dashboard_patch(payload: dict[str, Any]) -> dict[str, Any]:
     doc_id = str(payload.get("docId") or "").strip() or "dashboard:runtime"
     raw_ops = payload.get("ops")
     ops = [dict(item) for item in raw_ops if isinstance(item, dict)] if isinstance(raw_ops, list) else []
+    from nanobot.web.sdui_stepper_trim import filter_dashboard_patch_ops_drop_stepper, is_job_management_synthetic_path
+
+    if is_job_management_synthetic_path(synthetic_path):
+        ops = filter_dashboard_patch_ops_drop_stepper(ops)
     patch_payload = await build_skill_ui_data_patch_payload(
         synthetic_path=synthetic_path,
         doc_id=doc_id,
@@ -276,6 +335,10 @@ async def _emit_dashboard_bootstrap(payload: dict[str, Any]) -> dict[str, Any]:
     doc_id = str(payload.get("docId") or "").strip() or "dashboard:runtime"
     document = payload.get("document")
     from nanobot.agent.loop import emit_skill_ui_bootstrap_event
+    from nanobot.web.sdui_stepper_trim import is_job_management_synthetic_path, strip_sdui_stepper_nodes
+
+    if isinstance(document, dict) and is_job_management_synthetic_path(synthetic_path):
+        document = strip_sdui_stepper_nodes(document)
 
     await emit_skill_ui_bootstrap_event(
         {
@@ -624,6 +687,15 @@ async def emit_skill_runtime_event(
         # ``PendingHitlStore.consume_result`` would raise thread_id mismatch on upload.
         enriched["threadId"] = thread_id
         return await _emit_file_request(
+            mc=mc,
+            payload=payload,
+            envelope=enriched,
+            pending_hitl_store=pending_hitl_store,
+        )
+    if event == "hitl.text_request":
+        enriched = dict(envelope)
+        enriched["threadId"] = thread_id
+        return await _emit_text_request(
             mc=mc,
             payload=payload,
             envelope=enriched,

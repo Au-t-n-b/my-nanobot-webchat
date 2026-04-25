@@ -46,6 +46,7 @@ export type SduiNodeType =
   | "GuidanceCard"
   | "ChoiceCard"
   | "ConfirmCard"
+  | "HitlTextInput"
   | "StatisticRow"
   | "GanttLane"
   | "GanttChart"
@@ -80,6 +81,7 @@ export const SDUI_NODE_TYPE_VALUES: readonly SduiNodeType[] = [
   "GuidanceCard",
   "ChoiceCard",
   "ConfirmCard",
+  "HitlTextInput",
   "StatisticRow",
   "GanttLane",
   "GanttChart",
@@ -244,6 +246,48 @@ function indexSubtreeByIdIntoMap(root: SduiNode, map: Map<string, SduiNode>): vo
     }
   };
   walk(root);
+}
+
+/** 从子节点列表递归去掉 Stepper（用于 job_management 等平台策略与 DevKit 纯 Skill UI 对齐） */
+function stripStepperFromNode(node: SduiNode): SduiNode | null {
+  if (node.type === "Stepper") return null;
+  if (node.type === "Tabs") {
+    return {
+      ...node,
+      tabs: node.tabs.map((tab) => ({
+        ...tab,
+        children: stripStepperFromNodeList(tab.children),
+      })),
+    };
+  }
+  const raw = node as { children?: SduiNode[] };
+  if (Array.isArray(raw.children)) {
+    return { ...node, children: stripStepperFromNodeList(raw.children) } as SduiNode;
+  }
+  return node;
+}
+
+function stripStepperFromNodeList(nodes: SduiNode[] | undefined): SduiNode[] {
+  if (!nodes?.length) return [];
+  const out: SduiNode[] = [];
+  for (const n of nodes) {
+    const next = stripStepperFromNode(n);
+    if (next) out.push(next);
+  }
+  return out;
+}
+
+/**
+ * 移除文档树中全部 `type: "Stepper"` 节点（不改磁盘 JSON）。
+ * 解决：历史 patch / localStorage 会话回放仍带 Stepper，而仅靠 GET /api/file 剥离不够的情况。
+ */
+export function stripStepperNodesFromSduiDocument(doc: SduiDocument): SduiDocument {
+  const root = stripStepperFromNode(doc.root);
+  return {
+    ...doc,
+    meta: doc.meta ? { ...doc.meta } : undefined,
+    root: root ?? ({ type: "Stack", gap: "md", children: [] } as SduiNode),
+  };
 }
 
 function deepMergeInPlace(target: Record<string, unknown>, patch: Record<string, unknown>): void {
@@ -481,6 +525,28 @@ export type SduiConfirmCardNode = {
   flex?: number;
 };
 
+export type SduiHitlTextInputNode = {
+  type: "HitlTextInput";
+  id?: string;
+  purpose?: string;
+  title?: string;
+  label?: string;
+  placeholder?: string;
+  rows?: number;
+  defaultValue?: string;
+  submitLabel?: string;
+  helpText?: string;
+  moduleId?: string;
+  nextAction?: string;
+  skillName?: string;
+  hitlRequestId?: string;
+  stateNamespace?: string;
+  stepId?: string;
+  /** 提交后的锁定值（用于刷新回放） */
+  submittedText?: string;
+  flex?: number;
+};
+
 export type SduiNode =
   | SduiStackNode
   | SduiCardNode
@@ -509,6 +575,7 @@ export type SduiNode =
   | SduiGuidanceCardNode
   | SduiChoiceCardNode
   | SduiConfirmCardNode
+  | SduiHitlTextInputNode
   | SduiStatisticRowNode
   | SduiGanttLaneNode
   | SduiGanttChartNode

@@ -15,16 +15,14 @@ export function SduiGuidanceCard({ context, actions, cardId }: Props) {
 
   return (
     <div
-      className="rounded-lg overflow-hidden border"
+      className="rounded-lg overflow-hidden"
       style={{
         background: "color-mix(in oklab, var(--accent) 8%, var(--surface-1))",
-        borderColor: "color-mix(in oklab, var(--accent) 25%, transparent)",
-        borderLeft: "3px solid var(--accent)",
       }}
     >
       <div
         className="flex items-center gap-2 px-3 py-2 border-b"
-        style={{ borderColor: "color-mix(in oklab, var(--accent) 15%, transparent)" }}
+        style={{ borderColor: "color-mix(in oklab, var(--border-subtle) 65%, transparent)" }}
       >
         <Zap size={12} style={{ color: "var(--accent)" }} />
         <span className="text-[10px] font-bold tracking-wide uppercase" style={{ color: "var(--accent)" }}>

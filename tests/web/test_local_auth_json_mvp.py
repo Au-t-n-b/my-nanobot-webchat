@@ -9,6 +9,14 @@ from nanobot.web.app import create_app
 from nanobot.web.local_json_store import ensure_seed_users, read_users
 
 
+@pytest.fixture(autouse=True)
+def _isolated_registry(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    reg = tmp_path / "registry"
+    reg.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("NANOBOT_REGISTRY_DIR", str(reg))
+    monkeypatch.delenv("JWT_SECRET_KEY", raising=False)
+
+
 def test_seed_admin_created(tmp_path: Path) -> None:
     reg = tmp_path / "registry"
     reg.mkdir(parents=True, exist_ok=True)

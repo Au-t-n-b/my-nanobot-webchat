@@ -8,6 +8,7 @@ import { getSelectedLocalProjectId } from "@/lib/localProjects";
 
 const STAGES = ["作业管理", "智慧工勘", "建模仿真", "系统设计", "设备安装", "软件部署与调测"] as const;
 type Stage = (typeof STAGES)[number];
+type CreateMode = "member" | "pd";
 
 type MemberRow = {
   userId: string;
@@ -47,6 +48,7 @@ export function AdminMembersPanel({ onBack }: { onBack?: () => void }) {
   const [addOpen, setAddOpen] = useState(false);
   const [addBusy, setAddBusy] = useState(false);
   const [addErr, setAddErr] = useState<string | null>(null);
+  const [createMode, setCreateMode] = useState<CreateMode>("member");
   const [workId, setWorkId] = useState("");
   const [realName, setRealName] = useState("");
   const [password, setPassword] = useState("");
@@ -75,8 +77,10 @@ export function AdminMembersPanel({ onBack }: { onBack?: () => void }) {
   }, [load]);
 
   const canCreateMember = user?.accountRole === "pd" || user?.accountRole === "admin";
+  const canCreatePd = user?.accountRole === "admin";
 
   const resetAdd = useCallback(() => {
+    setCreateMode("member");
     setWorkId("");
     setRealName("");
     setPassword("");
@@ -86,10 +90,6 @@ export function AdminMembersPanel({ onBack }: { onBack?: () => void }) {
   }, []);
 
   const submitAdd = useCallback(async () => {
-    if (!projectId) {
-      setAddErr("缺少 projectId。");
-      return;
-    }
     const w = workId.trim();
     const rn = realName.trim();
     if (!w || !rn) {
@@ -104,9 +104,15 @@ export function AdminMembersPanel({ onBack }: { onBack?: () => void }) {
       setAddErr("两次输入的密码不一致。");
       return;
     }
-    if (stageSel.length === 0) {
-      setAddErr("请至少选择 1 个阶段。");
-      return;
+    if (createMode === "member") {
+      if (!projectId) {
+        setAddErr("缺少 projectId。");
+        return;
+      }
+      if (stageSel.length === 0) {
+        setAddErr("请至少选择 1 个阶段。");
+        return;
+      }
     }
     setAddBusy(true);
     setAddErr(null);
@@ -119,8 +125,12 @@ export function AdminMembersPanel({ onBack }: { onBack?: () => void }) {
           realName: rn,
           password,
           passwordConfirm: password2,
-          projectId,
-          stages: stageSel,
+          ...(createMode === "pd"
+            ? { roleCode: "PD" }
+            : {
+                projectId,
+                stages: stageSel,
+              }),
         }),
       });
       const j = (await r.json().catch(() => ({}))) as { detail?: string };
@@ -162,7 +172,7 @@ export function AdminMembersPanel({ onBack }: { onBack?: () => void }) {
             className="inline-flex items-center gap-2 rounded-lg border border-[color-mix(in_oklab,var(--accent)_45%,var(--border-subtle))] bg-[color-mix(in_oklab,var(--accent)_14%,var(--surface-1))] px-3 py-2 text-xs ui-text-primary hover:opacity-90"
           >
             <Plus size={14} aria-hidden />
-            新增成员
+            新增账号
           </button>
         ) : null}
       </div>
@@ -256,12 +266,36 @@ export function AdminMembersPanel({ onBack }: { onBack?: () => void }) {
         <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/55 p-4" role="dialog" aria-modal="true">
           <div className="w-full max-w-lg overflow-hidden rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-0)] shadow-2xl">
             <div className="flex items-center justify-between border-b border-[var(--border-subtle)] px-4 py-3">
-              <div className="text-sm font-semibold ui-text-primary">新增成员（PD 注册）</div>
+              <div className="text-sm font-semibold ui-text-primary">新增账号</div>
               <button type="button" onClick={() => setAddOpen(false)} className="rounded-lg p-2 ui-text-secondary hover:ui-text-primary" aria-label="关闭">
                 <X size={16} />
               </button>
             </div>
             <div className="space-y-3 p-4">
+              {canCreatePd ? (
+                <div className="flex items-center gap-2 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-1)] p-2">
+                  <button
+                    type="button"
+                    className={
+                      "flex-1 rounded-lg px-3 py-2 text-sm font-medium " +
+                      (createMode === "member" ? "bg-[var(--surface-3)] ui-text-primary" : "ui-text-secondary hover:ui-text-primary")
+                    }
+                    onClick={() => setCreateMode("member")}
+                  >
+                    项目成员（EMPLOYEE）
+                  </button>
+                  <button
+                    type="button"
+                    className={
+                      "flex-1 rounded-lg px-3 py-2 text-sm font-medium " +
+                      (createMode === "pd" ? "bg-[var(--surface-3)] ui-text-primary" : "ui-text-secondary hover:ui-text-primary")
+                    }
+                    onClick={() => setCreateMode("pd")}
+                  >
+                    二级管理员（PD）
+                  </button>
+                </div>
+              ) : null}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <div className="mb-1 text-xs ui-text-muted">工号</div>
@@ -282,21 +316,23 @@ export function AdminMembersPanel({ onBack }: { onBack?: () => void }) {
                   <input type="password" className="w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)] px-3 py-2 text-sm ui-text-primary outline-none" value={password2} onChange={(e) => setPassword2(e.target.value)} />
                 </div>
               </div>
-              <div>
-                <div className="mb-2 text-xs ui-text-muted">任务阶段（多选）</div>
-                <div className="flex flex-wrap gap-2">
-                  {STAGES.map((s) => (
-                    <StagePill
-                      key={s}
-                      label={s}
-                      active={stageSel.includes(s)}
-                      onClick={() => {
-                        setStageSel((prev) => (prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s]));
-                      }}
-                    />
-                  ))}
+              {createMode === "member" ? (
+                <div>
+                  <div className="mb-2 text-xs ui-text-muted">任务阶段（多选）</div>
+                  <div className="flex flex-wrap gap-2">
+                    {STAGES.map((s) => (
+                      <StagePill
+                        key={s}
+                        label={s}
+                        active={stageSel.includes(s)}
+                        onClick={() => {
+                          setStageSel((prev) => (prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s]));
+                        }}
+                      />
+                    ))}
+                  </div>
                 </div>
-              </div>
+              ) : null}
               {addErr ? <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-300">{addErr}</div> : null}
               <div className="flex justify-end gap-2 pt-2">
                 <button type="button" onClick={() => setAddOpen(false)} className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)] px-3 py-2 text-sm ui-text-secondary hover:bg-[var(--surface-3)]">

@@ -14,11 +14,13 @@ TOKEN_EXPIRE_DAYS = 7
 
 
 def _secret_path() -> Path:
-    return Path(".nanobot") / "registry" / "jwt_secret.txt"
+    from nanobot.web.local_json_store import registry_dir
+
+    return registry_dir() / "jwt_secret.txt"
 
 
 def ensure_jwt_secret_key_runtime() -> str:
-    """Ensure JWT secret exists (env preferred; else persisted in .nanobot/registry)."""
+    """Ensure JWT secret exists (``JWT_SECRET_KEY`` env, else file next to users.json in ``registry_dir()``)."""
     cur = (os.environ.get("JWT_SECRET_KEY") or "").strip()
     if cur:
         return cur

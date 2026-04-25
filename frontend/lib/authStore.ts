@@ -80,6 +80,10 @@ export function getAuthUser(): AuthUser | null {
   return state.user;
 }
 
+export function isAuthed(): boolean {
+  return Boolean(state.token && state.user?.userId && state.user?.workId);
+}
+
 export function setAuthSession(token: string, user: AuthUser): void {
   state = { token, user };
   if (typeof window !== "undefined") persist(state);

@@ -1,6 +1,8 @@
-"""Local JSON persistence under ``.nanobot/registry`` for MVP auth/membership.
+"""Local JSON persistence for MVP auth/membership (``users.json`` in the registry dir).
 
-This is intentionally simple and file-backed to avoid DB ops overhead in MVP.
+Default location: ``~/.nanobot/workspace/registry`` (stable per user, not tied to repo cwd).
+Override with env ``NANOBOT_REGISTRY_DIR`` (tests, CI, or project-local registry).
+
 All writes are atomic (tmp + replace) and guarded by an in-process asyncio lock.
 """
 
@@ -22,9 +24,21 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
+def default_registry_dir() -> Path:
+    """Per-user default: ``~/.nanobot/workspace/registry`` (e.g. Windows under the user profile)."""
+    return Path.home() / ".nanobot" / "workspace" / "registry"
+
+
 def registry_dir() -> Path:
-    """Default registry dir (relative to repo cwd)."""
-    return Path(".nanobot") / "registry"
+    """Directory containing ``users.json`` and (with JWT) ``jwt_secret.txt``.
+
+    * If ``NANOBOT_REGISTRY_DIR`` is set — use that (tests, sandboxes, custom layout).
+    * Otherwise — :func:`default_registry_dir` (persistent home path, not repo-relative).
+    """
+    p = (os.environ.get("NANOBOT_REGISTRY_DIR") or "").strip()
+    if p:
+        return Path(p)
+    return default_registry_dir()
 
 
 _LOCK = asyncio.Lock()

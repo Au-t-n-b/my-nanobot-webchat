@@ -628,6 +628,51 @@ def _last_user_text(messages: Any) -> str | None:
     return None
 
 
+# E2E：用户发送此前缀时跳过 LLM，流式返回预设产物文本（与前端 fileIndex 路径规则对齐）
+_COLD_START_SKILL_INTERCEPT_PREFIX = "/run-skill cold_start_analysis"
+
+
+def _cold_start_skill_mock_stream_deltas() -> list[str]:
+    """Split preset assistant text into SSE ``TextMessageContent`` chunks.
+
+    Includes a GFM-style fenced block (``json path=…``) for the report payload, plus
+    ``Output/…`` in backticks so ``frontend/lib/fileIndex.extractFilesFromContent`` can
+    drive artifact chips / preview (see also ``AgentMarkdown`` link normalization).
+    """
+    report_obj: dict[str, Any] = {
+        "taskId": "CS-2026-0424",
+        "status": "completed",
+        "metrics": {
+            "signalStrength": "-75dBm",
+            "interferenceLevel": "Low",
+            "estimatedSetupTime": "45 mins",
+        },
+        "risks": [
+            "坐标存在轻微偏移，已自动校准",
+            "当前频段可能受周边微波塔影响",
+        ],
+    }
+    json_body = json.dumps(report_obj, ensure_ascii=False, indent=2)
+    full = (
+        "🚀 收到指令！我已经为您完成了基站的冷启动环境勘测与分析。"
+        "以下是生成的勘测报告与异常诊断参数，请点击查看详情：\n\n"
+        "```json path=cold_start_analysis.json\n"
+        f"{json_body}\n"
+        "```\n\n"
+        "侧栏产物 / 预览联动路径：`Output/cold_start_analysis.json`\n"
+    )
+    chunks: list[str] = []
+    acc = ""
+    for line in full.splitlines(keepends=True):
+        acc += line
+        if len(acc) >= 96:
+            chunks.append(acc)
+            acc = ""
+    if acc:
+        chunks.append(acc)
+    return chunks if chunks else [full]
+
+
 def _try_parse_chat_card_intent(text: str) -> dict[str, Any] | None:
     """若用户消息内含 ``chat_card_intent`` JSON 对象，则解析为 dict；否则 None。
 
@@ -666,7 +711,13 @@ def _try_parse_chat_card_intent(text: str) -> dict[str, Any] | None:
     if m:
         module_id = m.group(1).strip()
         # platform_capability_lab expects action=pcs_start (see its dashboard button).
-        action = "pcs_start" if module_id == "platform_capability_lab" else "start"
+        if module_id == "platform_capability_lab":
+            action = "pcs_start"
+        elif module_id == "job_management":
+            # Skill-first job_management driver uses jm_* action names.
+            action = "jm_start"
+        else:
+            action = "start"
         return {
             "type": "chat_card_intent",
             "verb": "skill_runtime_start",
@@ -702,6 +753,53 @@ def _is_skill_ui_fastlane_intent(intent: dict[str, Any] | None) -> bool:
     return verb in _SKILL_HITL_FASTLANE_VERBS
 
 
+async def _dispatch_chat_intents_skill_first(
+    *,
+    intent: dict[str, Any] | None,
+    thread_id: str,
+    docman: Any,
+    request: web.Request,
+    agent: Any,
+) -> tuple[bool, str]:
+    """默认 Skill-First：先 ``skill_runtime_bridge``，再 legacy ``module_action``，最后 manifest。
+
+    Workspace Skill（DevKit 交付）以 driver + SDUI 为主；``module_skill_runtime`` 仅作兼容回退。
+    """
+    from nanobot.web.module_skill_runtime import dispatch_chat_card_intent
+    from nanobot.web.skill_manifest_bridge import dispatch_skill_manifest_intent
+    from nanobot.web.skill_runtime_bridge import dispatch_skill_runtime_intent
+
+    pending_store = request.app.get(PENDING_HITL_STORE_KEY)
+    resume_runner = request.app.get(SKILL_RESUME_RUNNER_KEY)
+    if pending_store is not None:
+        try:
+            await pending_store.init()
+        except Exception:
+            pass
+
+    sessions = getattr(agent, "sessions", None) if agent is not None else None
+
+    handled, hitl_message = await dispatch_skill_runtime_intent(
+        intent,
+        thread_id=thread_id,
+        docman=docman,
+        pending_hitl_store=pending_store,
+        resume_runner=resume_runner,
+        session_manager=sessions,
+        session_key=thread_id,
+        agent_loop=agent,
+    )
+    if not handled:
+        handled, hitl_message = await dispatch_chat_card_intent(
+            intent, thread_id=thread_id, docman=docman
+        )
+    if not handled:
+        handled, hitl_message = await dispatch_skill_manifest_intent(
+            intent, thread_id=thread_id, docman=docman
+        )
+    return handled, hitl_message
+
+
 async def _handle_chat_skill_ui_fastlane(
     *,
     request: web.Request,
@@ -713,16 +811,13 @@ async def _handle_chat_skill_ui_fastlane(
     """Process skill-first intents without ``RunRegistry.try_begin`` (no LLM slot).
 
     Covers ``skill_runtime_result`` / ``skill_runtime_resume`` (HITL) and
-    ``skill_runtime_start`` (e.g. natural-language 开启 zhgk or SDUI start button) so
-    ``dispatch_skill_runtime_intent`` runs with Skill UI emitters bound.
+    ``skill_runtime_start`` (e.g. natural-language 开启 zhgk or SDUI start button).
+    Intent 分发与主 ``handle_chat`` 一致：默认先 ``skill_runtime_bridge``，再 legacy ``module_action``。
 
     A long-lived LLM ``/api/chat`` stream holds the registry slot; without this lane,
     ``skill_runtime_result`` would get HTTP 409 and the skill would never resume.
     """
     from nanobot.agent.loop import AgentLoop
-    from nanobot.web.module_skill_runtime import dispatch_chat_card_intent
-    from nanobot.web.skill_manifest_bridge import dispatch_skill_manifest_intent
-    from nanobot.web.skill_runtime_bridge import dispatch_skill_runtime_intent
 
     agent: AgentLoop | None = request.app[AGENT_LOOP_KEY]
     model_name = model_name_override or (agent.model if agent else None) or "unknown"
@@ -803,37 +898,13 @@ async def _handle_chat_skill_ui_fastlane(
                     ("skill_result", agent.set_skill_agent_task_result_emitter(emit_skill_agent_task_result))
                 )
 
-        pending_store = request.app.get(PENDING_HITL_STORE_KEY)
-        resume_runner = request.app.get(SKILL_RESUME_RUNNER_KEY)
-        if pending_store is not None:
-            try:
-                await pending_store.init()
-            except Exception:
-                pass
-
-        handled, hitl_message = await dispatch_chat_card_intent(
-            intent,
+        handled, hitl_message = await _dispatch_chat_intents_skill_first(
+            intent=intent,
             thread_id=thread_id,
             docman=None,
+            request=request,
+            agent=agent,
         )
-        if not handled:
-            sessions = getattr(agent, "sessions", None) if agent is not None else None
-            handled, hitl_message = await dispatch_skill_runtime_intent(
-                intent,
-                thread_id=thread_id,
-                docman=None,
-                pending_hitl_store=pending_store,
-                resume_runner=resume_runner,
-                session_manager=sessions,
-                session_key=thread_id,
-                agent_loop=agent,
-            )
-        if not handled:
-            handled, hitl_message = await dispatch_skill_manifest_intent(
-                intent,
-                thread_id=thread_id,
-                docman=None,
-            )
 
         msg = str(hitl_message or "").strip()
         if not handled and not msg:
@@ -1036,6 +1107,25 @@ async def handle_chat(request: web.Request) -> web.StreamResponse | web.Response
             streamed_chunks: list[str] = []
             run_choices: list[dict[str, str]] = []
 
+            cold_start_skill_mock = bool(
+                (user_text or "").strip().startswith(_COLD_START_SKILL_INTERCEPT_PREFIX)
+            )
+            if cold_start_skill_mock:
+                mock_streamed: list[str] = []
+                for delta in _cold_start_skill_mock_stream_deltas():
+                    mock_streamed.append(delta)
+                    await safe_write("TextMessageContent", {"delta": delta})
+                await safe_write(
+                    "RunFinished",
+                    {
+                        "threadId": thread_id,
+                        "runId": run_id,
+                        "message": "".join(mock_streamed),
+                        "choices": run_choices,
+                    },
+                )
+                run_finished_sent = True
+
             async def on_progress(content: str, *, tool_hint: bool = False) -> None:
                 if client_disconnected or _client_is_closing():
                     _mark_disconnected_and_cancel()
@@ -1110,197 +1200,181 @@ async def handle_chat(request: web.Request) -> web.StreamResponse | web.Response
                 )
                 return await fut
 
-            token = agent.set_tool_approval_callback(on_tool_approval)
-            token_skill_ui_patch = agent.set_skill_ui_patch_emitter(emit_skill_ui_patch)
-            token_skill_ui_chat = agent.set_skill_ui_chat_card_emitter(emit_skill_ui_chat_card)
-            token_module_focus = agent.set_module_session_focus_emitter(emit_module_session_focus)
-            token_thread_id = agent.set_current_thread_id(thread_id)
-            pending_store = request.app.get(PENDING_HITL_STORE_KEY)
-            token_pending_hitl = (
-                agent.set_pending_hitl_store(pending_store)
-                if pending_store is not None and hasattr(agent, "set_pending_hitl_store")
-                else None
-            )
-            token_chat_docman = (
-                agent.set_chat_docman(None) if hasattr(agent, "set_chat_docman") else None
-            )
-            token_skill_ui_bootstrap = (
-                agent.set_skill_ui_bootstrap_emitter(emit_skill_ui_bootstrap)
-                if hasattr(agent, "set_skill_ui_bootstrap_emitter")
-                else None
-            )
-            token_task_status = (
-                agent.set_task_status_emitter(emit_task_status) if hasattr(agent, "set_task_status_emitter") else None
-            )
-            token_skill_agent_task_result = (
-                agent.set_skill_agent_task_result_emitter(emit_skill_agent_task_result)
-                if hasattr(agent, "set_skill_agent_task_result_emitter")
-                else None
-            )
-
-            async def _sse_heartbeat() -> None:
-                """Independent keepalive: fires every 10 s regardless of agent output.
-
-                Prevents browser / proxy idle-timeout (the frontend enforces 20 s).
-                Uses a dedicated 'Heartbeat' event so the frontend can show a
-                lightweight 'thinking' indicator without polluting the step log.
-                """
-                try:
-                    while not run_finished_sent and not client_disconnected:
-                        await asyncio.sleep(10)
-                        if run_finished_sent or client_disconnected:
-                            break
-                        await safe_write("Heartbeat", {"message": "Agent 正在处理中…"})
-                except asyncio.CancelledError:
-                    pass
-                except Exception:
-                    pass
-
-            heartbeat_task = asyncio.create_task(_sse_heartbeat())
-            try:
-                assert user_text is not None
-                from nanobot.web.module_skill_runtime import dispatch_chat_card_intent
-                from nanobot.web.skill_runtime_bridge import dispatch_skill_runtime_intent
-                from nanobot.web.skill_manifest_bridge import dispatch_skill_manifest_intent
-
-                intent = _try_parse_chat_card_intent(user_text)
-                handled, hitl_message = await dispatch_chat_card_intent(
-                    intent, thread_id=thread_id, docman=None
+            if not cold_start_skill_mock:
+                token = agent.set_tool_approval_callback(on_tool_approval)
+                token_skill_ui_patch = agent.set_skill_ui_patch_emitter(emit_skill_ui_patch)
+                token_skill_ui_chat = agent.set_skill_ui_chat_card_emitter(emit_skill_ui_chat_card)
+                token_module_focus = agent.set_module_session_focus_emitter(emit_module_session_focus)
+                token_thread_id = agent.set_current_thread_id(thread_id)
+                pending_store = request.app.get(PENDING_HITL_STORE_KEY)
+                token_pending_hitl = (
+                    agent.set_pending_hitl_store(pending_store)
+                    if pending_store is not None and hasattr(agent, "set_pending_hitl_store")
+                    else None
                 )
-                if not handled:
-                    pending_store = request.app.get(PENDING_HITL_STORE_KEY)
-                    resume_runner = request.app.get(SKILL_RESUME_RUNNER_KEY)
-                    if pending_store is not None:
-                        try:
-                            await pending_store.init()
-                        except Exception:
-                            pass
-                    handled, hitl_message = await dispatch_skill_runtime_intent(
-                        intent,
+                token_chat_docman = (
+                    agent.set_chat_docman(None) if hasattr(agent, "set_chat_docman") else None
+                )
+                token_skill_ui_bootstrap = (
+                    agent.set_skill_ui_bootstrap_emitter(emit_skill_ui_bootstrap)
+                    if hasattr(agent, "set_skill_ui_bootstrap_emitter")
+                    else None
+                )
+                token_task_status = (
+                    agent.set_task_status_emitter(emit_task_status)
+                    if hasattr(agent, "set_task_status_emitter")
+                    else None
+                )
+                token_skill_agent_task_result = (
+                    agent.set_skill_agent_task_result_emitter(emit_skill_agent_task_result)
+                    if hasattr(agent, "set_skill_agent_task_result_emitter")
+                    else None
+                )
+
+                async def _sse_heartbeat() -> None:
+                    """Independent keepalive: fires every 10 s regardless of agent output.
+
+                    Prevents browser / proxy idle-timeout (the frontend enforces 20 s).
+                    Uses a dedicated 'Heartbeat' event so the frontend can show a
+                    lightweight 'thinking' indicator without polluting the step log.
+                    """
+                    try:
+                        while not run_finished_sent and not client_disconnected:
+                            await asyncio.sleep(10)
+                            if run_finished_sent or client_disconnected:
+                                break
+                            await safe_write("Heartbeat", {"message": "Agent 正在处理中…"})
+                    except asyncio.CancelledError:
+                        pass
+                    except Exception:
+                        pass
+
+                heartbeat_task = asyncio.create_task(_sse_heartbeat())
+                try:
+                    assert user_text is not None
+
+                    intent = _try_parse_chat_card_intent(user_text)
+                    handled, hitl_message = await _dispatch_chat_intents_skill_first(
+                        intent=intent,
                         thread_id=thread_id,
                         docman=None,
-                        pending_hitl_store=pending_store,
-                        resume_runner=resume_runner,
-                        session_manager=getattr(agent, "sessions", None),
-                        session_key=thread_id,
-                        agent_loop=agent,
+                        request=request,
+                        agent=agent,
                     )
-                if not handled:
-                    handled, hitl_message = await dispatch_skill_manifest_intent(
-                        intent, thread_id=thread_id, docman=None
-                    )
-                if handled:
-                    if not client_disconnected and not run_finished_sent:
+                    if handled:
+                        if not client_disconnected and not run_finished_sent:
+                            await safe_write(
+                                "RunFinished",
+                                {
+                                    "threadId": thread_id,
+                                    "runId": run_id,
+                                    "message": hitl_message,
+                                    "choices": run_choices,
+                                },
+                            )
+                            run_finished_sent = True
+                    else:
+                        process_task = asyncio.create_task(
+                            agent.process_direct(
+                                user_text,
+                                session_key=thread_id,
+                                channel="web",
+                                chat_id=thread_id,
+                                on_progress=on_progress,
+                                on_stream=on_stream,
+                                on_stream_end=on_stream_end,
+                                model_name=model_name_override,
+                            )
+                        )
+                        out = await process_task
+                        final = (out.content if out is not None else "") or "".join(streamed_chunks)
+                        if not client_disconnected and not run_finished_sent:
+                            await safe_write(
+                                "RunFinished",
+                                {
+                                    "threadId": thread_id,
+                                    "runId": run_id,
+                                    "message": final,
+                                    "choices": run_choices,
+                                },
+                            )
+                            run_finished_sent = True
+                except asyncio.CancelledError:
+                    if not client_disconnected:
                         await safe_write(
                             "RunFinished",
                             {
                                 "threadId": thread_id,
                                 "runId": run_id,
-                                "message": hitl_message,
-                                "choices": run_choices,
+                                "error": {
+                                    "code": "cancelled",
+                                    "message": "Client disconnected; run cancelled.",
+                                },
                             },
                         )
                         run_finished_sent = True
-                else:
-                    process_task = asyncio.create_task(
-                        agent.process_direct(
-                            user_text,
-                            session_key=thread_id,
-                            channel="web",
-                            chat_id=thread_id,
-                            on_progress=on_progress,
-                            on_stream=on_stream,
-                            on_stream_end=on_stream_end,
-                            model_name=model_name_override,
-                        )
-                    )
-                    out = await process_task
-                    final = (out.content if out is not None else "") or "".join(streamed_chunks)
-                    if not client_disconnected and not run_finished_sent:
-                        await safe_write(
-                            "RunFinished",
-                            {
-                                "threadId": thread_id,
-                                "runId": run_id,
-                                "message": final,
-                                "choices": run_choices,
-                            },
-                        )
-                        run_finished_sent = True
-            except asyncio.CancelledError:
-                if not client_disconnected:
-                    await safe_write(
-                        "RunFinished",
-                        {
-                            "threadId": thread_id,
-                            "runId": run_id,
-                            "error": {
-                                "code": "cancelled",
-                                "message": "Client disconnected; run cancelled.",
-                            },
-                        },
-                    )
-                    run_finished_sent = True
-                raise
-            except Exception as e:
-                code = type(e).__name__
-                msg = str(e) or code
-                from loguru import logger
+                    raise
+                except Exception as e:
+                    code = type(e).__name__
+                    msg = str(e) or code
+                    from loguru import logger
 
-                if client_disconnected:
-                    logger.info(
-                        "AGUI /api/chat stream closed by client: thread_id={}, run_id={}",
-                        thread_id,
-                        run_id,
-                    )
-                else:
-                    logger.exception("AGUI /api/chat run failed: {}", msg)
-                    if os.environ.get("NANOBOT_AGUI_DEBUG"):
-                        logger.debug("{}", traceback.format_exc())
-                    # Detect HTML error responses (e.g., gateway/proxy returned HTML instead of JSON)
-                    # This typically indicates API service issues like insufficient credits or gateway blocking
-                    if "<!doctype html" in msg.lower() or "<html" in msg.lower():
-                        msg = "⚠️ API 服务异常（余额不足或网关拦截），请检查账户状态。"
-                    await safe_write(
-                        "Error",
-                        {
-                            "threadId": thread_id,
-                            "runId": run_id,
-                            "code": code,
-                            "message": msg,
-                        },
-                    )
-                    await safe_write(
-                        "RunFinished",
-                        {
-                            "threadId": thread_id,
-                            "runId": run_id,
-                            "error": {"code": code, "message": msg},
-                        },
-                    )
-                    run_finished_sent = True
-            finally:
-                # Cancel the keepalive heartbeat regardless of how the run ended
-                heartbeat_task.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await heartbeat_task
-                agent.reset_tool_approval_callback(token)
-                agent.reset_skill_ui_patch_emitter(token_skill_ui_patch)
-                agent.reset_skill_ui_chat_card_emitter(token_skill_ui_chat)
-                agent.reset_module_session_focus_emitter(token_module_focus)
-                agent.reset_current_thread_id(token_thread_id)
-                if token_pending_hitl is not None and hasattr(agent, "reset_pending_hitl_store"):
-                    agent.reset_pending_hitl_store(token_pending_hitl)
-                if token_chat_docman is not None and hasattr(agent, "reset_chat_docman"):
-                    agent.reset_chat_docman(token_chat_docman)
-                if token_skill_ui_bootstrap is not None and hasattr(agent, "reset_skill_ui_bootstrap_emitter"):
-                    agent.reset_skill_ui_bootstrap_emitter(token_skill_ui_bootstrap)
-                if token_task_status is not None and hasattr(agent, "reset_task_status_emitter"):
-                    agent.reset_task_status_emitter(token_task_status)
-                if token_skill_agent_task_result is not None and hasattr(
-                    agent, "reset_skill_agent_task_result_emitter"
-                ):
-                    agent.reset_skill_agent_task_result_emitter(token_skill_agent_task_result)
+                    if client_disconnected:
+                        logger.info(
+                            "AGUI /api/chat stream closed by client: thread_id={}, run_id={}",
+                            thread_id,
+                            run_id,
+                        )
+                    else:
+                        logger.exception("AGUI /api/chat run failed: {}", msg)
+                        if os.environ.get("NANOBOT_AGUI_DEBUG"):
+                            logger.debug("{}", traceback.format_exc())
+                        # Detect HTML error responses (e.g., gateway/proxy returned HTML instead of JSON)
+                        # This typically indicates API service issues like insufficient credits or gateway blocking
+                        if "<!doctype html" in msg.lower() or "<html" in msg.lower():
+                            msg = "⚠️ API 服务异常（余额不足或网关拦截），请检查账户状态。"
+                        await safe_write(
+                            "Error",
+                            {
+                                "threadId": thread_id,
+                                "runId": run_id,
+                                "code": code,
+                                "message": msg,
+                            },
+                        )
+                        await safe_write(
+                            "RunFinished",
+                            {
+                                "threadId": thread_id,
+                                "runId": run_id,
+                                "error": {"code": code, "message": msg},
+                            },
+                        )
+                        run_finished_sent = True
+                finally:
+                    # Cancel the keepalive heartbeat regardless of how the run ended
+                    heartbeat_task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await heartbeat_task
+                    agent.reset_tool_approval_callback(token)
+                    agent.reset_skill_ui_patch_emitter(token_skill_ui_patch)
+                    agent.reset_skill_ui_chat_card_emitter(token_skill_ui_chat)
+                    agent.reset_module_session_focus_emitter(token_module_focus)
+                    agent.reset_current_thread_id(token_thread_id)
+                    if token_pending_hitl is not None and hasattr(agent, "reset_pending_hitl_store"):
+                        agent.reset_pending_hitl_store(token_pending_hitl)
+                    if token_chat_docman is not None and hasattr(agent, "reset_chat_docman"):
+                        agent.reset_chat_docman(token_chat_docman)
+                    if token_skill_ui_bootstrap is not None and hasattr(
+                        agent, "reset_skill_ui_bootstrap_emitter"
+                    ):
+                        agent.reset_skill_ui_bootstrap_emitter(token_skill_ui_bootstrap)
+                    if token_task_status is not None and hasattr(agent, "reset_task_status_emitter"):
+                        agent.reset_task_status_emitter(token_task_status)
+                    if token_skill_agent_task_result is not None and hasattr(
+                        agent, "reset_skill_agent_task_result_emitter"
+                    ):
+                        agent.reset_skill_agent_task_result_emitter(token_skill_agent_task_result)
     except asyncio.CancelledError:
         client_disconnected = True
         if process_task is not None and not process_task.done():
@@ -1548,6 +1622,24 @@ async def handle_file(request: web.Request) -> web.Response:
         return web.json_response({"detail": "permission denied"}, status=403)
     except OSError as e:
         return web.json_response({"detail": str(e)}, status=500)
+
+    # Platform-side UI policy: allow hiding SDUI Stepper without mutating user's local skill files.
+    # Some dashboards are loaded via GET /api/file (not via SkillUiBootstrap), so bridge-level trimming
+    # is not enough.
+    try:
+        # SkillUiWrapper 常用 path=skills/.../dashboard.json（可无 workspace/ 前缀），须匹配到
+        if normalized.replace("\\", "/").endswith("skills/job_management/data/dashboard.json"):
+            from nanobot.web.sdui_stepper_trim import strip_sdui_stepper_nodes
+
+            try:
+                doc = json.loads(body.decode("utf-8"))
+                if isinstance(doc, dict):
+                    body = json.dumps(strip_sdui_stepper_nodes(doc), ensure_ascii=False, indent=2).encode("utf-8")
+            except Exception:
+                # If parsing fails, fall back to raw bytes.
+                pass
+    except Exception:
+        pass
 
     ctype = _content_type_for_file(target)
     return web.Response(body=body, content_type=ctype)

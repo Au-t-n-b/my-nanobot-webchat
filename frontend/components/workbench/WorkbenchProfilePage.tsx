@@ -4,6 +4,9 @@ import { useMemo } from "react";
 import { ArrowLeft, Settings2, UserRound, Users } from "lucide-react";
 import { AdminMembersPanel } from "@/components/workbench/AdminMembersPanel";
 import { useAuthState } from "@/lib/authStore";
+import { clearGlobalProjectContext } from "@/lib/globalProjectContext";
+import { useRouter } from "next/navigation";
+import { clearAuthSession } from "@/lib/authStore";
 
 export type ProfileSubView = "main" | "settings" | "members";
 
@@ -42,6 +45,7 @@ function TabButton({
 }
 
 export function WorkbenchProfilePage({ subView, onSubViewChange, onBack }: Props) {
+  const router = useRouter();
   const { user } = useAuthState();
   const canManageMembers = user?.accountRole === "admin" || user?.accountRole === "pd";
   const label = useMemo(() => user?.realName?.trim() || user?.workId?.trim() || "未登录", [user]);
@@ -63,6 +67,18 @@ export function WorkbenchProfilePage({ subView, onSubViewChange, onBack }: Props
         </button>
         <div className="min-w-0 flex-1" />
         <div className="inline-flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              clearAuthSession();
+              clearGlobalProjectContext();
+              router.replace("/");
+            }}
+            className="inline-flex items-center gap-2 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-1)] px-3 py-2 text-sm ui-text-secondary hover:bg-[var(--surface-3)] hover:ui-text-primary"
+            title="退出登录"
+          >
+            退出
+          </button>
           <TabButton active={subView === "main"} icon={<UserRound size={16} aria-hidden />} label="个人中心" onClick={() => onSubViewChange("main")} />
           <TabButton active={subView === "settings"} icon={<Settings2 size={16} aria-hidden />} label="设置" onClick={() => onSubViewChange("settings")} />
           {canManageMembers ? (

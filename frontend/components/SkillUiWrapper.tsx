@@ -9,11 +9,23 @@ import {
   type SkillUiComponentProps,
 } from "@/lib/skillUiRegistry";
 import { SkillUiRuntimeProvider } from "@/components/sdui/SkillUiRuntimeProvider";
-import { applySduiPatch, parseSduiDocument, type SduiDocument, type SduiPatch } from "@/lib/sdui";
+import {
+  applySduiPatch,
+  parseSduiDocument,
+  stripStepperNodesFromSduiDocument,
+  type SduiDocument,
+  type SduiPatch,
+} from "@/lib/sdui";
 import { normalizeSduiDocumentInput } from "@/lib/sduiNormalizer";
 import type { SkillUiDataPatchEvent } from "@/hooks/useAgentChat";
 
 const SDUI_SHELL = "SduiView";
+
+/** job_management 大盘：平台默认不展示 SDUI Stepper（与 Skill-First / DevKit 一致；不依赖磁盘 JSON 是否仍含 Stepper） */
+function isJobManagementSkillUiContext(syntheticPath: string, dataFile: string | null | undefined): boolean {
+  const h = `${syntheticPath}\n${dataFile ?? ""}`.replace(/\\/g, "/");
+  return h.includes("skills/job_management/");
+}
 
 function skillUiPatchDebug(message: string, extra?: Record<string, unknown>) {
   if (typeof window === "undefined") return;
@@ -101,6 +113,9 @@ export function SkillUiWrapper({
   const lastAppliedPatchIdRef = useRef<string>("");
   const appliedPatchEventIdsRef = useRef<Set<string>>(new Set());
   const lastRevisionByDocIdRef = useRef<Map<string, number>>(new Map());
+  /** tryApplyPatch 等 callback 依赖 ref，避免 [] 闭包拿到旧的 syntheticPath */
+  const skillUiPathRef = useRef({ syntheticPath, dataFile });
+  skillUiPathRef.current = { syntheticPath, dataFile };
 
   useEffect(() => {
     appliedPatchEventIdsRef.current.clear();
@@ -206,8 +221,11 @@ export function SkillUiWrapper({
         const normalized = normalizeSduiDocumentInput(json);
         const parsedDoc = parseSduiDocument(normalized);
         if (parsedDoc.ok) {
-          setBaseDoc(parsedDoc.doc);
-          setData(parsedDoc.doc);
+          const doc = isJobManagementSkillUiContext(syntheticPath, dataFileTried)
+            ? stripStepperNodesFromSduiDocument(parsedDoc.doc)
+            : parsedDoc.doc;
+          setBaseDoc(doc);
+          setData(doc);
         } else {
           // Fall back to raw JSON so UI can still show validation error details.
           setBaseDoc(null);
@@ -263,7 +281,9 @@ export function SkillUiWrapper({
         return cur;
       }
       lastRevisionByDocIdRef.current.set(docId, revision);
-      const next = applySduiPatch(cur, patch);
+      const raw = applySduiPatch(cur, patch);
+      const { syntheticPath: sp, dataFile: df } = skillUiPathRef.current;
+      const next = isJobManagementSkillUiContext(sp, df) ? stripStepperNodesFromSduiDocument(raw) : raw;
       // Defer: avoid calling setData synchronously inside setBaseDoc updater (nested updates → max depth risk).
       queueMicrotask(() => setData(next));
       skillUiPatchDebug("applied", {
@@ -310,6 +330,10 @@ export function SkillUiWrapper({
           opCount: patch.ops?.length ?? 0,
         });
       }
+      const { syntheticPath: sp, dataFile: df } = skillUiPathRef.current;
+      if (isJobManagementSkillUiContext(sp, df)) {
+        doc = stripStepperNodesFromSduiDocument(doc);
+      }
       queueMicrotask(() => setData(doc));
       return doc;
     });
@@ -353,6 +377,10 @@ export function SkillUiWrapper({
           lastRevisionByDocIdRef.current.set(docId, revision);
           doc = applySduiPatch(doc, patch);
           skillUiPatchDebug("applied (batch)", { docId, revision, opCount: patch.ops?.length ?? 0 });
+        }
+        const { syntheticPath: sp, dataFile: df } = skillUiPathRef.current;
+        if (isJobManagementSkillUiContext(sp, df)) {
+          doc = stripStepperNodesFromSduiDocument(doc);
         }
         queueMicrotask(() => setData(doc));
         return doc;

@@ -7,7 +7,7 @@ import {
   grantWorkspaceAccess,
   writeGlobalProjectContext,
 } from "@/lib/globalProjectContext";
-import { setAuthSession } from "@/lib/authStore";
+import { hydrateAuthFromStorage, isAuthed, setAuthSession } from "@/lib/authStore";
 import { prefetchWorkbenchShell, schedulePrefetchWorkbenchShell } from "@/lib/workbenchShellPrefetch";
 import { useRedirectToWorkbenchWhenAuthed } from "@/hooks/useRedirectToWorkbenchWhenAuthed";
 import styles from "./landing.module.css";
@@ -24,6 +24,10 @@ export default function LandingClient() {
   const [loginError, setLoginError] = useState<string | null>(null);
 
   useRedirectToWorkbenchWhenAuthed();
+
+  useEffect(() => {
+    hydrateAuthFromStorage();
+  }, []);
 
   useEffect(() => {
     schedulePrefetchWorkbenchShell(router);

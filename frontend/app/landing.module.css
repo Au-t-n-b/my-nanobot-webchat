@@ -1,4 +1,9 @@
 .landingPage {
+  /* 不用 next/font/google：避免 dev 编译期访问 fonts.googleapis.com（内网/VPN 下易 TLS 失败） */
+  --landing-font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial,
+    sans-serif;
+  --landing-font-cjk: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", sans-serif;
+
   --landing-bg: #050608;
   --landing-fg: #e8eaed;
   --landing-muted: #8b919a;

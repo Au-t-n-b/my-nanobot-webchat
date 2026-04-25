@@ -39,6 +39,23 @@ function statusMeta(runStatus: RunStatus): { label: string; className: string; i
   }
 }
 
+function formatElapsed(ms: number): string {
+  const sec = Math.max(0, Math.floor(ms / 1000));
+  if (sec < 60) return `${sec}s`;
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return `${m}m${s.toString().padStart(2, "0")}s`;
+}
+
+function simplifyStepText(raw: string): string {
+  const s = (raw ?? "").trim();
+  if (!s) return "";
+  // Drop redundant macro stats like "2/5 完成：..." or "2/5 完成 ..." which are already shown by global stepper.
+  const withoutMacro = s.replace(/^\s*\d+\s*\/\s*\d+\s*(完成|done)\s*[:：\-\u00b7]?\s*/i, "");
+  // Normalize separators for breathing room.
+  return withoutMacro.replace(/\s*[:：]\s*/g, " · ").replace(/\s{2,}/g, " ").trim();
+}
+
 /** 单行状态胶囊：降噪；完成后 3s 自动收起文案，把纵向空间还给对话 */
 export function StepLogs({
   stepLogs,
@@ -54,6 +71,9 @@ export function StepLogs({
 }: Props) {
   const [open, setOpen] = useState(false);
   const [autoCompact, setAutoCompact] = useState(false);
+  const [runStartAt, setRunStartAt] = useState<number | null>(null);
+  const [elapsedMs, setElapsedMs] = useState(0);
+  const [frozenElapsedMs, setFrozenElapsedMs] = useState<number | null>(null);
 
   useEffect(() => {
     if (runStatus !== "completed") {
@@ -63,6 +83,28 @@ export function StepLogs({
     const id = window.setTimeout(() => setAutoCompact(true), 3000);
     return () => window.clearTimeout(id);
   }, [runStatus, statusMessage]);
+
+  // Track elapsed time for the pill: running/awaitingApproval live updates; completed/error freezes.
+  useEffect(() => {
+    if (runStatus === "running" || runStatus === "awaitingApproval") {
+      setFrozenElapsedMs(null);
+      setRunStartAt((prev) => prev ?? Date.now());
+      return;
+    }
+    setRunStartAt(null);
+    setElapsedMs(0);
+    if (runStatus === "completed" || runStatus === "error") {
+      setFrozenElapsedMs((prev) => prev ?? elapsedMs);
+    }
+  }, [runStatus, elapsedMs]);
+
+  useEffect(() => {
+    if (!runStartAt) return;
+    const tick = () => setElapsedMs(Date.now() - runStartAt);
+    tick();
+    const id = window.setInterval(tick, 1000);
+    return () => window.clearInterval(id);
+  }, [runStartAt]);
 
   if (!stepLogs.length && runStatus === "idle" && !hybridSubtaskHint) return null;
 
@@ -80,121 +122,140 @@ export function StepLogs({
 
   const isApproval = runStatus === "awaitingApproval";
   const isErr = runStatus === "error";
-  const useApprovalUi = isApproval && onViewPendingTool;
-  const useErrorUi = isErr && (onRetryAfterError || onCopyErrorText || onRequestSwitchModel);
+  const useApprovalUi = isApproval;
+  const useErrorUi = isErr;
+
+  const stepText = simplifyStepText(statusMessage);
+  const elapsedLabel = formatElapsed(frozenElapsedMs ?? elapsedMs);
 
   return (
     <div className="shrink-0 space-y-2">
       {useApprovalUi ? (
-        <div
-          className={
-            "relative flex flex-wrap items-center gap-x-2 gap-y-0.5 overflow-hidden rounded-full border px-3 py-1.5 text-[11px] leading-tight " +
-            "border-[color-mix(in_oklab,var(--border-subtle)_90%,transparent)] " +
-            "bg-[color-mix(in_oklab,var(--surface-1)_75%,transparent)] backdrop-blur-md " +
-            (shimmer ? " nanobot-status-pill-shimmer" : "")
-          }
-        >
-          <span className={`inline-flex shrink-0 ${meta.className}`} aria-hidden>
-            {meta.icon}
-          </span>
-          <span className={`font-medium shrink-0 ${meta.className}`}>{meta.label}</span>
+        <div className="relative">
           <button
             type="button"
-            onClick={() => onViewPendingTool?.()}
-            className="shrink-0 rounded-full border border-[var(--border-subtle)] bg-[var(--surface-2)] px-2.5 py-0.5 text-[11px] font-medium text-[var(--text-primary)] transition-[background,border] duration-200 ease-out hover:bg-[var(--surface-3)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-[var(--accent)]"
+            onClick={() => {
+              const el = document.getElementById("nanobot-pending-tool");
+              if (el) {
+                el.scrollIntoView({ behavior: "smooth", block: "center" });
+                return;
+              }
+              if (onViewPendingTool) return onViewPendingTool();
+              console.log("[StepLogs] pending tool: scrollIntoView placeholder");
+            }}
+            className={
+              "relative flex w-full flex-wrap items-center gap-x-2 gap-y-0.5 overflow-hidden rounded-full border px-3 py-2 text-[11px] leading-tight " +
+              "border-[color-mix(in_oklab,var(--accent)_25%,var(--border-subtle))] bg-[var(--accent-soft)] text-[var(--text-primary)] " +
+              "ring-1 ring-[color-mix(in_oklab,var(--accent)_30%,transparent)] " +
+              "transition-[transform,background,border] duration-200 ease-out hover:brightness-[1.02] active:scale-[0.995] " +
+              "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-[var(--accent)] " +
+              (shimmer ? " nanobot-status-pill-shimmer" : "")
+            }
+            aria-label="查看要授权的工具"
+            title="查看要授权的工具"
           >
-            查看要授权的工具
-          </button>
-          {showMessageLine ? (
-            <>
-              <span className="text-[var(--text-muted)] shrink-0">·</span>
-              <span className="text-[var(--text-secondary)] truncate min-w-0 max-w-[min(100%,28rem)]">
-                {statusMessage}
+            <span className="inline-flex shrink-0 text-amber-500" aria-hidden>
+              {meta.icon}
+            </span>
+            <span className="font-semibold shrink-0 text-amber-500">⚠️ 查看要授权的工具</span>
+            {showMessageLine ? (
+              <>
+                {stepText ? <span className="text-[var(--text-muted)] shrink-0">·</span> : null}
+                {stepText ? (
+                  <span className="text-[var(--text-secondary)] truncate min-w-0 max-w-[min(100%,26rem)]">
+                    {stepText}
+                  </span>
+                ) : null}
+                {runModel ? <span className="text-[var(--text-muted)] shrink-0">·</span> : null}
+                {runModel ? (
+                  <span className="text-[var(--text-muted)] shrink-0 tabular-nums opacity-85">
+                    {runModel}
+                  </span>
+                ) : null}
+                <span className="text-[var(--text-muted)] shrink-0">·</span>
+                <span className="text-[var(--text-muted)] shrink-0 tabular-nums opacity-85">{elapsedLabel}</span>
+              </>
+            ) : null}
+            {hasLogs ? (
+              <span className="ml-auto inline-flex items-center gap-0.5 shrink-0 text-[var(--text-muted)]">
+                {open ? "收起" : "详情"}
+                <ChevronRight size={12} className={open ? "rotate-90 transition-transform duration-200" : "transition-transform duration-200"} />
               </span>
-              {runModel ? (
-                <span className="text-[var(--text-muted)] shrink-0 tabular-nums opacity-80">
-                  ({runModel})
-                </span>
-              ) : null}
-            </>
-          ) : null}
+            ) : null}
+          </button>
           {hasLogs ? (
             <button
               type="button"
               onClick={() => setOpen((v) => !v)}
-              className="ml-auto inline-flex items-center gap-0.5 shrink-0 text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors duration-200"
-            >
-              {open ? "收起" : "查看详情"}
-              <ChevronRight
-                size={12}
-                className={open ? "rotate-90 transition-transform duration-200" : "transition-transform duration-200"}
-              />
-            </button>
+              className="sr-only"
+              aria-label={open ? "收起步骤详情" : "展开步骤详情"}
+            />
           ) : null}
         </div>
       ) : useErrorUi ? (
         <div
           className={
-            "relative flex flex-wrap items-center gap-x-2 gap-y-0.5 overflow-hidden rounded-2xl border px-3 py-1.5 text-[11px] leading-tight " +
-            "border-[color-mix(in_oklab,var(--border-subtle)_90%,transparent)] " +
-            "bg-[color-mix(in_oklab,var(--surface-1)_75%,transparent)] backdrop-blur-md " +
+            "relative flex flex-wrap items-center gap-x-2 gap-y-1 overflow-hidden rounded-2xl border px-3 py-2 text-[11px] leading-tight " +
+            "border-red-500/20 bg-red-500/10 text-red-400 ring-1 ring-red-500/20 " +
             (shimmer ? " nanobot-status-pill-shimmer" : "")
           }
         >
           <span className={`inline-flex shrink-0 ${meta.className}`} aria-hidden>
             {meta.icon}
           </span>
-          <span className={`font-medium shrink-0 ${meta.className}`}>{meta.label}</span>
+          <span className="font-semibold shrink-0 text-red-400">错误</span>
           {showMessageLine ? (
             <>
-              <span className="text-[var(--text-muted)] shrink-0">·</span>
-              <span className="min-w-0 max-w-full flex-1 text-[var(--text-secondary)] sm:max-w-[20rem] sm:truncate sm:[display:-webkit-box] sm:[-webkit-line-clamp:2] sm:[-webkit-box-orient:vertical] break-words">
-                {statusMessage}
-              </span>
-              {runModel ? (
-                <span className="text-[var(--text-muted)] shrink-0 tabular-nums opacity-80">({runModel})</span>
+              {stepText ? <span className="text-red-300/60 shrink-0">·</span> : null}
+              {stepText ? (
+                <span className="min-w-0 max-w-full flex-1 text-red-200/90 sm:max-w-[20rem] sm:truncate sm:[display:-webkit-box] sm:[-webkit-line-clamp:2] sm:[-webkit-box-orient:vertical] break-words">
+                  {stepText}
+                </span>
               ) : null}
+              {runModel ? <span className="text-red-300/60 shrink-0">·</span> : null}
+              {runModel ? <span className="shrink-0 tabular-nums text-red-300/80">{runModel}</span> : null}
+              <span className="text-red-300/60 shrink-0">·</span>
+              <span className="shrink-0 tabular-nums text-red-300/80">{elapsedLabel}</span>
             </>
           ) : null}
-          <div className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-1">
-            {onRetryAfterError ? (
-              <button
-                type="button"
-                onClick={() => onRetryAfterError()}
-                className="rounded-full border border-[var(--border-subtle)] bg-[var(--surface-2)] px-2 py-0.5 text-[10px] font-medium transition-[background] duration-200 ease-out hover:bg-[var(--surface-3)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
-              >
-                重试
-              </button>
-            ) : null}
-            {onCopyErrorText ? (
-              <button
-                type="button"
-                onClick={() => onCopyErrorText()}
-                className="rounded-full border border-[var(--border-subtle)] bg-[var(--surface-2)] px-2 py-0.5 text-[10px] font-medium transition-[background] duration-200 ease-out hover:bg-[var(--surface-3)]"
-              >
-                复制错误
-              </button>
-            ) : null}
-            {onRequestSwitchModel ? (
-              <button
-                type="button"
-                onClick={() => onRequestSwitchModel()}
-                className="rounded-full border border-[color-mix(in_oklab,var(--accent)_35%,var(--border-subtle))] bg-[color-mix(in_oklab,var(--accent)_12%,var(--surface-2))] px-2 py-0.5 text-[10px] font-medium text-[var(--text-primary)] transition-[background] duration-200 ease-out hover:bg-[color-mix(in_oklab,var(--accent)_18%,var(--surface-3))]"
-              >
-                切换模型
-              </button>
-            ) : null}
+
+          <div className="w-full flex flex-wrap items-center justify-end gap-1 pt-0.5">
+            <button
+              type="button"
+              onClick={() => (onRetryAfterError ? onRetryAfterError() : console.log("[StepLogs] retry placeholder"))}
+              className="rounded-full border border-white/10 bg-transparent px-2 py-0.5 text-[10px] font-medium text-red-200/90 transition-colors hover:bg-white/[0.06] focus-visible:outline focus-visible:outline-2 focus-visible:outline-red-400/60"
+            >
+              重试
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (onCopyErrorText) return onCopyErrorText();
+                if (typeof navigator !== "undefined" && navigator.clipboard) {
+                  void navigator.clipboard.writeText(statusMessage ?? "");
+                  return;
+                }
+                console.log("[StepLogs] copy placeholder");
+              }}
+              className="rounded-full border border-white/10 bg-transparent px-2 py-0.5 text-[10px] font-medium text-red-200/90 transition-colors hover:bg-white/[0.06]"
+            >
+              复制
+            </button>
+            <button
+              type="button"
+              onClick={() => (onRequestSwitchModel ? onRequestSwitchModel() : console.log("[StepLogs] switch model placeholder"))}
+              className="rounded-full border border-white/10 bg-transparent px-2 py-0.5 text-[10px] font-medium text-red-200/90 transition-colors hover:bg-white/[0.06]"
+            >
+              切换模型
+            </button>
             {hasLogs ? (
               <button
                 type="button"
                 onClick={() => setOpen((v) => !v)}
-                className="inline-flex items-center gap-0.5 pl-1 text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors duration-200"
+                className="ml-auto inline-flex items-center gap-0.5 pl-1 text-[10px] text-red-200/70 hover:text-red-100 transition-colors"
               >
                 {open ? "收起" : "详情"}
-                <ChevronRight
-                  size={12}
-                  className={open ? "rotate-90 transition-transform duration-200" : "transition-transform duration-200"}
-                />
+                <ChevronRight size={12} className={open ? "rotate-90 transition-transform duration-200" : "transition-transform duration-200"} />
               </button>
             ) : null}
           </div>
@@ -216,12 +277,15 @@ export function StepLogs({
           {showMessageLine ? (
             <>
               <span className="text-[var(--text-muted)] shrink-0">·</span>
-              <span className="text-[var(--text-secondary)] truncate min-w-0 max-w-[min(100%,28rem)]">
-                {statusMessage}
-              </span>
-              {runModel ? (
-                <span className="text-[var(--text-muted)] shrink-0 tabular-nums opacity-80">({runModel})</span>
+              {stepText ? (
+                <span className="text-[var(--text-secondary)] truncate min-w-0 max-w-[min(100%,22rem)]">
+                  {stepText}
+                </span>
               ) : null}
+              {runModel ? <span className="text-[var(--text-muted)] shrink-0">·</span> : null}
+              {runModel ? <span className="text-[var(--text-muted)] shrink-0 tabular-nums opacity-80">{runModel}</span> : null}
+              <span className="text-[var(--text-muted)] shrink-0">·</span>
+              <span className="text-[var(--text-muted)] shrink-0 tabular-nums opacity-80">{elapsedLabel}</span>
             </>
           ) : null}
 

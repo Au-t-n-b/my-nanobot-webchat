@@ -18,13 +18,9 @@ export default function RootLayout({
   return (
     <html lang="zh-CN" suppressHydrationWarning>
       <head>
-        <Script
-          id="nanobot-theme-boot"
-          strategy="beforeInteractive"
-          dangerouslySetInnerHTML={{
-            __html: `(function(){try{var ls=window.localStorage;if(ls&&typeof ls.getItem==='function'){var t=ls.getItem('nanobot_agui_theme')||'dark';document.documentElement.setAttribute('data-theme',t);}}catch(e){}})();`,
-          }}
-        />
+        <Script id="theme-init" strategy="beforeInteractive">
+          {`(function(){try{var ls=window.localStorage;if(ls&&typeof ls.getItem==='function'){var t=ls.getItem('nanobot_agui_theme')||'dark';document.documentElement.setAttribute('data-theme',t);}}catch(e){}})();`}
+        </Script>
       </head>
       <body className="antialiased font-sans" style={{ transition: "background-color 0.25s ease, color 0.25s ease" }}>
         <ThemeProvider>

@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import LandingClient from "./LandingClient";
-import { landingNoto, landingPlex } from "./landing-fonts";
 
 export const metadata: Metadata = {
   title: "交付claw AGUI",
@@ -8,9 +7,5 @@ export const metadata: Metadata = {
 };
 
 export default function LandingPage() {
-  return (
-    <div className={`${landingPlex.variable} ${landingNoto.variable}`}>
-      <LandingClient />
-      </div>
-  );
+  return <LandingClient />;
 }

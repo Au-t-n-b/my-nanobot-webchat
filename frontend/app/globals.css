@@ -2,6 +2,11 @@
 /* frappe-gantt 基础样式在 layout.tsx 中 import，避免 Tailwind 从 app/ 解析裸包名失败 */
 @import "../components/dashboard/frappe/frappe-gantt-theme.css";
 
+/* 全局字体栈（与 @theme inline --font-sans 保持一致，供非 Tailwind 消费） */
+:root {
+  --font-sans: "Inter", "HarmonyOS Sans SC", "PingFang SC", ui-sans-serif, system-ui, sans-serif;
+}
+
 /* 与 html[data-theme] 同步：使 dark:* 在 data-theme="dark" 下生效（默认变体为 prefers-color-scheme） */
 @custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
 
@@ -11,20 +16,21 @@
    ───────────────────────────────────────────── */
 :root,
 [data-theme="dark"] {
+  /*
+   * 暗色 Z 轴（由深 → 浅，背景 token；对比度靠相邻阶差，避免 rail/card/elevated 同色）
+   * surface-0 / paper-chat → canvas-rail → surface-1 → surface-2 → paper-card → surface-3 → surface-elevated
+   */
   --surface-0: #09090b;
+  --paper-chat: #09090b;
+  --canvas-rail: #121214;
   --surface-1: #18181b;
   --surface-2: #1c1c1f;
+  --paper-card: #1f1f23;
   --surface-3: #27272a;
+  --surface-elevated: #2a2a30;
   /* 极弱线框，避免暗色下边框“发亮” */
   --border-subtle: rgba(255, 255, 255, 0.1);
   --border-strong: rgba(255, 255, 255, 0.16);
-  /* 三列纵深：左右 Canvas / 中间 Paper */
-  --canvas-rail: #111111;
-  /* 中间层：略高于底色，与 App 底 (#09090b) 形成纵深 */
-  --paper-chat: #121214;
-  --paper-card: #18181b;
-  /* 悬浮层：菜单 / 强弹层（配合 ring + shadow-2xl 使用） */
-  --surface-elevated: #18181a;
   --text-primary: #e4e4e7;
   --text-secondary: #a1a1aa;
   --text-muted: #636369;
@@ -138,7 +144,27 @@ html,
 body {
   background: var(--surface-0);
   color: var(--text-primary);
-  font-family: var(--font-sans);
+  font-family: "Inter", "HarmonyOS Sans SC", "PingFang SC", ui-sans-serif, system-ui, sans-serif;
+}
+
+@layer utilities {
+  .transition-standard {
+    transition-property: all;
+    transition-duration: 200ms;
+    transition-timing-function: cubic-bezier(0.33, 1, 0.68, 1);
+  }
+}
+
+/* 企业级 A11y：尊重系统「减少动效」 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 /* ─────────────────────────────────────────────
@@ -166,6 +192,23 @@ body {
 @keyframes ui-shimmer {
   0% { transform: translateX(-60%); }
   100% { transform: translateX(60%); }
+}
+
+/* 反向联动：右侧预览 Tab 切换时，聊天区产物锚点闪烁提示 */
+@keyframes artifact-flash {
+  0% {
+    background-color: var(--accent-soft);
+  }
+  50% {
+    background-color: var(--accent);
+    opacity: 0.8;
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+.animate-artifact-flash {
+  animation: artifact-flash 1.5s ease-out;
 }
 
 /* Module stepper: subtle flowing highlight */

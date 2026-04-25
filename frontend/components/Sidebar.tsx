@@ -41,6 +41,8 @@ type Props = {
   trashedSessions?: TrashedSessionV1[];
   onRestoreTrashed?: (e: TrashedSessionV1) => void;
   onDismissTrashed?: (e: TrashedSessionV1) => void;
+  /** 嵌入移动端抽屉等容器时去掉外层圆角/阴影，避免与父级双圆角同色 */
+  embedded?: boolean;
 };
 
 type SkillItem = {
@@ -106,6 +108,7 @@ export function Sidebar({
   trashedSessions = [],
   onRestoreTrashed,
   onDismissTrashed,
+  embedded = false,
 }: Props) {
   const readApiError = useCallback(
     (body: { error?: { message?: string; detail?: string } }, fallback: string) => {
@@ -312,12 +315,16 @@ export function Sidebar({
     }
   }, [apiBase, readApiError, skillPublishModal]);
 
+  const asideFrameClass = embedded
+    ? "flex h-full min-h-0 overflow-hidden !rounded-none !shadow-none !ring-0 border-transparent bg-zinc-100 dark:bg-[var(--canvas-rail)] dark:border-transparent"
+    : "flex h-full min-h-0 overflow-hidden rounded-2xl border-r border-transparent bg-zinc-100 shadow-[var(--shadow-card)] ring-1 ring-black/[0.05] dark:border-white/5 dark:bg-[var(--canvas-rail)] dark:ring-white/10";
+
   // ── Mini sidebar (collapsed mode) ──────────────────────────────────────
   if (isCollapsed) {
     const iconBtn =
       "rounded-lg p-2 text-zinc-500 hover:bg-zinc-900/40 hover:text-zinc-200 transition-colors w-10 h-10 flex items-center justify-center";
     return (
-      <aside className="flex h-full min-h-0 flex-col items-center gap-1 overflow-hidden rounded-2xl bg-zinc-100 py-3 shadow-[var(--shadow-card)] ring-1 ring-black/[0.05] dark:bg-[#121214] dark:ring-white/10">
+      <aside className={`${asideFrameClass} flex-col items-center gap-1 py-3`}>
         <span className="text-lg leading-none mb-0.5" aria-hidden="true">
           🦞
         </span>
@@ -500,7 +507,7 @@ export function Sidebar({
 
   return (
     <>
-      <aside className="flex h-full min-h-0 flex-col gap-0 overflow-hidden rounded-2xl bg-zinc-100 pl-4 pt-4 pb-4 pr-1.5 shadow-[var(--shadow-card)] ring-1 ring-black/[0.05] dark:bg-[#121214] dark:ring-white/10">
+      <aside className={`${asideFrameClass} flex-col gap-0 pl-4 pt-4 pb-4 pr-1.5`}>
         <div className="flex shrink-0 items-center gap-2.5 min-w-0 px-0 pr-1.5">
           <span className="text-xl leading-none shrink-0 select-none" aria-hidden="true">
             🦞
@@ -522,7 +529,7 @@ export function Sidebar({
             />
 
             {trashedSessions.length > 0 && onRestoreTrashed && onDismissTrashed ? (
-              <section className="flex flex-col gap-1.5 rounded-lg border border-dashed border-[var(--border-subtle)] bg-[var(--surface-0)]/40 px-2 py-2">
+              <section className="flex flex-col gap-1.5 rounded-lg border border-solid border-zinc-200/80 bg-zinc-50/50 px-2 py-2 dark:border-white/5 dark:bg-white/[0.02]">
                 <div className={`${SIDEBAR_SECTION_LABEL_CLASS} !text-[10px]`}>最近清空（30 天）</div>
                 <ul className="max-h-40 space-y-0.5 overflow-y-auto [scrollbar-width:thin]">
                   {trashedSessions.map((e) => (

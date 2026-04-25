@@ -8,11 +8,12 @@ type Props = {
   onChange: (model: string) => void;
   models?: string[];
   compact?: boolean;
-  /** 追加到 `<select>` 的 class（如工具栏毛玻璃容器内半透明背景） */
+  variant?: "default" | "ghost";
+  /** 额外附加到 `<select>` 的 class（不建议用 !important 覆盖基础外观） */
   selectClassName?: string;
 };
 
-export function ModelSelector({ value, onChange, models, compact = false, selectClassName = "" }: Props) {
+export function ModelSelector({ value, onChange, models, compact = false, variant = "default", selectClassName = "" }: Props) {
   const extra = (models ?? [])
     .map((m) => (typeof m === "string" ? m.trim() : ""))
     .filter((m) => m);
@@ -22,13 +23,20 @@ export function ModelSelector({ value, onChange, models, compact = false, select
   // additional option at the top so the dropdown is consistent.
   const showExtra = value && !options.includes(value);
 
+  const baseSelectClass = "px-2 py-1 text-xs text-[var(--text-primary)]";
+  const selectVariantClass =
+    variant === "ghost"
+      ? "rounded-md border-0 bg-transparent shadow-none"
+      : "rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-2)]";
+  const selectClassNameMerged = [baseSelectClass, selectVariantClass, selectClassName].filter(Boolean).join(" ");
+
   return (
     <label className="inline-flex items-center gap-2 text-xs ui-text-secondary">
       {!compact && <span className="whitespace-nowrap">模型</span>}
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className={`rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-2)] px-2 py-1 text-xs text-[var(--text-primary)] ${selectClassName}`.trim()}
+        className={selectClassNameMerged}
         aria-label="选择模型"
       >
         {showExtra && (

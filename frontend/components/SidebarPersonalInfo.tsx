@@ -86,7 +86,7 @@ export function SidebarPersonalInfo({ variant = "nav", className = "", onMenuAct
 
       {open ? (
         <div
-          className="absolute right-0 top-full z-[120] mt-2 w-56 overflow-hidden rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-elevated)] p-1.5 shadow-[var(--shadow-float)]"
+          className="absolute right-0 top-full z-[120] mt-2 w-56 overflow-hidden rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-elevated)] p-1.5 shadow-[var(--shadow-float)] supports-[backdrop-filter]:backdrop-blur-md dark:border-white/10 dark:bg-[color-mix(in_oklab,var(--surface-elevated)_72%,transparent)] dark:ring-1 dark:ring-white/10"
           role="menu"
         >
           <button type="button" className="w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-[var(--surface-3)]" onClick={() => run("profile_home")}>

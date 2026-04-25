@@ -19,6 +19,8 @@ type Props = {
   onStop?: () => void;
   onApproveTool: (approved: boolean) => void;
   onFileLinkClick?: (path: string) => void;
+  activePreviewPath?: string | null;
+  onTogglePreviewPath?: (path: string) => void;
   onDeleteMessage?: (id: string) => void;
   searchQuery?: string;
   disabled: boolean;
@@ -56,6 +58,8 @@ export function ChatArea({
   onStop,
   onApproveTool,
   onFileLinkClick,
+  activePreviewPath = null,
+  onTogglePreviewPath,
   onDeleteMessage,
   searchQuery,
   disabled,
@@ -132,6 +136,8 @@ export function ChatArea({
             showStreamingCaret={showStreamCaret}
             inlineStatusTag={undefined}
             onFileLinkClick={onFileLinkClick}
+            activePreviewPath={activePreviewPath}
+            onTogglePreviewPath={onTogglePreviewPath}
             onDeleteMessage={onDeleteMessage}
             searchQuery={searchQuery}
             chatCardPostToAgent={chatCardPostToAgent}

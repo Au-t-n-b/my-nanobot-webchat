@@ -6,6 +6,7 @@ import type { AgentMessage } from "@/hooks/useAgentChat";
 import type { SduiUploadedFileRecord } from "@/lib/sdui";
 import { AgentMarkdown } from "@/components/AgentMarkdown";
 import { extractFilesFromContent } from "@/lib/fileIndex";
+import { normalizeSyntheticSkillUiPath } from "@/lib/skillUiRegistry";
 import { SkillUiRuntimeProvider } from "@/components/sdui/SkillUiRuntimeProvider";
 import { SduiNodeView } from "@/components/sdui/SduiNodeView";
 
@@ -16,6 +17,10 @@ type Props = {
   showStreamingCaret?: boolean;
   inlineStatusTag?: string;
   onFileLinkClick?: (path: string) => void;
+  /** 当前右侧预览激活的路径（用于产物卡片高亮与点击 toggle） */
+  activePreviewPath?: string | null;
+  /** 产物卡片点击：若与 activePreviewPath 相同则关闭预览，否则打开并切换 */
+  onTogglePreviewPath?: (path: string) => void;
   onDeleteMessage?: (id: string) => void;
   searchQuery?: string;
   chatCardPostToAgent?: (text: string) => void | Promise<void>;
@@ -77,12 +82,22 @@ function fileBasename(p: string): string {
   return p.replace(/\\/g, "/").split("/").filter(Boolean).pop() ?? p;
 }
 
+/** 与右侧 activePreviewTabPath 对齐的稳定 DOM id（路径经 normalize 后 encode） */
+function artifactAnchorId(normalizedPath: string): string {
+  return `artifact-anchor-${encodeURIComponent(normalizedPath)}`;
+}
+
 /**
  * Pre-compute chip paths for every message in one pass so that:
  * 1. Bare filenames in message text are upgraded to full absolute paths using
  *    artifact data from ANY message (not just the current one).
  * 2. The same file is only shown once — in the earliest message that mentions it.
  */
+function chipPathsFingerprintPart(m: AgentMessage): string {
+  const arts = (m.artifacts ?? []).map((a) => a.trim()).join("\x1f");
+  return `${m.id}:${m.role}:${m.content?.length ?? 0}:${arts}:${m.kind ?? "text"}:${m.chatCard?.cardId ?? ""}`;
+}
+
 function buildMessageChipPaths(messages: AgentMessage[]): string[][] {
   // Build a global basename → full-path map from all message artifacts.
   const globalMap = new Map<string, string>();
@@ -126,30 +141,44 @@ function buildMessageChipPaths(messages: AgentMessage[]): string[][] {
 function FileIndexChips({
   paths,
   onFileLinkClick,
+  activePreviewPath,
+  onChipClick,
 }: {
   paths: string[];
   onFileLinkClick?: (path: string) => void;
+  activePreviewPath?: string | null;
+  /** 产物 chip 点击（由 MessageList 注入：标记来源为左侧，避免反向联动误触发） */
+  onChipClick?: (path: string) => void;
 }) {
   if (paths.length === 0) return null;
   return (
     <div className="mt-2 flex flex-wrap gap-1.5">
-      {paths.map((path) => (
-        <button
-          key={path}
-          type="button"
-          title={path}
-          onClick={() => onFileLinkClick?.(path)}
-          className="inline-flex items-center gap-1.5 rounded-lg border px-2 py-1 text-[11px] font-medium transition-all duration-150 hover:-translate-y-px hover:shadow-sm active:translate-y-0"
-          style={{
-            borderColor: "var(--accent)",
-            background: "var(--accent-soft)",
-            color: "var(--accent)",
-          }}
-        >
-          <FileText size={11} />
-          {fileBasename(path)}
-        </button>
-      ))}
+      {paths.map((path) => {
+        const norm = normalizeSyntheticSkillUiPath(path);
+        const active = Boolean(activePreviewPath && activePreviewPath === norm);
+        return (
+          <button
+            key={path}
+            id={artifactAnchorId(norm)}
+            type="button"
+            title={path}
+            onClick={() => {
+              if (onChipClick) return onChipClick(path);
+              onFileLinkClick?.(path);
+            }}
+            className={
+              "inline-flex items-center gap-1.5 rounded-lg border px-2 py-1 text-[11px] font-medium transition-all duration-150 " +
+              "hover:-translate-y-px hover:shadow-sm active:translate-y-0 " +
+              (active
+                ? "ring-2 ring-[var(--accent)] bg-[var(--surface-3)] text-[var(--text-primary)] border-[color-mix(in_oklab,var(--accent)_55%,var(--border-subtle))]"
+                : "border-[color-mix(in_oklab,var(--accent)_45%,var(--border-subtle))] bg-[var(--accent-soft)] text-[var(--accent)]")
+            }
+          >
+            <FileText size={11} />
+            {fileBasename(path)}
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -278,6 +307,8 @@ export const MessageList = memo(function MessageList({
   showStreamingCaret = false,
   inlineStatusTag,
   onFileLinkClick,
+  activePreviewPath = null,
+  onTogglePreviewPath,
   onDeleteMessage,
   searchQuery,
   chatCardPostToAgent,
@@ -288,7 +319,44 @@ export const MessageList = memo(function MessageList({
   const bottomRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const atBottomRef = useRef(true);
+  /** 区分 activePreviewPath 变化来自左侧 chip 还是右侧 Tab，避免重复 scroll/flash */
+  const previewFocusSourceRef = useRef<"chip" | null>(null);
+  const [isAtBottom, setIsAtBottom] = useState(true);
   const [showJumpToBottom, setShowJumpToBottom] = useState(false);
+
+  const handleArtifactChipClick = useCallback(
+    (path: string) => {
+      previewFocusSourceRef.current = "chip";
+      if (onTogglePreviewPath) {
+        onTogglePreviewPath(path);
+        return;
+      }
+      onFileLinkClick?.(path);
+    },
+    [onFileLinkClick, onTogglePreviewPath],
+  );
+
+  useEffect(() => {
+    if (!activePreviewPath) {
+      previewFocusSourceRef.current = null;
+      return;
+    }
+    if (previewFocusSourceRef.current === "chip") {
+      previewFocusSourceRef.current = null;
+      return;
+    }
+    const id = artifactAnchorId(activePreviewPath);
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    el.classList.remove("animate-artifact-flash");
+    void el.offsetWidth;
+    el.classList.add("animate-artifact-flash");
+    const t = window.setTimeout(() => {
+      el.classList.remove("animate-artifact-flash");
+    }, 1500);
+    return () => window.clearTimeout(t);
+  }, [activePreviewPath]);
 
   const lastMsg = messages.length ? messages[messages.length - 1] : null;
   const lastStreamSig = lastMsg
@@ -300,8 +368,10 @@ export const MessageList = memo(function MessageList({
     if (!el) return;
     const { scrollTop, scrollHeight, clientHeight } = el;
     const dist = scrollHeight - scrollTop - clientHeight;
-    atBottomRef.current = dist < 100;
-    setShowJumpToBottom(dist > 120 && messages.length > 0);
+    const atBottom = dist < 100;
+    atBottomRef.current = atBottom;
+    setIsAtBottom(atBottom);
+    setShowJumpToBottom(!atBottom && dist > 120 && messages.length > 0);
   }, [messages.length]);
 
   useEffect(() => {
@@ -315,12 +385,11 @@ export const MessageList = memo(function MessageList({
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
-    const last = messages[messages.length - 1];
-    const shouldStick = atBottomRef.current || last?.role === "user";
-    if (shouldStick) {
+    if (atBottomRef.current) {
       requestAnimationFrame(() => {
         bottomRef.current?.scrollIntoView({ behavior: "smooth" });
         atBottomRef.current = true;
+        setIsAtBottom(true);
         setShowJumpToBottom(false);
       });
     }
@@ -328,13 +397,23 @@ export const MessageList = memo(function MessageList({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messages.length, lastStreamSig, isLoading]);
 
-  const messagesDigest = useMemo(
-    () => messages.map((m) => `${m.id}:${(m.content?.length ?? 0)}:${(m.artifacts?.length ?? 0)}`).join("|"),
-    [messages],
-  );
-  // Pre-compute chip paths（以 digest 为 key，流式时避免对整条历史反复全量重算）
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- 故意用 messagesDigest 代替 messages
-  const chipPathsPerMessage = useMemo(() => buildMessageChipPaths(messages), [messagesDigest]);
+  /**
+   * 产物 chip 全量重算的稳定标量 key：流式仅最后一条 content 变长时，前缀指纹不变，
+   * useMemo 跳过 buildMessageChipPaths，避免 O(n) 历史行反复 Diff。
+   */
+  const chipPathsDependencyKey =
+    messages.length === 0
+      ? ""
+      : (() => {
+          const n = messages.length;
+          const last = messages[n - 1]!;
+          const prior =
+            n <= 1 ? "" : messages.slice(0, -1).map(chipPathsFingerprintPart).join("|");
+          return `${n}|${prior}|${chipPathsFingerprintPart(last)}`;
+        })();
+
+  // 仅随 chipPathsDependencyKey（标量串）变化重算；messages 取自闭包，避免仅用 messages 引用作依赖导致无意义重算
+  const chipPathsPerMessage = useMemo(() => buildMessageChipPaths(messages), [chipPathsDependencyKey]);
 
   return (
     <div className="relative h-full min-h-0 w-full flex-1">
@@ -343,14 +422,15 @@ export const MessageList = memo(function MessageList({
           type="button"
           onClick={() => {
             atBottomRef.current = true;
+            setIsAtBottom(true);
             bottomRef.current?.scrollIntoView({ behavior: "smooth" });
             setShowJumpToBottom(false);
           }}
-          className="absolute bottom-2 right-2 z-20 inline-flex items-center gap-1 rounded-full border border-[var(--border-subtle)] bg-[var(--surface-elevated)] px-3 py-1.5 text-[11px] font-medium text-[var(--text-primary)] shadow-[var(--shadow-card)] transition-[transform,box-shadow] duration-[220ms] ease-out hover:-translate-y-0.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)] motion-reduce:transform-none"
+          className="absolute bottom-2 right-2 z-20 inline-flex h-10 w-10 items-center justify-center rounded-full bg-zinc-800 shadow-lg ring-1 ring-white/10 transition-colors hover:bg-zinc-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)] dark:bg-zinc-900/80 dark:hover:bg-zinc-800"
           aria-label="跳到底部"
+          title="回到底部"
         >
-          <ChevronDown size={14} className="shrink-0 opacity-80" aria-hidden />
-          回到底部
+          <ChevronDown size={18} className="opacity-90 text-white" aria-hidden />
         </button>
       ) : null}
       <div
@@ -363,7 +443,8 @@ export const MessageList = memo(function MessageList({
           {messages.map((m, i) => {
             const isLast = i === messages.length - 1;
             const isUser = m.role === "user";
-            const assistantWaiting = !isUser && isLoading && isLast && !m.content?.trim();
+            const assistantWaiting =
+              !isUser && isLoading && isLast && (m.content?.trim()?.length ?? 0) < 2;
             const isChatCard = m.kind === "chat_card" && m.chatCard;
             const ghostRunFinishedLine =
               m.role === "assistant" &&
@@ -409,10 +490,10 @@ export const MessageList = memo(function MessageList({
                       {isUser ? (
                         <span className="whitespace-pre-wrap ui-text-primary leading-relaxed">{m.content}</span>
                       ) : assistantWaiting ? (
-                        <div className="w-full space-y-2 py-0.5" aria-busy>
-                          <div className="ui-skeleton h-3.5 w-full rounded-md" />
-                          <div className="ui-skeleton h-3.5 w-[92%] rounded-md" />
-                          <div className="ui-skeleton h-3.5 w-[70%] rounded-md" />
+                        <div className="w-full space-y-2 py-0.5 animate-pulse" aria-busy>
+                          <div className="h-3.5 w-full rounded-md bg-zinc-800/50" />
+                          <div className="h-3.5 w-[92%] rounded-md bg-zinc-800/45" />
+                          <div className="h-3.5 w-[70%] rounded-md bg-zinc-800/40" />
                         </div>
                       ) : (
                         <>
@@ -424,7 +505,12 @@ export const MessageList = memo(function MessageList({
                               Boolean(showStreamingCaret && isLast && (m.content?.trim()?.length ?? 0) > 0)
                             }
                           />
-                          <FileIndexChips paths={chipPathsPerMessage[i] ?? []} onFileLinkClick={onFileLinkClick} />
+                          <FileIndexChips
+                            paths={chipPathsPerMessage[i] ?? []}
+                            onFileLinkClick={onFileLinkClick}
+                            activePreviewPath={activePreviewPath}
+                            onChipClick={handleArtifactChipClick}
+                          />
                         </>
                       )}
                     </div>

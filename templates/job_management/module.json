@@ -9,7 +9,8 @@
     "uploads": true,
     "metrics": ["kpi_cards", "bar_chart", "donut_chart"],
     "skillOrchestration": ["serial"],
-    "taskProgressAutoSync": true
+    "taskProgressAutoSync": true,
+    "showWorkbenchModuleStepper": false
   },
   "uploads": [
     {

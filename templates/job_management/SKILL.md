@@ -9,7 +9,7 @@ description: 作业管理（模板）— Skill-First 全能力示例（HITL + SD
 
 - 用一个 Skill 同时演示：
   - **HITL 三件套**：`hitl.file_request` / `hitl.choice_request` / `hitl.confirm_request`（回执走 `skill_runtime_result`）
-  - **中栏 SDUI 同步**：`dashboard.patch` 更新 stepper/summary/上传文件栅格
+  - **中栏 SDUI 同步**：`dashboard.patch` 更新 summary/上传文件栅格（不设顶层 Stepper；阶段以 EmbeddedWeb 工作台与 `task_progress` 为准）
   - **复杂交互 UI**：`EmbeddedWeb`（甘特拖拽）回传 `skill_runtime_resume`（静默）
   - **右栏预览**：`artifact.publish` 发布 `schedule_draft.json`
   - **进度同步**：`task_progress.sync`

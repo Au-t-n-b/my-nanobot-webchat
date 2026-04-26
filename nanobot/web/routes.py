@@ -714,8 +714,8 @@ def _try_parse_chat_card_intent(text: str) -> dict[str, Any] | None:
         if module_id == "platform_capability_lab":
             action = "pcs_start"
         elif module_id == "job_management":
-            # Skill-first job_management driver uses jm_* action names.
-            action = "jm_start"
+            # Do not guess action names for delivered skills; use a neutral default.
+            action = "start"
         else:
             action = "start"
         return {

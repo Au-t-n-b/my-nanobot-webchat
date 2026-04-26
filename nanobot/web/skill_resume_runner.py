@@ -11,13 +11,16 @@ from nanobot.web.skill_runtime_driver import run_skill_runtime_driver
 def _normalize_skill_first_action(*, skill_name: str, action: str) -> str:
     """Normalize legacy/generic actions to skill-specific driver entrypoints.
 
-    IMPORTANT: the platform must not guess per-skill action names.
-    Different deliveries of the same skill may use different entry actions
-    (e.g. ``start`` vs ``jm_start``). We therefore pass actions through as-is
-    and rely on the skill's own dashboard / NL intent to provide the correct
-    action for its driver.
+    ``skill_runtime_start`` is expected to provide a correct action name.
+    For natural-language fast-path starts, keep compatibility with job_management's
+    template entry action while allowing override via env.
     """
+    sk = str(skill_name or "").strip().lower()
     act = str(action or "").strip()
+    if sk in {"job_management", "job-management"} and act.lower() in {"start", "guide"}:
+        import os
+
+        return (os.environ.get("NANOBOT_JOB_MANAGEMENT_START_ACTION") or "").strip() or "jm_start"
     return act
 
 

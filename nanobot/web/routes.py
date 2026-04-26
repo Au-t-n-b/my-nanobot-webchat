@@ -714,8 +714,8 @@ def _try_parse_chat_card_intent(text: str) -> dict[str, Any] | None:
         if module_id == "platform_capability_lab":
             action = "pcs_start"
         elif module_id == "job_management":
-            # Do not guess action names for delivered skills; use a neutral default.
-            action = "start"
+            # Default to the template's entry action, but allow override for different deliveries.
+            action = (os.environ.get("NANOBOT_JOB_MANAGEMENT_START_ACTION") or "").strip() or "jm_start"
         else:
             action = "start"
         return {

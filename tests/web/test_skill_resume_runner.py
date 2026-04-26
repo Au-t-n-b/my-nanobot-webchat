@@ -51,7 +51,7 @@ async def test_skill_first_resume_runner_runs_driver_and_emits_events(monkeypatc
 
 
 @pytest.mark.asyncio
-async def test_skill_first_resume_runner_keeps_action_passthrough(
+async def test_skill_first_resume_runner_normalizes_job_management_start_to_jm_start(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     captured: dict = {}
@@ -88,5 +88,5 @@ async def test_skill_first_resume_runner_keeps_action_passthrough(
     )
 
     assert out["ok"] is True
-    assert captured.get("action") == "start"
+    assert captured.get("action") == "jm_start"
 

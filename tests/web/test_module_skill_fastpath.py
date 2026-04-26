@@ -101,7 +101,7 @@ async def test_chat_module_action_fastpath_skips_process_direct(
     agent.process_direct.assert_not_called()
 
 
-def test_try_parse_chat_card_intent_start_job_management_defaults_to_start() -> None:
+def test_try_parse_chat_card_intent_start_job_management_defaults_to_jm_start() -> None:
     intent = _try_parse_chat_card_intent("启动 job_management")
     assert isinstance(intent, dict)
     assert intent.get("type") == "chat_card_intent"
@@ -109,4 +109,4 @@ def test_try_parse_chat_card_intent_start_job_management_defaults_to_start() -> 
     payload = intent.get("payload")
     assert isinstance(payload, dict)
     assert payload.get("skillName") == "job_management"
-    assert payload.get("action") == "start"
+    assert payload.get("action") == "jm_start"

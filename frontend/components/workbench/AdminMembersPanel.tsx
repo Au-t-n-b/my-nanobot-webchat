@@ -1,14 +1,16 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Plus, Save, Users, X } from "lucide-react";
+import { Filter, Plus, Save, Users, X } from "lucide-react";
 import { authFetch } from "@/lib/authFetch";
 import { useAuthState } from "@/lib/authStore";
-import { getSelectedLocalProjectId } from "@/lib/localProjects";
+import { CenteredModal } from "@/components/CenteredModal";
 
 const STAGES = ["作业管理", "智慧工勘", "建模仿真", "系统设计", "设备安装", "软件部署与调测"] as const;
 type Stage = (typeof STAGES)[number];
 type CreateMode = "member" | "pd";
+
+type ProjectRow = { projectId: string; name: string; ownerUserId?: string; status?: string };
 
 type MemberRow = {
   userId: string;
@@ -18,6 +20,7 @@ type MemberRow = {
   status: number;
   lastLoginAt: string | null;
   stages: Stage[];
+  projectId?: string | null;
 };
 
 function StagePill({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
@@ -37,10 +40,23 @@ function StagePill({ label, active, onClick }: { label: string; active: boolean;
   );
 }
 
-export function AdminMembersPanel({ onBack }: { onBack?: () => void }) {
+export function AdminMembersPanel({ onBack, embedded = false }: { onBack?: () => void; embedded?: boolean }) {
   const { user } = useAuthState();
   const canManage = user?.accountRole === "admin" || user?.accountRole === "pd";
-  const [projectId, setProjectId] = useState<string>(() => getSelectedLocalProjectId() || "");
+  const role = user?.accountRole ?? "";
+  const isAdmin = role === "admin";
+  const isPd = role === "pd";
+
+  const [projects, setProjects] = useState<ProjectRow[]>([]);
+  const [projectsLoading, setProjectsLoading] = useState(false);
+  const [projectsError, setProjectsError] = useState<string | null>(null);
+  const [projectId, setProjectId] = useState<string>("");
+  const [projectFilter, setProjectFilter] = useState<string>("all");
+  const [projectCreateOpen, setProjectCreateOpen] = useState(false);
+  const [projectCreateBusy, setProjectCreateBusy] = useState(false);
+  const [projectCreateErr, setProjectCreateErr] = useState<string | null>(null);
+  const [projectName, setProjectName] = useState("");
+
   const [rows, setRows] = useState<MemberRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -55,13 +71,41 @@ export function AdminMembersPanel({ onBack }: { onBack?: () => void }) {
   const [password2, setPassword2] = useState("");
   const [stageSel, setStageSel] = useState<Stage[]>([]);
 
-  const load = useCallback(async () => {
+  const loadProjects = useCallback(async () => {
     if (!canManage) return;
-    if (!projectId) return;
+    setProjectsLoading(true);
+    setProjectsError(null);
+    setLoading(true);
+    try {
+      const r = await authFetch("/api/projects", { cache: "no-store" });
+      const j = (await r.json().catch(() => ({}))) as { projects?: ProjectRow[]; detail?: string };
+      if (!r.ok) throw new Error(j.detail || `HTTP ${r.status}`);
+      const list = Array.isArray(j.projects) ? j.projects : [];
+      setProjects(list);
+      if (isPd) {
+        // PD defaults to first project
+        if (!projectId && list.length > 0) setProjectId(String(list[0]?.projectId ?? ""));
+      }
+    } catch (e) {
+      setProjectsError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setProjectsLoading(false);
+    }
+  }, [canManage, isPd, projectId]);
+
+  // keep eslint happy and allow simple UI hooks later
+  void projectsLoading;
+
+  const loadMembers = useCallback(async () => {
+    if (!canManage) return;
+    // PD must have an active project selected.
+    const effectiveProjectId = isPd ? projectId : projectFilter === "all" ? "" : projectFilter;
+    if (isPd && !effectiveProjectId) return;
     setLoading(true);
     setError(null);
     try {
-      const r = await authFetch(`/api/admin/members?projectId=${encodeURIComponent(projectId)}`, { cache: "no-store" });
+      const path = effectiveProjectId ? `/api/admin/members?projectId=${encodeURIComponent(effectiveProjectId)}` : "/api/admin/members";
+      const r = await authFetch(path, { cache: "no-store" });
       const j = (await r.json().catch(() => ({}))) as { members?: MemberRow[]; detail?: string };
       if (!r.ok) throw new Error(j.detail || `HTTP ${r.status}`);
       setRows(Array.isArray(j.members) ? j.members : []);
@@ -70,14 +114,48 @@ export function AdminMembersPanel({ onBack }: { onBack?: () => void }) {
     } finally {
       setLoading(false);
     }
-  }, [canManage, projectId]);
+  }, [canManage, isPd, projectFilter, projectId]);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    void loadProjects();
+  }, [loadProjects]);
 
-  const canCreateMember = user?.accountRole === "pd" || user?.accountRole === "admin";
-  const canCreatePd = user?.accountRole === "admin";
+  useEffect(() => {
+    void loadMembers();
+  }, [loadMembers]);
+
+  const canCreateMember = isPd || isAdmin;
+  const canCreatePd = isAdmin;
+  const canCreateProject = isPd || isAdmin;
+
+  const submitCreateProject = useCallback(async () => {
+    const name = projectName.trim();
+    if (!name) {
+      setProjectCreateErr("项目名称为必填项。");
+      return;
+    }
+    setProjectCreateBusy(true);
+    setProjectCreateErr(null);
+    try {
+      const r = await authFetch("/api/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      const j = (await r.json().catch(() => ({}))) as { project?: ProjectRow; detail?: string };
+      if (!r.ok) throw new Error(j.detail || `HTTP ${r.status}`);
+      setProjectCreateOpen(false);
+      setProjectName("");
+      await loadProjects();
+      // If PD had no selection, pick the new project as current.
+      if (isPd && j.project?.projectId) setProjectId(String(j.project.projectId));
+      await loadMembers();
+    } catch (e) {
+      setProjectCreateErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setProjectCreateBusy(false);
+    }
+  }, [isPd, loadMembers, loadProjects, projectName]);
 
   const resetAdd = useCallback(() => {
     setCreateMode("member");
@@ -137,31 +215,77 @@ export function AdminMembersPanel({ onBack }: { onBack?: () => void }) {
       if (!r.ok) throw new Error(j.detail || `HTTP ${r.status}`);
       setAddOpen(false);
       resetAdd();
-      void load();
+      void loadMembers();
     } catch (e) {
       setAddErr(e instanceof Error ? e.message : String(e));
     } finally {
       setAddBusy(false);
     }
-  }, [load, password, password2, projectId, realName, resetAdd, stageSel, workId]);
+  }, [createMode, loadMembers, password, password2, projectId, realName, resetAdd, stageSel, workId]);
 
   const headerRight = useMemo(() => {
     return (
       <div className="flex items-center gap-2">
-        <div className="text-xs ui-text-muted">项目ID</div>
-        <input
-          className="w-40 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)] px-3 py-2 text-xs ui-text-primary outline-none"
-          value={projectId}
-          onChange={(e) => setProjectId(e.target.value)}
-          placeholder="LocalProject.id"
-        />
+        {isAdmin ? (
+          <>
+            <div className="text-xs ui-text-muted">项目</div>
+            <div className="relative">
+              <select
+                className="h-9 w-44 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)] px-3 text-xs ui-text-primary outline-none"
+                value={projectFilter}
+                onChange={(e) => setProjectFilter(e.target.value)}
+              >
+                <option value="all">全部项目</option>
+                {projects.map((p) => (
+                  <option key={p.projectId} value={p.projectId}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+              <Filter size={14} className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 ui-text-muted" aria-hidden />
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="text-xs ui-text-muted">我的项目</div>
+            <select
+              className="h-9 w-44 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)] px-3 text-xs ui-text-primary outline-none"
+              value={projectId}
+              onChange={(e) => setProjectId(e.target.value)}
+            >
+              {projects.length === 0 ? <option value="">暂无项目</option> : null}
+              {projects.map((p) => (
+                <option key={p.projectId} value={p.projectId}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          </>
+        )}
+
         <button
           type="button"
-          onClick={() => void load()}
+          onClick={() => {
+            void loadProjects();
+            void loadMembers();
+          }}
           className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)] px-3 py-2 text-xs ui-text-secondary hover:bg-[var(--surface-3)]"
         >
           刷新
         </button>
+        {canCreateProject ? (
+          <button
+            type="button"
+            onClick={() => {
+              setProjectCreateErr(null);
+              setProjectName("");
+              setProjectCreateOpen(true);
+            }}
+            className="rounded-lg border border-[color-mix(in_oklab,var(--accent)_45%,var(--border-subtle))] bg-[color-mix(in_oklab,var(--accent)_14%,var(--surface-1))] px-3 py-2 text-xs ui-text-primary hover:opacity-90"
+          >
+            新建项目
+          </button>
+        ) : null}
         {canCreateMember ? (
           <button
             type="button"
@@ -177,7 +301,7 @@ export function AdminMembersPanel({ onBack }: { onBack?: () => void }) {
         ) : null}
       </div>
     );
-  }, [canCreateMember, load, projectId, resetAdd]);
+  }, [canCreateMember, canCreateProject, isAdmin, loadMembers, loadProjects, projectFilter, projectId, projects, resetAdd]);
 
   if (!canManage) {
     return (
@@ -191,26 +315,75 @@ export function AdminMembersPanel({ onBack }: { onBack?: () => void }) {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex items-center justify-between gap-3 border-b border-[var(--border-subtle)] px-4 py-3">
-        <div className="inline-flex items-center gap-2">
-          <Users size={18} aria-hidden />
-          <h2 className="text-sm font-semibold ui-text-primary">成员管理</h2>
+      {!embedded ? (
+        <div className="flex items-center justify-between gap-3 border-b border-[var(--border-subtle)] px-4 py-3">
+          <div className="inline-flex items-center gap-2">
+            <Users size={18} aria-hidden />
+            <h2 className="text-sm font-semibold ui-text-primary">成员管理</h2>
+          </div>
+          <div className="flex items-center gap-2">
+            {onBack ? (
+              <button
+                type="button"
+                onClick={onBack}
+                className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)] px-3 py-2 text-xs ui-text-secondary hover:bg-[var(--surface-3)]"
+              >
+                返回
+              </button>
+            ) : null}
+            {headerRight}
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          {onBack ? (
-            <button
-              type="button"
-              onClick={onBack}
-              className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)] px-3 py-2 text-xs ui-text-secondary hover:bg-[var(--surface-3)]"
-            >
-              返回
-            </button>
-          ) : null}
-          {headerRight}
-        </div>
-      </div>
+      ) : null}
 
       <div className="min-h-0 flex-1 overflow-auto p-4">
+        <CenteredModal
+          open={projectCreateOpen}
+          onClose={() => {
+            if (projectCreateBusy) return;
+            setProjectCreateOpen(false);
+          }}
+          title="新建项目"
+          disableDismiss={projectCreateBusy}
+          panelClassName="w-full max-w-lg"
+          footer={
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                className="ui-btn-ghost rounded-lg px-3 py-1.5 text-xs font-medium"
+                disabled={projectCreateBusy}
+                onClick={() => setProjectCreateOpen(false)}
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                className="rounded-lg px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
+                style={{ background: "var(--accent)" }}
+                disabled={projectCreateBusy}
+                onClick={() => void submitCreateProject()}
+              >
+                {projectCreateBusy ? "创建中…" : "创建"}
+              </button>
+            </div>
+          }
+        >
+          <div className="space-y-3">
+            <div>
+              <div className="text-xs font-semibold ui-text-primary">项目名称</div>
+              <input
+                className="mt-2 w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)] px-3 py-2 text-sm ui-text-primary outline-none"
+                placeholder="例如：某某局作业交付"
+                value={projectName}
+                onChange={(e) => setProjectName(e.target.value)}
+                disabled={projectCreateBusy}
+              />
+            </div>
+            {projectCreateErr ? <div className="text-xs text-[var(--danger)]">{projectCreateErr}</div> : null}
+            {projectsError ? <div className="text-xs text-[var(--danger)]">{projectsError}</div> : null}
+          </div>
+        </CenteredModal>
+
         {error ? (
           <div className="mb-3 rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-300">{error}</div>
         ) : null}
@@ -218,6 +391,7 @@ export function AdminMembersPanel({ onBack }: { onBack?: () => void }) {
           <table className="w-full text-sm">
             <thead className="bg-[var(--surface-1)]">
               <tr className="text-left ui-text-muted">
+                {isAdmin && projectFilter === "all" ? <th className="px-4 py-3">项目</th> : null}
                 <th className="px-4 py-3">工号</th>
                 <th className="px-4 py-3">姓名</th>
                 <th className="px-4 py-3">角色</th>
@@ -228,19 +402,24 @@ export function AdminMembersPanel({ onBack }: { onBack?: () => void }) {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={5} className="px-4 py-6 ui-text-secondary">
+                  <td colSpan={isAdmin && projectFilter === "all" ? 6 : 5} className="px-4 py-6 ui-text-secondary">
                     加载中…
                   </td>
                 </tr>
               ) : rows.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-4 py-6 ui-text-secondary">
+                  <td colSpan={isAdmin && projectFilter === "all" ? 6 : 5} className="px-4 py-6 ui-text-secondary">
                     暂无成员
                   </td>
                 </tr>
               ) : (
                 rows.map((r) => (
                   <tr key={r.userId} className="border-t border-[var(--border-subtle)]">
+                    {isAdmin && projectFilter === "all" ? (
+                      <td className="px-4 py-3 ui-text-secondary">
+                        {projects.find((p) => p.projectId === (r.projectId ?? ""))?.name ?? (r.projectId || "—")}
+                      </td>
+                    ) : null}
                     <td className="px-4 py-3 ui-text-primary">{r.workId}</td>
                     <td className="px-4 py-3 ui-text-primary">{r.realName}</td>
                     <td className="px-4 py-3 ui-text-secondary">{r.roleCode}</td>

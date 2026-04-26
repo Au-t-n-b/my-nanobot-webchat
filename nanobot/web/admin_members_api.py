@@ -15,6 +15,7 @@ from nanobot.web.local_json_store import (
     read_project_members,
     upsert_project_member,
 )
+from nanobot.web.local_projects_store import read_projects
 
 
 def _json_error(detail: str, status: int) -> web.Response:
@@ -27,17 +28,61 @@ def _account_role(request: web.Request) -> str:
         return str(au.get("accountRole") or "").strip().lower()
     return ""
 
+def _user_id(request: web.Request) -> str:
+    au = request.get("auth_user") or {}
+    if isinstance(au, dict):
+        return str(au.get("userId") or "").strip()
+    return ""
+
+
+async def _visible_project_ids_for_request(request: web.Request) -> set[str]:
+    """Return projectIds visible to current auth user (ADMIN=all; PD=own)."""
+    role = _account_role(request)
+    uid = _user_id(request)
+    if not uid:
+        return set()
+    items = await locked(read_projects)
+    out: set[str] = set()
+    for p in items:
+        if not isinstance(p, dict):
+            continue
+        pid = str(p.get("projectId") or "").strip()
+        if not pid:
+            continue
+        if role == "admin" or str(p.get("ownerUserId") or "").strip() == uid:
+            out.add(pid)
+    return out
+
 
 async def handle_admin_members_list(request: web.Request) -> web.Response:
     role = _account_role(request)
     if role not in ("admin", "pd"):
         return _json_error("无权限", 403)
     project_id = str(request.query.get("projectId") or "").strip()
-    if not project_id:
-        return _json_error("projectId 为必填项", 400)
+    visible_pids = await _visible_project_ids_for_request(request)
+    if role == "pd" and not visible_pids:
+        # PD without projects: return empty list (not an error)
+        return web.json_response({"projectId": project_id or None, "members": []})
+    if project_id:
+        if role == "pd" and project_id not in visible_pids:
+            return _json_error("无权限查看该项目成员", 403)
 
     members = await locked(read_project_members)
-    items = [m for m in members if isinstance(m, dict) and str(m.get("projectId") or "") == project_id]
+    items: list[dict[str, Any]] = []
+    for m in members:
+        if not isinstance(m, dict):
+            continue
+        pid = str(m.get("projectId") or "").strip()
+        if not pid:
+            continue
+        if project_id:
+            if pid != project_id:
+                continue
+        else:
+            # no projectId: return all visible projects (ADMIN=all)
+            if role == "pd" and pid not in visible_pids:
+                continue
+        items.append(m)
     out: list[dict[str, Any]] = []
     for m in items:
         uid = str(m.get("userId") or "").strip()
@@ -48,6 +93,7 @@ async def handle_admin_members_list(request: web.Request) -> web.Response:
             continue
         pu = public_user_from_row(row)
         pu["stages"] = list(m.get("stages") or [])
+        pu["projectId"] = str(m.get("projectId") or "").strip() or None
         out.append(pu)
 
     # stable-ish ordering: PD first then employees; then workId
@@ -57,7 +103,7 @@ async def handle_admin_members_list(request: web.Request) -> web.Response:
         return pri, str(x.get("workId") or "")
 
     out.sort(key=_order)
-    return web.json_response({"projectId": project_id, "members": out})
+    return web.json_response({"projectId": project_id or None, "members": out})
 
 
 async def handle_admin_member_patch(request: web.Request) -> web.Response:
@@ -93,6 +139,9 @@ async def handle_admin_member_patch(request: web.Request) -> web.Response:
 
     # PD can only patch members already in that project.
     if role == "pd":
+        visible_pids = await _visible_project_ids_for_request(request)
+        if project_id not in visible_pids:
+            return _json_error("无权限修改该项目成员", 403)
         members = await locked(read_project_members)
         ok = any(
             isinstance(m, dict)

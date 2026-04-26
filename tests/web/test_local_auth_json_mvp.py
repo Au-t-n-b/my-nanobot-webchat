@@ -149,3 +149,65 @@ async def test_pd_register_member_and_list_by_project() -> None:
         assert body["projectId"] == "p1"
         assert any(m.get("workId") == "m002" for m in body.get("members", []))
 
+
+@pytest.mark.asyncio
+async def test_pd_projects_create_and_list_and_members_scope() -> None:
+    """PD can create projects, list only own projects, and members list without projectId is scoped."""
+    app = create_app()
+    async with TestClient(TestServer(app)) as client:
+        # create PD via admin
+        lr = await client.post("/api/auth/login", json={"workId": "test", "password": "test"})
+        admin_token = (await lr.json())["token"]
+        await client.post(
+            "/api/auth/register",
+            headers={"Authorization": f"Bearer {admin_token}"},
+            json={
+                "workId": "pd_scope",
+                "realName": "PD Scope",
+                "password": "password123",
+                "passwordConfirm": "password123",
+                "roleCode": "PD",
+            },
+        )
+        lrpd = await client.post("/api/auth/login", json={"workId": "pd_scope", "password": "password123"})
+        pd_token = (await lrpd.json())["token"]
+
+        # PD creates project
+        pr = await client.post(
+            "/api/projects",
+            headers={"Authorization": f"Bearer {pd_token}"},
+            json={"name": "项目A"},
+        )
+        assert pr.status == 201
+        proj = (await pr.json()).get("project") or {}
+        pid = proj.get("projectId")
+        assert isinstance(pid, str) and pid
+
+        # PD lists projects (should include only own)
+        pl = await client.get("/api/projects", headers={"Authorization": f"Bearer {pd_token}"})
+        assert pl.status == 200
+        projects = (await pl.json()).get("projects") or []
+        assert any(p.get("projectId") == pid for p in projects if isinstance(p, dict))
+
+        # PD creates member under that project
+        cr = await client.post(
+            "/api/auth/register",
+            headers={"Authorization": f"Bearer {pd_token}"},
+            json={
+                "workId": "m_scope",
+                "realName": "Member Scope",
+                "password": "password123",
+                "passwordConfirm": "password123",
+                "projectId": pid,
+                "stages": ["设备安装"],
+            },
+        )
+        assert cr.status == 201
+
+        # PD list members without projectId: should include the member
+        ml = await client.get("/api/admin/members", headers={"Authorization": f"Bearer {pd_token}"})
+        assert ml.status == 200
+        body = await ml.json()
+        assert body.get("projectId") in (None, "")
+        assert any(m.get("workId") == "m_scope" for m in body.get("members", []))
+

@@ -61,6 +61,7 @@ from nanobot.web.task_progress import (
 from nanobot.web.sse import format_sse
 from nanobot.web.local_auth_api import handle_auth_login, handle_auth_me, handle_auth_register
 from nanobot.web.admin_members_api import handle_admin_members_list, handle_admin_member_patch
+from nanobot.web.projects_api import handle_projects_create, handle_projects_list
 
 if TYPE_CHECKING:
     from nanobot.agent.loop import AgentLoop
@@ -2355,6 +2356,8 @@ def setup_routes(app: web.Application) -> None:
     app.router.add_post("/api/auth/login", handle_auth_login)
     app.router.add_get("/api/auth/me", handle_auth_me)
     app.router.add_post("/api/auth/register", handle_auth_register)
+    app.router.add_get("/api/projects", handle_projects_list)
+    app.router.add_post("/api/projects", handle_projects_create)
     app.router.add_get("/api/admin/members", handle_admin_members_list)
     app.router.add_patch("/api/admin/members/{user_id}", handle_admin_member_patch)
     app.router.add_post("/api/chat", handle_chat)
@@ -2386,6 +2389,7 @@ def setup_routes(app: web.Application) -> None:
     app.router.add_options("/api/auth/login", handle_options)
     app.router.add_options("/api/auth/me", handle_options)
     app.router.add_options("/api/auth/register", handle_options)
+    app.router.add_options("/api/projects", handle_options)
     app.router.add_options("/api/admin/members", handle_options)
     app.router.add_options("/api/admin/members/{user_id}", handle_options)
     app.router.add_options("/api/chat", handle_options)

@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import { ArrowLeft, Settings2, UserRound, Users } from "lucide-react";
 import { AdminMembersPanel } from "@/components/workbench/AdminMembersPanel";
+import { CenteredModal } from "@/components/CenteredModal";
 import { useAuthState } from "@/lib/authStore";
 import { clearGlobalProjectContext } from "@/lib/globalProjectContext";
 import { useRouter } from "next/navigation";
@@ -49,10 +50,6 @@ export function WorkbenchProfilePage({ subView, onSubViewChange, onBack }: Props
   const { user } = useAuthState();
   const canManageMembers = user?.accountRole === "admin" || user?.accountRole === "pd";
   const label = useMemo(() => user?.realName?.trim() || user?.workId?.trim() || "未登录", [user]);
-
-  if (subView === "members") {
-    return <AdminMembersPanel onBack={() => onSubViewChange("main")} />;
-  }
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
@@ -114,6 +111,17 @@ export function WorkbenchProfilePage({ subView, onSubViewChange, onBack }: Props
           </div>
         )}
       </div>
+
+      <CenteredModal
+        open={subView === "members"}
+        onClose={() => onSubViewChange("main")}
+        title="成员管理"
+        panelClassName="w-full max-w-5xl"
+      >
+        <div className="max-h-[min(80vh,900px)] min-h-0 overflow-hidden">
+          <AdminMembersPanel embedded onBack={() => onSubViewChange("main")} />
+        </div>
+      </CenteredModal>
     </div>
   );
 }

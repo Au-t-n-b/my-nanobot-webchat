@@ -71,18 +71,12 @@ export function SduiHitlTextInput(props: Props) {
 
   return (
     <div
-      className="rounded-lg overflow-hidden border"
-      style={{
-        background: "color-mix(in oklab, var(--accent) 6%, var(--surface-1))",
-        borderColor: "color-mix(in oklab, var(--accent) 22%, transparent)",
-        borderLeft: "3px solid var(--accent)",
-      }}
+      className="rounded-lg overflow-hidden border border-[var(--border-subtle)] bg-[var(--surface-1)]"
     >
       <div
-        className="flex flex-col gap-2 px-3 py-2.5 border-b"
-        style={{ borderColor: "color-mix(in oklab, var(--accent) 15%, transparent)" }}
+        className="flex flex-col gap-2 px-3 py-2.5 border-b border-[var(--border-subtle)]"
       >
-        <span className="text-[10px] font-bold tracking-wide uppercase" style={{ color: "var(--accent)" }}>
+        <span className="text-[10px] font-bold tracking-wide uppercase ui-text-muted">
           需要你填写
         </span>
         {props.title ? <p className="text-xs ui-text-secondary leading-relaxed">{props.title}</p> : null}
@@ -92,7 +86,7 @@ export function SduiHitlTextInput(props: Props) {
       <div className="px-3 py-2.5">
         {props.label ? <div className="mb-2 text-xs font-semibold ui-text-primary">{props.label}</div> : null}
         <textarea
-          className="w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-slate-900/10 focus:border-slate-300 transition-all resize-y min-h-[4rem] dark:border-white/10 dark:bg-[var(--surface-2)]/50 dark:text-[var(--text-primary)] dark:focus:bg-[var(--surface-1)] dark:focus:ring-white/10"
+          className="w-full rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-0)] px-4 py-3 text-sm ui-text-primary placeholder:ui-text-muted focus:outline-none focus:ring-2 focus:ring-white/10 focus:border-[var(--border-strong)] transition-all resize-y min-h-[4rem]"
           rows={rows}
           placeholder={props.placeholder}
           value={text}

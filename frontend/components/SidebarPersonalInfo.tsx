@@ -14,7 +14,7 @@ type Props = {
   onMenuAction?: (action: PersonalInfoMenuAction) => void;
 };
 
-function useClickOutside(ref: React.RefObject<HTMLElement>, onOutside: () => void) {
+function useClickOutside(ref: React.RefObject<HTMLElement | null>, onOutside: () => void) {
   useEffect(() => {
     const onDown = (e: MouseEvent) => {
       const el = ref.current;

@@ -127,6 +127,11 @@ export function NewWorkspaceProjectModal({ open, onDismiss, onCreate }: Props) {
       document.getElementById("ws-scenario")?.focus();
       return;
     }
+    if (!meta.language) {
+      setError("请选择项目语言");
+      document.getElementById("ws-lang-group")?.focus();
+      return;
+    }
 
     const descriptionParts = [meta.projectCode.trim(), meta.scenario.trim()].filter(Boolean);
     const description = descriptionParts.length ? descriptionParts.join(" · ") : "";

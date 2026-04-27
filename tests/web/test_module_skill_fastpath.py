@@ -110,3 +110,32 @@ def test_try_parse_chat_card_intent_start_job_management_defaults_to_jm_start() 
     assert isinstance(payload, dict)
     assert payload.get("skillName") == "job_management"
     assert payload.get("action") == "jm_start"
+
+
+def test_try_parse_chat_card_intent_strips_label_prefix_before_json() -> None:
+    """Regression: '冷启动：' + project_guide JSON must not fall through to NL '启动 …' heuristics."""
+    raw = (
+        "冷启动："
+        + json.dumps(
+            {
+                "type": "chat_card_intent",
+                "verb": "skill_runtime_start",
+                "payload": {
+                    "type": "skill_runtime_start",
+                    "skillName": "project_guide",
+                    "requestId": "req-cold:t-1",
+                    "action": "cold_start",
+                    "threadId": "t-1",
+                },
+            },
+            ensure_ascii=False,
+        )
+    )
+    intent = _try_parse_chat_card_intent(raw)
+    assert isinstance(intent, dict)
+    assert intent.get("type") == "chat_card_intent"
+    assert intent.get("verb") == "skill_runtime_start"
+    payload = intent.get("payload")
+    assert isinstance(payload, dict)
+    assert payload.get("skillName") == "project_guide"
+    assert payload.get("action") == "cold_start"

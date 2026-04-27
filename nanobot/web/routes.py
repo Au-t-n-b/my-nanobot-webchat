@@ -683,6 +683,15 @@ def _try_parse_chat_card_intent(text: str) -> dict[str, Any] | None:
     t = (text or "").strip()
     if not t:
         return None
+    # 兼容「标签 + JSON」拼在同一条 user 消息里的形态（UI 常见：``冷启动：{...}``）。
+    # 注意：如果不去掉前缀，第一个 ``{`` 会落在 JSON *内部*（值里的对象），
+    # ``raw_decode`` 会取到**不包含** ``type: chat_card_intent`` 的子对象 → 解析失败 →
+    # 误触发下方的 NL 启发式，把第一个英文 token 当 moduleId，从而把
+    # ``action=cold_start`` 配到 **job_management** 等错误技能上。
+    if not t.lstrip().startswith("{") and "{" in t:
+        idx = t.find("{")
+        if idx > 0:
+            t = t[idx:].lstrip()
     dec = json.JSONDecoder()
     # 从每个 ``{`` 起尝试 raw_decode，取第一个合法且 type 匹配的 object
     search_from = 0

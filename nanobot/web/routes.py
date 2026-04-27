@@ -566,6 +566,26 @@ async def handle_skill_publish(request: web.Request) -> web.Response:
         return _error("upload_failed", "Failed to publish skill", detail=str(e), status=502)
 
 
+async def handle_clear_session(request: web.Request) -> web.Response:
+    """Clear server-side session messages for a given thread."""
+    try:
+        data = await request.json()
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return _error("bad_request", "Invalid JSON body", status=400)
+    thread_id = str(data.get("threadId") or "").strip()
+    if not thread_id:
+        return _error("bad_request", "threadId is required", status=400)
+    agent = request.app.get(AGENT_LOOP_KEY)
+    sessions = getattr(agent, "sessions", None) if agent is not None else None
+    if sessions is None:
+        return web.json_response({"ok": True, "note": "no_session_manager"})
+    session = sessions.get_or_create(thread_id)
+    session.clear()
+    sessions.save(session)
+    sessions.invalidate(thread_id)
+    return web.json_response({"ok": True})
+
+
 async def handle_open_folder(request: web.Request) -> web.Response:
     try:
         data = await request.json()
@@ -2412,6 +2432,7 @@ def setup_routes(app: web.Application) -> None:
     app.router.add_patch("/api/admin/members/{user_id}", handle_admin_member_patch)
     app.router.add_post("/api/chat", handle_chat)
     app.router.add_post("/api/upload", handle_workspace_upload)
+    app.router.add_post("/api/session/clear", handle_clear_session)
     app.router.add_post("/api/skill/state/sync", handle_skill_state_sync)
     app.router.add_post("/api/approve-tool", handle_approve)
     app.router.add_get("/api/task-status", handle_task_status)

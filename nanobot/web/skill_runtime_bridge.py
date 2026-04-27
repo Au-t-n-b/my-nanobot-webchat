@@ -799,7 +799,9 @@ async def _persist_skill_step_to_session(
     session_key: str,
     skill_name: str,
     action: str,
+    ok: bool,
     events: list[dict[str, Any]],
+    error: str | None = None,
 ) -> None:
     """Inject a synthetic tool_call + tool_result pair into the session after a fastlane step.
 
@@ -809,37 +811,40 @@ async def _persist_skill_step_to_session(
     if session_manager is None or not (session_key or "").strip():
         return
 
-    # Extract a short summary from the events (look for dashboard.patch summary-text updates).
-    summary_parts: list[str] = []
-    for evt in events:
-        payload = evt.get("payload") if isinstance(evt, dict) else None
-        if not isinstance(payload, dict):
-            continue
-        ops = payload.get("ops") if isinstance(payload.get("ops"), list) else None
-        if not ops:
-            continue
-        for op in ops:
-            if not isinstance(op, dict):
-                continue
-            target = op.get("target") if isinstance(op.get("target"), dict) else {}
-            if target.get("nodeId") == "summary-text":
-                val = op.get("value") if isinstance(op.get("value"), dict) else {}
-                content = str(val.get("content") or "").strip()
-                if content:
-                    summary_parts.append(content)
+    source = f"fastlane_{skill_name}"
 
-    summary = "\n".join(summary_parts) if summary_parts else f"Skill {skill_name} step {action} completed."
-    # Keep summary under 500 chars for context efficiency.
-    if len(summary) > 500:
-        summary = summary[:497] + "..."
+    if ok:
+        # Extract a short summary from the events (look for dashboard.patch summary-text updates).
+        summary_parts: list[str] = []
+        for evt in events:
+            payload = evt.get("payload") if isinstance(evt, dict) else None
+            if not isinstance(payload, dict):
+                continue
+            ops = payload.get("ops") if isinstance(payload.get("ops"), list) else None
+            if not ops:
+                continue
+            for op in ops:
+                if not isinstance(op, dict):
+                    continue
+                target = op.get("target") if isinstance(op.get("target"), dict) else {}
+                if target.get("nodeId") == "summary-text":
+                    val = op.get("value") if isinstance(op.get("value"), dict) else {}
+                    content = str(val.get("content") or "").strip()
+                    if content:
+                        summary_parts.append(content)
+
+        summary = "\n".join(summary_parts) if summary_parts else f"Skill {skill_name} step {action} completed."
+        if len(summary) > 500:
+            summary = summary[:497] + "..."
+        tool_result = json.dumps({"ok": True, "action": action, "summary": summary}, ensure_ascii=False)
+    else:
+        tool_result = json.dumps({"ok": False, "action": action, "error": error or "unknown error"}, ensure_ascii=False)
 
     tool_call_id = f"fastlane_{skill_name}_{action}_{uuid.uuid4().hex[:8]}"
     tool_name = f"run_{skill_name}_survey"
     tool_args = json.dumps({"action": action}, ensure_ascii=False)
-    tool_result = json.dumps({"ok": True, "action": action, "summary": summary}, ensure_ascii=False)
 
     session = session_manager.get_or_create(session_key)
-    # Append synthetic assistant tool_call
     session.messages.append(
         {
             "role": "assistant",
@@ -851,16 +856,17 @@ async def _persist_skill_step_to_session(
                     "function": {"name": tool_name, "arguments": tool_args},
                 }
             ],
+            "_source": source,
             "timestamp": datetime.now().isoformat(),
         }
     )
-    # Append synthetic tool result
     session.messages.append(
         {
             "role": "tool",
             "tool_call_id": tool_call_id,
             "name": tool_name,
             "content": tool_result,
+            "_source": source,
             "timestamp": datetime.now().isoformat(),
         }
     )
@@ -932,9 +938,17 @@ async def dispatch_skill_runtime_intent(
                 skill_name,
                 request_id,
             )
+            await _persist_skill_step_to_session(
+                session_manager=session_manager,
+                session_key=session_key or thread_id,
+                skill_name=skill_name,
+                action=action,
+                ok=False,
+                events=[],
+                error=f"{type(e).__name__}: {e}",
+            )
             return True, f"skill_runtime_start 异常：{type(e).__name__}: {e}"
         if isinstance(out, dict) and out.get("ok") is True:
-            # Persist fastlane step to session for history visibility.
             try:
                 step_events = out.get("_events") if isinstance(out.get("_events"), list) else []
                 await _persist_skill_step_to_session(
@@ -942,13 +956,22 @@ async def dispatch_skill_runtime_intent(
                     session_key=session_key or thread_id,
                     skill_name=skill_name,
                     action=action,
+                    ok=True,
                     events=step_events,
                 )
             except Exception:
                 pass
-            # Silent success: opening dashboards / starting skills should not pollute chat.
             return True, ""
         err = str((out or {}).get("error") or "").strip() if isinstance(out, dict) else ""
+        await _persist_skill_step_to_session(
+            session_manager=session_manager,
+            session_key=session_key or thread_id,
+            skill_name=skill_name,
+            action=action,
+            ok=False,
+            events=[],
+            error=err or "skill_runtime_start 执行失败",
+        )
         return True, err or "skill_runtime_start 执行失败"
     if verb == "skill_runtime_event":
         if not isinstance(payload, dict):
@@ -1195,6 +1218,15 @@ async def dispatch_skill_runtime_intent(
                 resume_skill,
                 resolved_action,
             )
+            await _persist_skill_step_to_session(
+                session_manager=session_manager,
+                session_key=session_key or thread_id,
+                skill_name=resume_skill,
+                action=resolved_action,
+                ok=False,
+                events=[],
+                error=f"{type(e).__name__}: {e}",
+            )
             return True, f"skill_runtime_result 续跑异常：{type(e).__name__}: {e}"
 
         if isinstance(rr_out, dict) and rr_out.get("ok") is False:
@@ -1204,6 +1236,15 @@ async def dispatch_skill_runtime_intent(
                 thread_id,
                 rid,
                 err,
+            )
+            await _persist_skill_step_to_session(
+                session_manager=session_manager,
+                session_key=session_key or thread_id,
+                skill_name=resume_skill,
+                action=resolved_action,
+                ok=False,
+                events=[],
+                error=err,
             )
             return True, f"skill_runtime_result：{err}"
 
@@ -1216,6 +1257,7 @@ async def dispatch_skill_runtime_intent(
                     session_key=session_key or thread_id,
                     skill_name=resume_skill,
                     action=resolved_action,
+                    ok=True,
                     events=step_events,
                 )
             except Exception:

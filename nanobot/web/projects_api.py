@@ -72,9 +72,36 @@ async def handle_projects_create(request: web.Request) -> web.Response:
     name = str(data.get("name") or "").strip()
     if not name:
         return _json_error("name 为必填项", 400)
+    profile_raw = data.get("profile")
+    profile = profile_raw if isinstance(profile_raw, dict) else {}
+    project_code = str(profile.get("projectCode") or "").strip()
+    scenario = str(profile.get("scenario") or "").strip()
+    if not project_code:
+        return _json_error("profile.projectCode 为必填项", 400)
+    if not scenario:
+        return _json_error("profile.scenario 为必填项", 400)
+
+    # Normalize optional fields (MVP): store null/[] when missing.
+    scale = str(profile.get("scale") or "").strip() or None
+    start_date = str(profile.get("startDate") or "").strip() or None
+    site_ready = str(profile.get("siteReadyDate") or "").strip() or None
+    delivery_tags_raw = profile.get("deliveryTags")
+    delivery_tags = (
+        [str(x).strip() for x in delivery_tags_raw if str(x).strip()]
+        if isinstance(delivery_tags_raw, list)
+        else []
+    )
+    profile_norm = {
+        "projectCode": project_code,
+        "scenario": scenario,
+        "scale": scale,
+        "startDate": start_date,
+        "siteReadyDate": site_ready,
+        "deliveryTags": delivery_tags,
+    }
 
     try:
-        proj = await locked(create_project, owner_user_id=uid, name=name)
+        proj = await locked(create_project, owner_user_id=uid, name=name, profile=profile_norm)
     except ValueError as e:
         return _json_error(str(e), 400)
     return web.json_response({"project": proj}, status=201)

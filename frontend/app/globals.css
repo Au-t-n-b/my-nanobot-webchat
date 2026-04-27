@@ -5,17 +5,48 @@
 /* 全局字体栈（与 @theme inline --font-sans 保持一致，供非 Tailwind 消费） */
 :root {
   --font-sans: "Inter", "HarmonyOS Sans SC", "PingFang SC", ui-sans-serif, system-ui, sans-serif;
+  /* Motion baseline: 三档时长 + 统一缓动，禁止散落的 0.15s/0.25s/0.34s 等魔法数 */
+  --motion-fast: 120ms;
+  --motion-base: 200ms;
+  --motion-slow: 320ms;
+  --ease-out: cubic-bezier(0.33, 1, 0.68, 1);
 }
 
 /* 与 html[data-theme] 同步：使 dark:* 在 data-theme="dark" 下生效（默认变体为 prefers-color-scheme） */
 @custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
 
+/* 根路径落地页：深空底 + 极弱径向聚光 + feTurbulence 噪点（无 filter:blur 全屏动画） */
+.landing-bg {
+  position: absolute;
+  inset: 0;
+  background-color: #050505;
+  background-image: radial-gradient(
+    circle at 50% 0%,
+    color-mix(in srgb, var(--accent) 8%, transparent) 0%,
+    transparent 60%
+  );
+  z-index: -2;
+}
+
+.noise-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  opacity: 0.04;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+  background-size: 200px 200px;
+  background-repeat: repeat;
+  mix-blend-mode: overlay;
+}
+
 /* ─────────────────────────────────────────────
    深夜场景 — 防眩光，消除蓝紫光污染
-   背景 zinc-950，文字 zinc-300，暖琥珀 accent
+   背景 surface-0，文字 text-primary，暖琥珀 accent
    ───────────────────────────────────────────── */
 :root,
 [data-theme="dark"] {
+  color-scheme: dark;
   /*
    * 暗色 Z 轴（由深 → 浅，背景 token；对比度靠相邻阶差，避免 rail/card/elevated 同色）
    * surface-0 / paper-chat → canvas-rail → surface-1 → surface-2 → paper-card → surface-3 → surface-elevated
@@ -43,18 +74,18 @@
   --success: #34d399;
   --warning: #fbbf24;
   --danger: #f87171;
-  /* Layered shadow: wide ambient + tight edge highlight */
+  /* Layered shadow stack —— 仅环境光，inset 高光由 elevation utility 单独叠加（避免双 card 重复 inset） */
   --shadow-panel:
     0 2px 8px rgba(0, 0, 0, 0.45),
-    0 8px 28px rgba(0, 0, 0, 0.35),
-    inset 0 1px 0 rgba(255, 255, 255, 0.04);
-  --shadow-card:
-    0 1px 4px rgba(0, 0, 0, 0.28),
-    inset 0 1px 0 rgba(255, 255, 255, 0.03);
+    0 8px 28px rgba(0, 0, 0, 0.35);
+  --shadow-card: 0 1px 4px rgba(0, 0, 0, 0.28);
   --shadow-float:
     0 24px 64px rgba(0, 0, 0, 0.55),
     0 0 0 1px rgba(255, 255, 255, 0.08);
-  --scrollbar-thumb: rgba(113, 113, 122, 0.5);
+  /* Hairline highlight，elevation-2/3 时单独叠加 */
+  --highlight-inset: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  /* Slightly more transparent: reads as a hairline, not a grey rail */
+  --scrollbar-thumb: color-mix(in srgb, rgba(113, 113, 122, 0.45) 55%, transparent);
 
   /* SDUI v2 semantic palette (accent stays blue in dark) */
   --sdui-success: #22c55e; /* green-500 */
@@ -69,6 +100,7 @@
    背景 slate-50，文字 slate-900，强阴影分层
    ───────────────────────────────────────────── */
 [data-theme="light"] {
+  color-scheme: light;
   --surface-elevated: #ffffff;
   --surface-0: #f8fafc;
   --surface-1: #ffffff;
@@ -108,6 +140,7 @@
    背景暖米色，文字 stone-700，暖棕 accent
    ───────────────────────────────────────────── */
 [data-theme="soft"] {
+  color-scheme: light;
   --surface-elevated: #fafaf9;
   --surface-0: #f4efe6;
   --surface-1: #fafaf9;
@@ -148,10 +181,11 @@ body {
 }
 
 @layer utilities {
+  /* Legacy alias —— 与 .ui-motion 保持完全等价，避免遗留调用点失效 */
   .transition-standard {
     transition-property: all;
-    transition-duration: 200ms;
-    transition-timing-function: cubic-bezier(0.33, 1, 0.68, 1);
+    transition-duration: var(--motion-base);
+    transition-timing-function: var(--ease-out);
   }
 }
 
@@ -406,51 +440,20 @@ body {
   animation: chatcard-slide-up 250ms ease-out both;
 }
 
-/* Compatibility layer while older components are migrated off zinc classes. */
-[data-theme] .bg-zinc-950 {
-  background-color: var(--surface-0) !important;
-}
-[data-theme] .bg-zinc-900,
-[data-theme] .bg-zinc-900\/60,
-[data-theme] .bg-zinc-900\/40,
-[data-theme] .bg-zinc-900\/30 {
-  background-color: var(--surface-1) !important;
-}
-[data-theme] .bg-zinc-800 {
-  background-color: var(--surface-2) !important;
-}
-[data-theme] .bg-zinc-700 {
-  background-color: var(--surface-3) !important;
-}
-[data-theme] .border-zinc-800,
-[data-theme] .border-zinc-700 {
-  border-color: var(--border-subtle) !important;
-}
-[data-theme] .text-zinc-100,
-[data-theme] .text-zinc-200 {
-  color: var(--text-primary) !important;
-}
-[data-theme] .text-zinc-300,
-[data-theme] .text-zinc-400 {
-  color: var(--text-secondary) !important;
-}
-[data-theme] .text-zinc-500,
-[data-theme] .text-zinc-600 {
-  color: var(--text-muted) !important;
-}
+/* Theme-aware code styling (zinc compatibility shim removed —— 全仓已切到 token) */
 [data-theme] pre,
 [data-theme] code {
   border-color: var(--border-subtle) !important;
 }
 
-/* ── Custom scrollbar — 6 px, rounded thumb, transparent track ── */
+/* ── Custom scrollbar — 4 px, rounded thumb, transparent track ── */
 * {
   scrollbar-width: thin;
   scrollbar-color: var(--scrollbar-thumb) transparent;
 }
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 4px;
+  height: 4px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
@@ -482,7 +485,8 @@ body {
 
 /* ── 主题平滑过渡：切换深夜/白日/护眼时防硬闪 ── */
 html {
-  transition: background-color 0.25s ease, color 0.25s ease;
+  transition: background-color var(--motion-base) var(--ease-out),
+    color var(--motion-base) var(--ease-out);
 }
 
 body,
@@ -495,13 +499,30 @@ body,
 .ui-link,
 .ui-divider {
   transition-property: background-color, color, border-color, box-shadow;
-  transition-duration: 0.25s;
-  transition-timing-function: ease;
+  transition-duration: var(--motion-base);
+  transition-timing-function: var(--ease-out);
 }
 
 /* ── Mission Control Layout ─────────────────────────────────────── */
 .nav-icon-btn {
-  @apply rounded-lg p-2 text-zinc-500 hover:bg-zinc-900/40 hover:text-zinc-200 transition-colors w-10 h-10 flex items-center justify-center relative;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  padding: 0.5rem;
+  border-radius: 0.5rem;
+  color: var(--text-muted);
+  transition: background-color var(--motion-fast) var(--ease-out),
+    color var(--motion-fast) var(--ease-out);
+}
+.nav-icon-btn:hover {
+  background-color: color-mix(in oklab, var(--text-primary) 6%, transparent);
+  color: var(--text-primary);
+}
+.nav-icon-btn:focus-visible {
+  outline-offset: 1px;
 }
 
 .writing-vertical {
@@ -509,11 +530,46 @@ body,
   letter-spacing: 0.08em;
 }
 
+/* ── Z-axis utility ladder (5 levels) ─────────────────────────────
+ *   0 · 平面：纯 surface 色，无边无影（chip / inline tag）
+ *   1 · 一线：hairline ring 模拟 1px 描边，零阴影 —— 主区外壳 / sidebar frame
+ *   2 · 卡片：环境光 shadow + inset highlight —— 内容卡 / metric card
+ *   3 · 面板：稍重的 shadow，用于侧栏 popover / dropdown
+ *   4 · 浮层：最重 shadow + outer ring —— modal / dialog
+ *   规则：一个元素只允许使用一种 elevation，禁止与 ring-1 / shadow-* 叠加。
+ * ─────────────────────────────────────────────────────────────── */
+.ui-elevation-0 {
+  background: var(--surface-1);
+}
+.ui-elevation-1 {
+  background: var(--surface-1);
+  box-shadow: 0 0 0 1px var(--border-subtle);
+}
+.ui-elevation-2 {
+  background: color-mix(in oklab, var(--surface-elevated) 78%, var(--surface-2));
+  box-shadow: var(--shadow-card), var(--highlight-inset);
+}
+.ui-elevation-3 {
+  background: var(--surface-elevated);
+  box-shadow: var(--shadow-panel), var(--highlight-inset);
+}
+.ui-elevation-4 {
+  background: var(--surface-elevated);
+  box-shadow: var(--shadow-float), var(--highlight-inset);
+}
+
+/* Legacy alias —— 保留入口，统一指向 elevation-2 节奏 */
 .ui-elevated-card {
-  background: color-mix(in oklab, var(--surface-1) 88%, var(--surface-2));
-  border: 1px solid color-mix(in srgb, var(--border-subtle) 100%, transparent);
+  background: color-mix(in oklab, var(--surface-elevated) 78%, var(--surface-2));
   border-radius: 1rem;
-  box-shadow: var(--shadow-card);
+  box-shadow: var(--shadow-card), var(--highlight-inset);
+}
+
+/* High-signal metric cards: alias of elevation-2 */
+.ui-metric-elevated-card {
+  background: color-mix(in oklab, var(--surface-elevated) 78%, var(--surface-2));
+  border-radius: 1rem;
+  box-shadow: var(--shadow-card), var(--highlight-inset);
 }
 
 .dashboard-container {
@@ -608,13 +664,56 @@ body,
   transition: opacity 200ms ease-out;
 }
 
-/* 微动效基线 200–260ms；减少动效时关闭位移/动画 */
+/* ── Motion baseline (token-driven) ───────────────────────────── */
 .ui-motion {
-  transition-duration: 220ms;
-  transition-timing-function: ease-out;
+  transition-duration: var(--motion-base);
+  transition-timing-function: var(--ease-out);
 }
+.ui-motion-fast {
+  transition-duration: var(--motion-fast);
+  transition-timing-function: var(--ease-out);
+}
+.ui-motion-slow {
+  transition-duration: var(--motion-slow);
+  transition-timing-function: var(--ease-out);
+}
+
+/* ── Hover utility：替代散落的 hover-bg 杂色，统一用 text-primary 6%/10% ── */
+.ui-hover-soft {
+  transition: background-color var(--motion-fast) var(--ease-out),
+    color var(--motion-fast) var(--ease-out);
+}
+.ui-hover-soft:hover {
+  background-color: color-mix(in oklab, var(--text-primary) 6%, transparent);
+  color: var(--text-primary);
+}
+.ui-hover-strong {
+  transition: background-color var(--motion-fast) var(--ease-out),
+    color var(--motion-fast) var(--ease-out);
+}
+.ui-hover-strong:hover {
+  background-color: color-mix(in oklab, var(--text-primary) 10%, transparent);
+  color: var(--text-primary);
+}
+
+/* ── Global focus-visible & disabled baseline ─────────────────── */
+:where(button, [role="button"], a, summary, input, select, textarea):focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 70%, transparent);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+:where(button, [role="button"], a):is(:disabled, [aria-disabled="true"]) {
+  opacity: 0.45;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .ui-motion {
+  .ui-motion,
+  .ui-motion-fast,
+  .ui-motion-slow,
+  .ui-hover-soft,
+  .ui-hover-strong {
     transition-duration: 0.01ms !important;
   }
   *,

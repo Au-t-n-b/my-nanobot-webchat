@@ -125,10 +125,10 @@ function GanttView({ svg, source }: { svg: string; source: string }) {
           className="fixed z-50 pointer-events-none"
           style={{ left: tooltip.x + 14, top: tooltip.y - 10 }}
         >
-          <div className="rounded-lg border border-white/10 bg-zinc-800/90 backdrop-blur-md p-3 shadow-xl text-xs text-white max-w-[200px]">
+          <div className="rounded-lg border border-white/10 bg-[var(--surface-elevated)]/90 backdrop-blur-md p-3 shadow-[var(--shadow-float)] text-xs text-[var(--text-primary)] max-w-[200px]">
             <p className="font-semibold leading-snug">{tooltip.label}</p>
             {tooltip.detail && (
-              <p className="mt-1 text-zinc-400 leading-snug">{tooltip.detail}</p>
+              <p className="mt-1 ui-text-secondary leading-snug">{tooltip.detail}</p>
             )}
           </div>
         </div>

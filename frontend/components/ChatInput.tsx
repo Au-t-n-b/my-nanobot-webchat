@@ -62,8 +62,8 @@ export function ChatInput({
 
   const textFieldClass =
     "min-w-0 flex-1 rounded-xl border-0 bg-[var(--surface-2)]/70 px-3 py-2.5 text-base leading-relaxed text-[var(--text-primary)] outline-none " +
-    "ring-0 placeholder:text-zinc-400/90 dark:bg-white/[0.03] dark:placeholder:text-zinc-500 dark:focus:bg-white/[0.05] " +
-    "focus-visible:ring-0";
+    "ring-0 placeholder:text-[var(--text-muted)] dark:bg-white/[0.03] dark:focus:bg-white/[0.05] " +
+    "focus-visible:ring-0 focus-visible:outline-none";
 
   return (
     <div ref={inputBarRef} className="w-full shrink-0">

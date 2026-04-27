@@ -24,12 +24,12 @@ export function ProjectOverview({ modules, onSelectModule }: Props) {
       </div>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <div className="ui-elevated-card p-5">
+        <div className="ui-metric-elevated-card p-5">
           <p className="text-[11px] ui-text-muted">项目完成度</p>
           <p className="mt-2 text-2xl font-semibold ui-text-primary">{completionPct}%</p>
           <p className="text-[11px] ui-text-muted">{completedCount} 个模块完成</p>
         </div>
-        <div className="ui-elevated-card p-5">
+        <div className="ui-metric-elevated-card p-5">
           <p className="text-[11px] ui-text-muted">任务活跃态</p>
           <p className="mt-2 text-2xl font-semibold ui-text-primary">{runningCount}</p>
           <p className="text-[11px] ui-text-muted">运行中 / {pendingCount} 待开始</p>

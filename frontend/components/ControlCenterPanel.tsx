@@ -3,7 +3,7 @@
 import { Settings2, SlidersHorizontal } from "lucide-react";
 import { useEffect, useState } from "react";
 import { ConfigPanel } from "@/components/ConfigPanel";
-import { SettingsPanel } from "@/components/SettingsPanel";
+import { SettingsHub, type ControlCenterSettingsPane } from "@/components/controlCenter/SettingsHub";
 
 type ControlCenterTab = "config" | "settings";
 
@@ -12,17 +12,24 @@ export function ControlCenterPanel({
   onSaved,
   onOpenRemoteUpload,
   initialTab = "config",
+  initialSettingsPane = "systemSettings",
 }: {
   onClose: () => void;
   onSaved?: () => void;
   onOpenRemoteUpload?: () => void;
   initialTab?: ControlCenterTab;
+  initialSettingsPane?: ControlCenterSettingsPane;
 }) {
   const [activeTab, setActiveTab] = useState<ControlCenterTab>(initialTab);
+  const [activeSettingsPane, setActiveSettingsPane] = useState<ControlCenterSettingsPane>(initialSettingsPane);
 
   useEffect(() => {
     setActiveTab(initialTab);
   }, [initialTab]);
+
+  useEffect(() => {
+    setActiveSettingsPane(initialSettingsPane);
+  }, [initialSettingsPane]);
 
   return (
     <div className="flex h-[85vh] min-h-[520px] max-h-[92vh] min-w-0 flex-col overflow-hidden">
@@ -59,7 +66,13 @@ export function ControlCenterPanel({
         {activeTab === "config" ? (
           <ConfigPanel onClose={onClose} onSaved={onSaved} showCloseButton={false} />
         ) : (
-          <SettingsPanel onClose={onClose} onOpenRemoteUpload={onOpenRemoteUpload} showCloseButton={false} />
+          <SettingsHub
+            activePane={activeSettingsPane}
+            onPaneChange={setActiveSettingsPane}
+            onClose={onClose}
+            onOpenRemoteUpload={onOpenRemoteUpload}
+            showCloseButton={false}
+          />
         )}
       </div>
     </div>

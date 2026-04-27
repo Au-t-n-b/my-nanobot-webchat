@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Check, Eye, EyeOff, Loader2, Save, X } from "lucide-react";
+import { Check, Eye, EyeOff, Loader2, Minimize2, Save, X } from "lucide-react";
+import { useWorkbenchStepperView } from "@/hooks/useWorkbenchStepperView";
 
 function aguiRequestPath(path: string): string {
   if (process.env.NEXT_PUBLIC_AGUI_DIRECT === "1") {
@@ -70,6 +71,7 @@ export function SettingsPanel({
   const [remoteLoading, setRemoteLoading] = useState(true);
   const [remoteBusy, setRemoteBusy] = useState<"idle" | "login" | "logout" | "project">("idle");
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const { view: stepperView, setView: setStepperView } = useWorkbenchStepperView();
 
   const showToast = useCallback((t: ToastState) => {
     setToast(t);
@@ -258,6 +260,42 @@ export function SettingsPanel({
         </div>
       ) : (
         <div className="flex-1 min-h-0 overflow-auto flex flex-col gap-4">
+          <section className="ui-card rounded-xl p-4 flex flex-col gap-3">
+            <div>
+              <p className="text-sm font-medium ui-text-primary">流程进度展示</p>
+              <p className="text-[11px] ui-text-muted mt-0.5">与顶栏图钉/收起为同一项偏好，持久化在本机</p>
+            </div>
+            <div className="flex flex-col gap-2" role="radiogroup" aria-label="流程进度展示">
+              <label className="flex cursor-pointer items-center gap-3 rounded-lg border border-[var(--border-subtle)] px-3 py-2.5 has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-[var(--accent)]">
+                <input
+                  type="radio"
+                  name="nanobot-stepper-view"
+                  className="shrink-0"
+                  checked={stepperView === "compact"}
+                  onChange={() => setStepperView("compact")}
+                />
+                <div className="min-w-0">
+                  <p className="text-sm ui-text-primary">紧凑胶囊</p>
+                  <p className="text-[11px] ui-text-muted">默认占一行，点击展开完整流程与悬停子任务</p>
+                </div>
+                <Minimize2 size={16} className="shrink-0 ui-text-muted" aria-hidden />
+              </label>
+              <label className="flex cursor-pointer items-center gap-3 rounded-lg border border-[var(--border-subtle)] px-3 py-2.5 has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-[var(--accent)]">
+                <input
+                  type="radio"
+                  name="nanobot-stepper-view"
+                  className="shrink-0"
+                  checked={stepperView === "docked"}
+                  onChange={() => setStepperView("docked")}
+                />
+                <div className="min-w-0">
+                  <p className="text-sm ui-text-primary">顶栏常驻</p>
+                  <p className="text-[11px] ui-text-muted">全宽步骤条始终可见，适合需随时盯盘全流程的场景</p>
+                </div>
+              </label>
+            </div>
+          </section>
+
           {/* Proxy Section */}
           <section className="ui-card rounded-xl p-4 flex flex-col gap-3">
             <div className="flex items-center justify-between gap-2">

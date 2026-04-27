@@ -25,7 +25,7 @@ export function SystemShellModal({
       aria-label={title ?? "系统设置"}
     >
       <div
-        className="relative flex max-h-[92vh] w-full max-w-5xl min-h-0 flex-col overflow-hidden rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-1)] shadow-2xl"
+        className="relative flex max-h-[92vh] w-full max-w-5xl min-h-0 flex-col overflow-hidden rounded-2xl ui-elevation-4"
       >
         <div className="shrink-0 flex items-center justify-between gap-3 px-4 py-3 border-b border-[var(--border-subtle)] bg-[var(--surface-2)]/60">
           <div className="min-w-0">

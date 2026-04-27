@@ -47,8 +47,8 @@ function ProjectOptionRow({
             onDelete();
           }}
           className={
-            "shrink-0 rounded-lg p-2 text-zinc-500 transition-colors " +
-            "hover:bg-red-500/10 hover:text-red-600 dark:text-zinc-400 dark:hover:bg-red-500/15 dark:hover:text-red-400"
+            "shrink-0 rounded-lg p-2 ui-text-muted ui-motion-fast " +
+            "hover:!bg-[color-mix(in_oklab,var(--danger)_12%,transparent)] hover:!text-[var(--danger)]"
           }
         >
           <Trash2 size={16} strokeWidth={2} aria-hidden />

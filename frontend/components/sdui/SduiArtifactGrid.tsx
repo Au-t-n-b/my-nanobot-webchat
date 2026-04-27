@@ -30,7 +30,7 @@ const KIND_CONFIG: Record<SduiArtifactKind, KindConfig> = {
   json:  { icon: FileJson,        color: "text-orange-400", bg: "bg-orange-400/10", border: "border-orange-400/25" },
   md:    { icon: FileCode,        color: "text-sky-400",    bg: "bg-sky-400/10",    border: "border-sky-400/25" },
   png:   { icon: ImageIcon,       color: "text-pink-400",   bg: "bg-pink-400/10",   border: "border-pink-400/25" },
-  other: { icon: FileText,        color: "text-zinc-400",   bg: "bg-zinc-400/10",   border: "border-zinc-400/25" },
+  other: { icon: FileText,        color: "ui-text-secondary",   bg: "bg-[var(--surface-2)]/40",   border: "border-[var(--border-subtle)]" },
 };
 
 function coerceArtifactKind(item: LegacyArtifactItem): SduiArtifactKind {

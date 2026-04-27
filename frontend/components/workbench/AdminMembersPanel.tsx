@@ -336,6 +336,29 @@ export function AdminMembersPanel({ onBack, embedded = false }: { onBack?: () =>
         </div>
       ) : null}
 
+      {embedded ? (
+        <div className="shrink-0 border-b border-[var(--border-subtle)] bg-[var(--surface-1)] px-4 py-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="inline-flex items-center gap-2">
+              <Users size={18} aria-hidden />
+              <div className="text-sm font-semibold ui-text-primary">成员管理</div>
+            </div>
+            <div className="flex items-center gap-2">
+              {onBack ? (
+                <button
+                  type="button"
+                  onClick={onBack}
+                  className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)] px-3 py-2 text-xs ui-text-secondary hover:bg-[var(--surface-3)]"
+                >
+                  关闭
+                </button>
+              ) : null}
+              {headerRight}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       <div className="min-h-0 flex-1 overflow-auto p-4">
         <CenteredModal
           open={projectCreateOpen}

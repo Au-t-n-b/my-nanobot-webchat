@@ -273,7 +273,7 @@ function ChatCardBubble({
   const mountKey = `${card.cardId}:${card.docId}`;
   return (
     <div
-      className="chatcard-slide-up w-full max-w-[min(100%,28rem)] rounded-xl rounded-tl-sm px-4 py-3 text-sm shadow-[var(--shadow-card)] ring-1 ring-black/[0.06] dark:ring-white/[0.08]"
+      className="chatcard-slide-up w-full max-w-[min(100%,28rem)] rounded-xl rounded-tl-sm px-4 py-3 text-sm ui-elevation-2"
       style={{
         background: "var(--paper-card)",
         border: "1px solid var(--border-subtle)",
@@ -321,7 +321,7 @@ export const MessageList = memo(function MessageList({
   const atBottomRef = useRef(true);
   /** 区分 activePreviewPath 变化来自左侧 chip 还是右侧 Tab，避免重复 scroll/flash */
   const previewFocusSourceRef = useRef<"chip" | null>(null);
-  const [isAtBottom, setIsAtBottom] = useState(true);
+  const [, setIsAtBottom] = useState(true);
   const [showJumpToBottom, setShowJumpToBottom] = useState(false);
 
   const handleArtifactChipClick = useCallback(
@@ -426,7 +426,7 @@ export const MessageList = memo(function MessageList({
             bottomRef.current?.scrollIntoView({ behavior: "smooth" });
             setShowJumpToBottom(false);
           }}
-          className="absolute bottom-2 right-2 z-20 inline-flex h-10 w-10 items-center justify-center rounded-full bg-zinc-800 shadow-lg ring-1 ring-white/10 transition-colors hover:bg-zinc-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)] dark:bg-zinc-900/80 dark:hover:bg-zinc-800"
+          className="absolute bottom-2 right-2 z-20 inline-flex h-10 w-10 items-center justify-center rounded-full bg-[var(--surface-2)] shadow-lg ring-1 ring-white/10 ui-motion-fast hover:bg-[var(--surface-3)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)] dark:bg-[var(--surface-1)]/80 dark:hover:bg-[var(--surface-2)]"
           aria-label="跳到底部"
           title="回到底部"
         >
@@ -491,9 +491,9 @@ export const MessageList = memo(function MessageList({
                         <span className="whitespace-pre-wrap ui-text-primary leading-relaxed">{m.content}</span>
                       ) : assistantWaiting ? (
                         <div className="w-full space-y-2 py-0.5 animate-pulse" aria-busy>
-                          <div className="h-3.5 w-full rounded-md bg-zinc-800/50" />
-                          <div className="h-3.5 w-[92%] rounded-md bg-zinc-800/45" />
-                          <div className="h-3.5 w-[70%] rounded-md bg-zinc-800/40" />
+                          <div className="h-3.5 w-full rounded-md bg-[var(--surface-2)]/50" />
+                          <div className="h-3.5 w-[92%] rounded-md bg-[var(--surface-2)]/45" />
+                          <div className="h-3.5 w-[70%] rounded-md bg-[var(--surface-2)]/40" />
                         </div>
                       ) : (
                         <>

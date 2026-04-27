@@ -92,7 +92,7 @@ export function SduiHitlTextInput(props: Props) {
       <div className="px-3 py-2.5">
         {props.label ? <div className="mb-2 text-xs font-semibold ui-text-primary">{props.label}</div> : null}
         <textarea
-          className="w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-slate-900/10 focus:border-slate-300 transition-all resize-y min-h-[4rem] dark:border-white/10 dark:bg-zinc-800/50 dark:text-zinc-100 dark:focus:bg-zinc-900 dark:focus:ring-white/10"
+          className="w-full rounded-xl border border-slate-200 bg-slate-50/50 px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-slate-900/10 focus:border-slate-300 transition-all resize-y min-h-[4rem] dark:border-white/10 dark:bg-[var(--surface-2)]/50 dark:text-[var(--text-primary)] dark:focus:bg-[var(--surface-1)] dark:focus:ring-white/10"
           rows={rows}
           placeholder={props.placeholder}
           value={text}

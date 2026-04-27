@@ -116,9 +116,9 @@ export function WorkbenchProfilePage({ subView, onSubViewChange, onBack }: Props
         open={subView === "members"}
         onClose={() => onSubViewChange("main")}
         title="成员管理"
-        panelClassName="w-full max-w-5xl"
+        panelClassName="w-full max-w-6xl"
       >
-        <div className="max-h-[min(80vh,900px)] min-h-0 overflow-hidden">
+        <div className="max-h-[min(82vh,920px)] min-h-0 overflow-hidden">
           <AdminMembersPanel embedded onBack={() => onSubViewChange("main")} />
         </div>
       </CenteredModal>

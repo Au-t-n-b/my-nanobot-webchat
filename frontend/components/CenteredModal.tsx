@@ -63,7 +63,7 @@ export function CenteredModal({
         <div className="absolute inset-0 cursor-default" aria-hidden="true" />
       )}
       <div
-        className={`relative flex max-h-[min(92dvh,92vh)] min-h-0 flex-col overflow-hidden rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-1)] shadow-2xl ${panelClassName}`}
+        className={`relative flex max-h-[min(92dvh,92vh)] min-h-0 flex-col overflow-hidden rounded-2xl ui-elevation-4 ${panelClassName}`}
       >
         <div className="shrink-0 flex items-center justify-between gap-3 px-4 py-3 border-b border-[var(--border-subtle)] bg-[var(--surface-2)]/60">
           <div className="text-sm font-semibold ui-text-primary truncate">{title}</div>

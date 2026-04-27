@@ -182,7 +182,7 @@ export function PreviewFileViewer({
 
   if (state.status === "loading") {
     return (
-      <div className="flex items-center justify-center gap-2 text-zinc-400 text-sm py-8">
+      <div className="flex items-center justify-center gap-2 ui-text-secondary text-sm py-8">
         <Loader2 className="animate-spin" size={18} />
         <span className="ui-text-muted">加载中…</span>
       </div>

@@ -38,7 +38,13 @@ def write_projects(items: list[dict[str, Any]], reg: Path | None = None) -> None
     _atomic_write_json(projects_file(reg), {"schemaVersion": 1, "updatedAt": _now_iso(), "projects": items})
 
 
-def create_project(*, owner_user_id: str, name: str, reg: Path | None = None) -> dict[str, Any]:
+def create_project(
+    *,
+    owner_user_id: str,
+    name: str,
+    profile: dict[str, Any] | None = None,
+    reg: Path | None = None,
+) -> dict[str, Any]:
     reg = reg or registry_dir()
     owner = (owner_user_id or "").strip()
     nm = (name or "").strip()
@@ -49,6 +55,7 @@ def create_project(*, owner_user_id: str, name: str, reg: Path | None = None) ->
 
     now = _now_iso()
     pid = f"p_{secrets.token_urlsafe(10)}"
+    prof = profile if isinstance(profile, dict) else {}
     proj = {
         "projectId": pid,
         "name": nm,
@@ -56,6 +63,7 @@ def create_project(*, owner_user_id: str, name: str, reg: Path | None = None) ->
         "status": "active",
         "createdAt": now,
         "updatedAt": now,
+        "profile": prof,
     }
     items = read_projects(reg)
     items.append(proj)

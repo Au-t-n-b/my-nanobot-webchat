@@ -502,6 +502,15 @@ export function useAgentChat() {
         const nextSessions = upsertSessionSummary(summ, deriveSessionSummary(threadId, [], prevS));
         saveSessionSummaries(nextSessions, scope);
         setSessions(nextSessions);
+        // Clear server-side session as well
+        try {
+          const base = (process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8765").replace(/\/$/, "");
+          fetch(`${base}/api/session/clear`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ threadId }),
+          }).catch(() => {});
+        } catch {}
       }
       setMessages([]);
       setStepLogs([]);

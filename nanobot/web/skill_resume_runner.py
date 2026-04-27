@@ -80,7 +80,7 @@ def make_skill_first_resume_runner(
             )
             return {"ok": False, "error": f"{type(e).__name__}: {e}", "emitted_count": emitted}
 
-        return {"ok": True, "emitted_count": emitted}
+        return {"ok": True, "emitted_count": emitted, "_events": events}
 
     return _runner
 

@@ -793,6 +793,81 @@ async def _persist_agent_upload_tool_result(
     session_manager.save(session)
 
 
+async def _persist_skill_step_to_session(
+    *,
+    session_manager: Any,
+    session_key: str,
+    skill_name: str,
+    action: str,
+    events: list[dict[str, Any]],
+) -> None:
+    """Inject a synthetic tool_call + tool_result pair into the session after a fastlane step.
+
+    This makes fastlane progress visible in the main session history so that the LLM
+    can reason about what happened and history compression can summarize it.
+    """
+    if session_manager is None or not (session_key or "").strip():
+        return
+
+    # Extract a short summary from the events (look for dashboard.patch summary-text updates).
+    summary_parts: list[str] = []
+    for evt in events:
+        payload = evt.get("payload") if isinstance(evt, dict) else None
+        if not isinstance(payload, dict):
+            continue
+        ops = payload.get("ops") if isinstance(payload.get("ops"), list) else None
+        if not ops:
+            continue
+        for op in ops:
+            if not isinstance(op, dict):
+                continue
+            target = op.get("target") if isinstance(op.get("target"), dict) else {}
+            if target.get("nodeId") == "summary-text":
+                val = op.get("value") if isinstance(op.get("value"), dict) else {}
+                content = str(val.get("content") or "").strip()
+                if content:
+                    summary_parts.append(content)
+
+    summary = "\n".join(summary_parts) if summary_parts else f"Skill {skill_name} step {action} completed."
+    # Keep summary under 500 chars for context efficiency.
+    if len(summary) > 500:
+        summary = summary[:497] + "..."
+
+    tool_call_id = f"fastlane_{skill_name}_{action}_{uuid.uuid4().hex[:8]}"
+    tool_name = f"run_{skill_name}_survey"
+    tool_args = json.dumps({"action": action}, ensure_ascii=False)
+    tool_result = json.dumps({"ok": True, "action": action, "summary": summary}, ensure_ascii=False)
+
+    session = session_manager.get_or_create(session_key)
+    # Append synthetic assistant tool_call
+    session.messages.append(
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {
+                    "id": tool_call_id,
+                    "type": "function",
+                    "function": {"name": tool_name, "arguments": tool_args},
+                }
+            ],
+            "timestamp": datetime.now().isoformat(),
+        }
+    )
+    # Append synthetic tool result
+    session.messages.append(
+        {
+            "role": "tool",
+            "tool_call_id": tool_call_id,
+            "name": tool_name,
+            "content": tool_result,
+            "timestamp": datetime.now().isoformat(),
+        }
+    )
+    session.updated_at = datetime.now()
+    session_manager.save(session)
+
+
 async def dispatch_skill_runtime_intent(
     intent: dict[str, Any] | None,
     *,
@@ -859,6 +934,18 @@ async def dispatch_skill_runtime_intent(
             )
             return True, f"skill_runtime_start 异常：{type(e).__name__}: {e}"
         if isinstance(out, dict) and out.get("ok") is True:
+            # Persist fastlane step to session for history visibility.
+            try:
+                step_events = out.get("_events") if isinstance(out.get("_events"), list) else []
+                await _persist_skill_step_to_session(
+                    session_manager=session_manager,
+                    session_key=session_key or thread_id,
+                    skill_name=skill_name,
+                    action=action,
+                    events=step_events,
+                )
+            except Exception:
+                pass
             # Silent success: opening dashboards / starting skills should not pollute chat.
             return True, ""
         err = str((out or {}).get("error") or "").strip() if isinstance(out, dict) else ""
@@ -1119,6 +1206,20 @@ async def dispatch_skill_runtime_intent(
                 err,
             )
             return True, f"skill_runtime_result：{err}"
+
+        # Persist fastlane step to session for history visibility.
+        if isinstance(rr_out, dict) and rr_out.get("ok") is True:
+            try:
+                step_events = rr_out.get("_events") if isinstance(rr_out.get("_events"), list) else []
+                await _persist_skill_step_to_session(
+                    session_manager=session_manager,
+                    session_key=session_key or thread_id,
+                    skill_name=resume_skill,
+                    action=resolved_action,
+                    events=step_events,
+                )
+            except Exception:
+                pass
 
         return True, ""
 

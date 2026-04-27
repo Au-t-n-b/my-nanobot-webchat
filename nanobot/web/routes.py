@@ -744,6 +744,10 @@ def _try_parse_chat_card_intent(text: str) -> dict[str, Any] | None:
 
 _SKILL_HITL_FASTLANE_VERBS = frozenset({"skill_runtime_result", "skill_runtime_resume"})
 
+# 快路径心跳间隔（秒）；默认 10s，前端 ``STREAM_IDLE_TIMEOUT_MS = 90_000`` 留足余量。
+# 暴露成模块级常量便于单测 monkeypatch（生产无需改 env）。
+_FASTLANE_HEARTBEAT_INTERVAL_S: float = 10.0
+
 
 def _is_skill_hitl_fastlane_intent(intent: dict[str, Any] | None) -> bool:
     if not isinstance(intent, dict):
@@ -854,8 +858,13 @@ async def _handle_chat_skill_ui_fastlane(
     response = web.StreamResponse(status=200, headers=stream_headers)
     await response.prepare(request)
 
+    # ``write_lock`` 防止 _write（主路径）与 _heartbeat（独立协程）交错切割 SSE 帧。
+    # 主路径现有 ConnectionError 行为保持不变（让 outer except 处理 + write Error）。
+    write_lock = asyncio.Lock()
+
     async def _write(event: str, payload: dict[str, Any]) -> None:
-        await response.write(format_sse(event, payload))
+        async with write_lock:
+            await response.write(format_sse(event, payload))
 
     # ``skill_runtime_result`` / ``skill_runtime_resume`` run ``resume_runner`` which calls
     # ``emit_skill_runtime_event`` → ``emit_skill_ui_*_event`` ContextVars. The fastlane
@@ -885,8 +894,35 @@ async def _handle_chat_skill_ui_fastlane(
             elif kind == "skill_result" and hasattr(agent, "reset_skill_agent_task_result_emitter"):
                 agent.reset_skill_agent_task_result_emitter(tok)
 
+    # 心跳协程：每 10s 写一次 ``Heartbeat`` 事件，匹配前端
+    # ``STREAM_IDLE_TIMEOUT_MS = 90_000`` 的空闲读上限（``handle_chat`` 主路径同款机制）。
+    # 快路径下 ``_dispatch_chat_intents_skill_first`` 可能跑很久（如 job_management
+    # 计划初排子进程），中间若没有 emit 任何事件，浏览器会在 90s 触发
+    # ``SSE stream idle timeout`` 兜底报错。心跳与主路径互斥写入（``write_lock``），
+    # 不影响任何已有事件的语义。
+    finished = False
+
+    async def _heartbeat() -> None:
+        try:
+            while not finished:
+                await asyncio.sleep(_FASTLANE_HEARTBEAT_INTERVAL_S)
+                if finished:
+                    break
+                try:
+                    async with write_lock:
+                        await response.write(
+                            format_sse("Heartbeat", {"message": "Skill 正在执行中…"})
+                        )
+                except (ClientConnectionResetError, ConnectionResetError, RuntimeError):
+                    return
+        except asyncio.CancelledError:
+            return
+
+    heartbeat_task: asyncio.Task | None = None
+
     try:
         await _write("RunStarted", {"threadId": thread_id, "runId": run_id, "model": model_name})
+        heartbeat_task = asyncio.create_task(_heartbeat())
 
         if agent is not None:
             async def emit_skill_ui_patch(payload: dict[str, Any]) -> None:
@@ -963,6 +999,11 @@ async def _handle_chat_skill_ui_fastlane(
             },
         )
     finally:
+        finished = True
+        if heartbeat_task is not None:
+            heartbeat_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await heartbeat_task
         _release_fastlane_skill_ui_emitters()
     try:
         await response.write_eof()

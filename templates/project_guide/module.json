@@ -1,9 +1,0 @@
-{
-  "schemaVersion": 1,
-  "moduleId": "project_guide",
-  "flow": "project_guide",
-  "docId": "dashboard:project-guide",
-  "dataFile": "workspace/skills/project_guide/data/dashboard.json",
-  "label": "项目引导",
-  "description": "主 Agent 读 SKILL.md 做冷启引导；driver 为兼容占位。大盘为可选 UI。"
-}

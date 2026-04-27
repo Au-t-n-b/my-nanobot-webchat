@@ -284,29 +284,72 @@ function matchTaskModule(
   );
 }
 
-export function selectProjectOverviewModules(snapshot: ProjectOverviewState): ProjectOverviewModuleView[] {
-  const views: ProjectOverviewModuleView[] = composeProjectRegistryItems(snapshot.registryItems).map((item) => {
-    const taskModule = matchTaskModule(snapshot.taskStatus, item);
-    const steps = taskModule?.steps ?? [];
-    const doneCount = steps.filter((step) => step.done).length;
+/** 将 /api/task-status 中的状态映射为总览用三态 */
+function viewStatusFromApi(
+  s: TaskStatusPayload["modules"][0]["status"],
+): ProjectOverviewModuleView["status"] {
+  if (s === "completed") return "completed";
+  if (s === "running") return "running";
+  return "idle";
+}
+
+/** 用 taskId（task_progress 中的 moduleId）在合并后的 module.json 项中查找，用于取 dashboard 等 */
+function findRegistryItemForTaskModuleId(
+  taskId: string,
+  composed: ProjectModuleRegistryItem[],
+): ProjectModuleRegistryItem | null {
+  const t = String(taskId ?? "").trim();
+  for (const r of composed) {
+    if (String(r.taskProgress.moduleId).trim() === t) return r;
+  }
+  for (const r of composed) {
+    if (String(r.moduleId).trim() === t) return r;
+  }
+  return null;
+}
+
+/**
+ * 主路径：总进度条完全由 ``/api/task-status`` 驱动，而后端自 ``task_progress.json``
+ *（及 normalize）生成该 payload。``modules`` 的**顺序、阶段名、子任务**均与磁盘文件一致。
+ * module.json 仅作合并项以绑定 `dashboard.dataFile` 等。
+ */
+function buildOverviewViewsFromTaskStatus(
+  taskStatus: TaskStatusPayload,
+  registryItems: ProjectModuleRegistryItem[],
+): ProjectOverviewModuleView[] {
+  const composed = composeProjectRegistryItems(registryItems);
+  const rawMain = (taskStatus.modules ?? []).filter((m) => !isHybridTaskModuleId(m.id));
+  // 防御性去重：``task_progress.json`` 历史可能落下同 ``moduleId`` 的重复条目（如 jmfz
+  // 早期使用 ``moduleId=jmfz``、后改为 ``modeling_simulation_workbench`` 时遗留的脏行），
+  // 这里**保留首条**避免后续 ``<li key>`` 重复让 React 报错并错乱阶段大盘的渲染顺序。
+  const seenIds = new Set<string>();
+  const main: typeof rawMain = [];
+  for (const m of rawMain) {
+    const id = String(m.id ?? "").trim();
+    if (id && seenIds.has(id)) continue;
+    if (id) seenIds.add(id);
+    main.push(m);
+  }
+  return main.map((m) => {
+    const reg = findRegistryItemForTaskModuleId(m.id, composed);
+    const moduleId = (reg?.moduleId ?? m.id).trim() || m.id;
+    const steps = Array.isArray(m.steps) ? m.steps : [];
+    const doneCount = steps.filter((s) => s.done).length;
     const totalCount = steps.length;
     const progressPct = totalCount ? Math.round((doneCount / totalCount) * 100) : 0;
-    const st: ProjectOverviewModuleView["status"] =
-      taskModule?.status === "completed"
-        ? "completed"
-        : taskModule?.status === "running"
-          ? "running"
-          : "idle";
     return {
-      moduleId: item.moduleId,
-      label: item.label,
-      description: item.description,
-      syntheticPath: moduleSyntheticPathFromDataFile(item.dashboard.dataFile, item.moduleId),
-      isPlaceholder: Boolean(item.placeholder),
-      showWorkbenchModuleStepper: item.showWorkbenchModuleStepper !== false,
-      taskModuleId: item.taskProgress.moduleId,
-      taskModuleName: item.taskProgress.moduleName,
-      status: st,
+      moduleId,
+      label: String(m.name || "").trim() || m.id,
+      description: reg?.description ?? "",
+      syntheticPath: moduleSyntheticPathFromDataFile(
+        reg?.dashboard?.dataFile ? String(reg.dashboard.dataFile) : "",
+        moduleId,
+      ),
+      isPlaceholder: !reg || Boolean(reg.placeholder),
+      showWorkbenchModuleStepper: reg?.showWorkbenchModuleStepper !== false,
+      taskModuleId: m.id,
+      taskModuleName: m.name,
+      status: viewStatusFromApi(m.status),
       doneCount,
       totalCount,
       progressPct,
@@ -314,28 +357,57 @@ export function selectProjectOverviewModules(snapshot: ProjectOverviewState): Pr
       steps,
     };
   });
+}
 
-  // --- Data Sanitizer: 强制串行状态推导（避免 1&3 同时 running 的脏流） ---
-  // currentIndex：索引最靠后的、且 (status=running 或已有进度) 的模块
-  // - 已有进度：doneCount>0 或 progressPct>0
-  const currentIndex = (() => {
-    for (let i = views.length - 1; i >= 0; i -= 1) {
-      const m = views[i]!;
-      const hasProgress = (m.doneCount ?? 0) > 0 || (m.progressPct ?? 0) > 0;
-      if (m.status === "running" || hasProgress) return i;
-    }
-    return -1;
-  })();
+export function selectProjectOverviewModules(snapshot: ProjectOverviewState): ProjectOverviewModuleView[] {
+  const hasFileModules =
+    snapshot.taskStatus && Array.isArray(snapshot.taskStatus.modules) && snapshot.taskStatus.modules.length > 0;
+  const mainFileModules = hasFileModules
+    ? (snapshot.taskStatus?.modules ?? []).filter((m) => !isHybridTaskModuleId(m.id))
+    : [];
+  const views: ProjectOverviewModuleView[] =
+    hasFileModules && mainFileModules.length > 0
+      ? buildOverviewViewsFromTaskStatus(snapshot.taskStatus!, snapshot.registryItems)
+      : composeProjectRegistryItems(snapshot.registryItems).map((item) => {
+          const taskModule = matchTaskModule(snapshot.taskStatus, item);
+          const steps = taskModule?.steps ?? [];
+          const doneCount = steps.filter((step) => step.done).length;
+          const totalCount = steps.length;
+          const progressPct = totalCount ? Math.round((doneCount / totalCount) * 100) : 0;
+          const st: ProjectOverviewModuleView["status"] =
+            taskModule?.status === "completed"
+              ? "completed"
+              : taskModule?.status === "running"
+                ? "running"
+                : "idle";
+          return {
+            moduleId: item.moduleId,
+            label: item.label,
+            description: item.description,
+            syntheticPath: moduleSyntheticPathFromDataFile(item.dashboard.dataFile, item.moduleId),
+            isPlaceholder: Boolean(item.placeholder),
+            showWorkbenchModuleStepper: item.showWorkbenchModuleStepper !== false,
+            taskModuleId: item.taskProgress.moduleId,
+            taskModuleName: item.taskProgress.moduleName,
+            status: st,
+            doneCount,
+            totalCount,
+            progressPct,
+            currentStepLabel: steps[doneCount]?.name ?? (totalCount ? "已完成" : "待开始"),
+            steps,
+          };
+        });
 
-  if (currentIndex < 0) {
-    return views.map((m) => (m.status === "idle" ? m : { ...m, status: "idle" as const }));
-  }
-
-  return views.map((m, i) => {
-    if (i < currentIndex) return m.status === "completed" ? m : { ...m, status: "completed" as const };
-    if (i === currentIndex) return m.status === "running" ? m : { ...m, status: "running" as const };
-    return m.status === "idle" ? m : { ...m, status: "idle" as const };
-  });
+  // 不再做前端 Data Sanitizer 加工。``normalize_task_progress_payload`` 已经按
+  // ``done==total → completed / done>0 → running / else → pending`` 的单条规则
+  // 给出每个 module 的真实状态；状态串行不变量（单 running、前段完整、后段空）
+  // 的责任在写入数据源（drivers + ``merge_task_progress_sync_to_disk``）。
+  //
+  // 历史实现会做「currentIndex 之前强制 completed / 之后强制 idle」的回填，
+  // 在 ``task_progress.json`` 包含跨阶段 partial（例如 0/N 的中间段 + 6/6 的
+  // 智能分析工作台 + 2/3 的自定义分析）时会把 0 进度的段亮成「已完成」，
+  // 与磁盘真相完全相反，因此移除。
+  return views;
 }
 
 export function getProjectOverviewState() {

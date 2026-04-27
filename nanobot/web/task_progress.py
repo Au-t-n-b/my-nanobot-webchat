@@ -59,7 +59,10 @@ def default_task_progress_file_payload() -> dict[str, Any]:
                 ),
             },
             {
-                "moduleId": "jmfz",
+                # ``moduleId`` 与 ``templates/project_guide/data/phases.json`` 中
+                # 该阶段的 ``moduleId`` 保持一致；jmfz driver 发出的 ``task_progress.sync``
+                # 也使用此 ID，避免 ``merge_task_progress_sync_to_disk`` 找不到模块而跳过。
+                "moduleId": "modeling_simulation_workbench",
                 "moduleName": "建模仿真",
                 "updatedAt": None,
                 "tasks": _tasks(
@@ -123,6 +126,25 @@ def normalize_task_progress_payload(payload: dict[str, Any]) -> dict[str, Any]:
         modules = payload.get("modules")
         if not isinstance(modules, list):
             modules = []
+        else:
+            # Same dedup as the ``progress`` branch below — driver-direct payloads
+            # (e.g. ``task_progress.sync``) usually carry 1–2 modules, but a stale
+            # cache or malformed event must not surface duplicate ``id`` to the
+            # frontend stepper.
+            seen: set[str] = set()
+            unique: list[dict[str, Any]] = []
+            for m in modules:
+                if not isinstance(m, dict):
+                    continue
+                mid = str(m.get("id") or "").strip()
+                if mid and mid in seen:
+                    continue
+                if mid:
+                    seen.add(mid)
+                unique.append(m)
+            if len(unique) != len(modules):
+                modules = unique
+                payload["modules"] = unique
         if "summary" not in payload:
             active_count = sum(1 for module in modules if module.get("status") == "running")
             completed_count = sum(1 for module in modules if module.get("status") == "completed")
@@ -146,8 +168,15 @@ def normalize_task_progress_payload(payload: dict[str, Any]) -> dict[str, Any]:
         progress = []
 
     modules: list[dict[str, Any]] = []
+    # 防御性去重：``progress[]`` 里若同 ``moduleId`` 出现多次（旧版本 jmfz driver 的 ``moduleId``
+    # 由 ``jmfz`` 改名为 ``modeling_simulation_workbench`` 时会产生此类历史脏数据），
+    # 仅保留**首条**，避免下游 ``modules[].id`` 重复让前端 stepper 的 ``key`` 冲突崩 React。
+    seen_module_ids: set[str] = set()
     for mod_index, raw_module in enumerate(progress, start=1):
         module_id = str(raw_module.get("moduleId") or f"m_{mod_index}")
+        if module_id in seen_module_ids:
+            continue
+        seen_module_ids.add(module_id)
         module_name = str(raw_module.get("moduleName") or module_id)
         raw_tasks = raw_module.get("tasks")
         if not isinstance(raw_tasks, list):
@@ -347,6 +376,120 @@ def _write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     tmp.replace(path)
+
+
+def merge_task_progress_sync_to_disk(payload: dict[str, Any]) -> dict[str, Any]:
+    """Merge a ``task_progress.sync`` event payload into ``task_progress.json`` on disk.
+
+    Strict, non-destructive merge:
+
+    * Locate target module by ``moduleId``. If the module does **not** already exist in
+      the on-disk ``progress[]`` list, **skip** it (do not append) — appending unknown
+      modules pollutes the top stepper / overall counts.
+    * Within a matched module, only update task ``completed`` flags **by index** — only
+      when ``len(incoming.tasks) == len(disk.tasks)``. We never overwrite the on-disk
+      task ``name`` (drivers may emit English slugs while the persisted file holds the
+      Chinese display name; index-based completion update keeps both schemas valid).
+    * If nothing actually changed (incoming flags match disk), **no write** happens.
+
+    Returns a structured report so the bridge layer can emit warnings without raising.
+
+    This function is the single seam where a ``task_progress.sync`` event becomes
+    durable; ``_set_project_progress_and_emit`` already writes its own slice and is
+    intentionally **not** routed through here to avoid double-writes.
+    """
+    report: dict[str, Any] = {
+        "merged_module_ids": [],
+        "skipped": [],
+        "wrote_disk": False,
+    }
+
+    if not isinstance(payload, dict):
+        return report
+    incoming_modules = payload.get("modules")
+    if not isinstance(incoming_modules, list) or not incoming_modules:
+        return report
+
+    path = task_progress_file_path()
+    if path.is_file():
+        try:
+            disk = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            report["skipped"].append({"moduleId": "*", "reason": f"disk_unreadable:{type(exc).__name__}"})
+            return report
+        if not isinstance(disk, dict):
+            disk = default_task_progress_file_payload()
+    else:
+        disk = default_task_progress_file_payload()
+
+    progress = disk.get("progress")
+    if not isinstance(progress, list):
+        progress = []
+        disk["progress"] = progress
+
+    by_id: dict[str, dict[str, Any]] = {}
+    for entry in progress:
+        if isinstance(entry, dict):
+            mid = str(entry.get("moduleId") or "").strip()
+            if mid:
+                by_id[mid] = entry
+
+    now_iso = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    changed = False
+    merged: list[str] = []
+    skipped: list[dict[str, str]] = report["skipped"]
+
+    for inc in incoming_modules:
+        if not isinstance(inc, dict):
+            continue
+        mid = str(inc.get("moduleId") or "").strip()
+        if not mid:
+            skipped.append({"moduleId": "", "reason": "missing_module_id"})
+            continue
+        target = by_id.get(mid)
+        if target is None:
+            skipped.append({"moduleId": mid, "reason": "not_in_disk"})
+            continue
+        inc_tasks = inc.get("tasks")
+        tgt_tasks = target.get("tasks")
+        if not isinstance(inc_tasks, list) or not isinstance(tgt_tasks, list):
+            skipped.append({"moduleId": mid, "reason": "tasks_not_list"})
+            continue
+        if len(inc_tasks) != len(tgt_tasks):
+            skipped.append(
+                {
+                    "moduleId": mid,
+                    "reason": f"task_count_mismatch:disk={len(tgt_tasks)},incoming={len(inc_tasks)}",
+                }
+            )
+            continue
+
+        any_change = False
+        for i, t in enumerate(tgt_tasks):
+            if not isinstance(t, dict):
+                continue
+            inc_t = inc_tasks[i]
+            if not isinstance(inc_t, dict) or "completed" not in inc_t:
+                continue
+            new_done = bool(inc_t.get("completed"))
+            if t.get("completed") != new_done:
+                t["completed"] = new_done
+                any_change = True
+        if any_change:
+            target["updatedAt"] = now_iso
+            merged.append(mid)
+            changed = True
+
+    if changed:
+        disk["updatedAt"] = now_iso
+        try:
+            _write_json_atomic(path, disk)
+            report["wrote_disk"] = True
+        except OSError as exc:
+            skipped.append({"moduleId": "*", "reason": f"write_failed:{type(exc).__name__}"})
+
+    report["merged_module_ids"] = merged
+    return report
 
 
 def load_task_status_payload() -> dict[str, Any]:

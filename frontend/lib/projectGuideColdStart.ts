@@ -1,11 +1,13 @@
 /**
- * 冷启：对主 Agent 发**一条不可见 user 轮**（`showInTranscript: false`），
- * 同时 **`showAssistantInTranscript: true`** 以展示**助手**气泡与流式正文；
- * 由模型按 `skills/project_guide/SKILL.md` 执行冷启段落。不再以 `skill_runtime_start`
- * 为冷启主路径。
+ * 冷启路径（v0.4 起：Skill-First 主路径）：
+ *   - 直接给 `/api/chat` 发一条 `chat_card_intent` JSON（type=chat_card_intent / verb=skill_runtime_start），
+ *     由后端 fast-path 路由到 `project_guide` 的 `runtime/driver.py`；
+ *   - driver 自己读 `phases.json` + `task_progress.json` + `registry/*.json`，调
+ *     `phase_rules.decide_branch`，发出 `chat.guidance` 事件 → 前端渲染 `GuidanceCard`；
+ *   - **完全绕过 LLM**：解决了 v0.3 由模型解释 SKILL.md 时偶发的"不读 registry / 流式中断 / 路径理解错"等问题。
  *
- * 技能盘路径应与后端 `get_skills_root()` 一致（如 `%USERPROFILE%\.nanobot\workspace\skills`），
- * Agent 工作区需能 `read_file` 到本文件。
+ * 旧 LLM 路径（`buildProjectGuideColdStartUserPrompt`）保留作为兜底入口，便于退回调试，
+ * 但不再是冷启动 effect 的默认调用。
  */
 export const PROJECT_GUIDE_SKILL_ID = "project_guide";
 
@@ -25,8 +27,37 @@ export function isProjectGuideColdStartSettled(raw: string | null): boolean {
 }
 
 /**
- * 静默冷启时作为 user 消息体发给 `/api/chat`；模型会按此任务读取 SKILL 并回复（助手可见）。
- * 与 ``sendSilentMessage`` 一致：showInTranscript: false。
+ * Skill-First 冷启 intent。`requestId` 含 `threadId` 以便后端 nonce 化时仍能从日志反查。
+ *
+ * 注意：当前 `dispatch_skill_runtime_intent` 的 `skill_runtime_start` 分支会以 `result={}`
+ * 调 driver，未透传 `userId/workId`；driver 会按 `users.lastLoginAt` 兜底锁定用户。
+ * 若日后改为透传，driver 已支持读 `result.userId/result.workId`，本函数也已预先把它们塞到 payload。
+ */
+export function buildProjectGuideColdStartIntent(args: {
+  threadId: string;
+  userId?: string;
+  workId?: string;
+}): string {
+  const tid = (args.threadId || "").trim();
+  const intent = {
+    type: "chat_card_intent" as const,
+    verb: "skill_runtime_start" as const,
+    payload: {
+      type: "skill_runtime_start" as const,
+      skillName: PROJECT_GUIDE_SKILL_ID,
+      requestId: `req-cold:${tid || "unknown"}`,
+      action: "cold_start",
+      threadId: tid,
+      ...(args.userId ? { userId: args.userId } : {}),
+      ...(args.workId ? { workId: args.workId } : {}),
+    },
+  };
+  return JSON.stringify(intent);
+}
+
+/**
+ * @deprecated v0.4 起改用 {@link buildProjectGuideColdStartIntent}。
+ * 仅保留以便退回 LLM 路径调试。
  */
 export function buildProjectGuideColdStartUserPrompt(): string {
   return [

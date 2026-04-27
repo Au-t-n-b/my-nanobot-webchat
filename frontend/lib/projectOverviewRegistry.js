@@ -1,6 +1,7 @@
 /**
- * 六段大流程（与 `task_progress.json` / 后端 `default_task_progress_file_payload` 的 moduleId 对齐）。
- * 已安装的 module.json 会合并进对应阶段；未安装的段显示为占位，仍可看到子任务与进度（由 task 状态驱动）。
+ * 与「六段大流程」对齐的**候选**表（`taskProgressId` 与 `task_progress.json` 的 moduleId 一致）。
+ * 在已有 ``/api/task-status`` 数据时，**顶部总进度条**以 `task_status`（`task_progress.json`）的 `modules`
+ * 顺序/名称/子任务为唯一主数据；本表仅作无 `taskStatus` 时的回退、并与 module.json 做合并以提供 dashboard 数据文件路径。
  */
 const CANONICAL_SIX = [
   {

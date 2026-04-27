@@ -16,7 +16,10 @@ from pathlib import Path
 
 from nanobot.web.mission_control import MissionControlManager
 from nanobot.web.skill_ui_patch import build_skill_ui_data_patch_payload
-from nanobot.web.task_progress import normalize_task_progress_payload
+from nanobot.web.task_progress import (
+    merge_task_progress_sync_to_disk,
+    normalize_task_progress_payload,
+)
 from nanobot.web.skills import get_skill_dir
 
 # Must match ``resumeAction`` / stored action for agent ``request_user_upload`` HITL.
@@ -54,6 +57,15 @@ SUPPORTED_SKILL_RUNTIME_EVENTS = {
     "skill.agent_task_execute",
     "skill.epilogue",
 }
+
+
+# 「引导/元」类 skill：仅经聊天卡（chat.guidance）输出，不应被切到右侧 DashboardNavigator
+# 也不应触发其 dashboard.json bootstrap。否则会出现：``skill_runtime_start(project_guide)`` 把
+# 右侧抽屉 focus 到一个空壳 module tab，呈现"白屏"。
+#
+# TODO(future): 改为读 ``module.json`` 的 ``surface`` 字段（``"chat"`` vs ``"panel"``），
+# 把名单语义化、可扩展；当前先用枚举名单快速止血。
+_NON_PANEL_SKILL_NAMES: frozenset[str] = frozenset({"project_guide"})
 
 
 def _payload_from_envelope(envelope: dict[str, Any]) -> tuple[str, dict[str, Any]]:
@@ -388,6 +400,31 @@ async def _emit_artifact_publish(
 
 
 async def _emit_task_progress_sync(payload: dict[str, Any]) -> dict[str, Any]:
+    # 1) Best-effort persist: merge ``moduleId``-keyed task completions into the
+    #    on-disk ``task_progress.json`` so a subsequent UI refresh sees the same
+    #    state the SSE just pushed. Disk write is non-fatal: any I/O / schema
+    #    mismatch only yields a structured ``skipped`` warning; the SSE still flies.
+    #
+    #    NOTE: ``_set_project_progress_and_emit`` already writes its own slice and
+    #    emits ``TaskStatusUpdate`` directly — it does *not* go through this seam,
+    #    so persisting here will not cause double-writes for that path.
+    try:
+        persist_report = merge_task_progress_sync_to_disk(payload)
+        if persist_report.get("skipped"):
+            logger.info(
+                "task_progress.sync persist | merged={} skipped={}",
+                persist_report.get("merged_module_ids"),
+                persist_report.get("skipped"),
+            )
+        elif persist_report.get("wrote_disk"):
+            logger.debug(
+                "task_progress.sync persist ok | merged={}",
+                persist_report.get("merged_module_ids"),
+            )
+    except Exception:
+        # Persist must never block the SSE emit.
+        logger.exception("task_progress.sync persist failed (non-fatal)")
+
     normalized = normalize_task_progress_payload(dict(payload))
     from nanobot.agent.loop import emit_task_status_event
 
@@ -936,23 +973,32 @@ async def dispatch_skill_runtime_intent(
         if resume_runner is None:
             return True, "skill_runtime_start：resume_runner 未配置"
 
-        # Switch right-side panel to this module (DashboardNavigator follows ModuleSessionFocus).
-        try:
-            from nanobot.agent.loop import emit_module_session_focus_event
-
-            await emit_module_session_focus_event({"threadId": thread_id, "moduleId": skill_name, "status": "running"})
-        except Exception:
-            pass
-
-        bootstrap = _try_load_skill_dashboard_bootstrap(skill_name)
-        if bootstrap is not None:
+        is_panel_skill = skill_name not in _NON_PANEL_SKILL_NAMES
+        if is_panel_skill:
+            # Switch right-side panel to this module (DashboardNavigator follows ModuleSessionFocus).
             try:
-                from nanobot.agent.loop import emit_skill_ui_bootstrap_event
+                from nanobot.agent.loop import emit_module_session_focus_event
 
-                await emit_skill_ui_bootstrap_event(bootstrap)
+                await emit_module_session_focus_event(
+                    {"threadId": thread_id, "moduleId": skill_name, "status": "running"}
+                )
             except Exception:
-                # Best-effort: do not block skill execution on UI bootstrap.
                 pass
+
+            bootstrap = _try_load_skill_dashboard_bootstrap(skill_name)
+            if bootstrap is not None:
+                try:
+                    from nanobot.agent.loop import emit_skill_ui_bootstrap_event
+
+                    await emit_skill_ui_bootstrap_event(bootstrap)
+                except Exception:
+                    # Best-effort: do not block skill execution on UI bootstrap.
+                    pass
+        else:
+            logger.debug(
+                "skill_runtime_start: skipping module focus + dashboard bootstrap | skill_name={} (non-panel)",
+                skill_name,
+            )
 
         try:
             out = await resume_runner(

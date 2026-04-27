@@ -1,0 +1,54 @@
+{
+  "schemaVersion": 2,
+  "description": "阶段顺序与三套 ID 的单一真值表。所有引导/分支判定必须查这张表，禁止散落字符串比较。",
+  "_namesMustMatchRegistry": "displayName 与 .nanobot/workspace/registry/project_members.json 的 stages[] 中文名必须完全相同（含全/半角、空格）",
+  "phases": [
+    {
+      "order": 0,
+      "displayName": "作业管理",
+      "moduleId": "job_management",
+      "skillDir": "job_management",
+      "startAction": "jm_start",
+      "startRequestId": "req-start-jobm",
+      "aliases": ["jobm", "job-management"]
+    },
+    {
+      "order": 1,
+      "displayName": "智慧工勘",
+      "moduleId": "smart_survey",
+      "skillDir": "zhgk",
+      "startAction": "start",
+      "startRequestId": "req-start-zhgk",
+      "aliases": ["zhgk", "smart-survey"]
+    },
+    {
+      "order": 2,
+      "displayName": "建模仿真",
+      "moduleId": "modeling_simulation_workbench",
+      "skillDir": "jmfz",
+      "startAction": "start",
+      "startRequestId": "req-start-jmfz",
+      "aliases": ["jmfz", "modeling-simulation"]
+    }
+  ],
+  "completionRule": {
+    "kind": "all_tasks_completed",
+    "_doc": "本阶段被视为已完成 = task_progress.progress[].tasks[] 的 completed 全部为 true。"
+  },
+  "currentRule": {
+    "kind": "first_incomplete_phase_in_order",
+    "_doc": "全局 order_cur = phases 中按 order 升序遍历，首个『未全部完成』的阶段。若都完成则 order_cur = phases.length（视为全部完成）。"
+  },
+  "userStageRule": {
+    "kind": "min_order_in_member_stages",
+    "_doc": "用户 order_user = registry/project_members.json 该用户在当前项目的 stages[] 中，能匹配到 phases.displayName 的项里 order 最小者。匹配不到 → null。"
+  },
+  "viewer": {
+    "treatAs": "passive",
+    "_doc": "memberRole=viewer 永远不渲染主流程 CTA，只显示状态摘要。"
+  },
+  "admin": {
+    "roleCodes": ["ADMIN"],
+    "_doc": "全局角色 ADMIN 旁路 order 比较，所有阶段都按 proceed 提示（仍展示当前进度）。"
+  }
+}

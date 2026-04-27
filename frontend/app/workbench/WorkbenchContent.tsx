@@ -2,7 +2,21 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Command, FileText, Focus, LayoutPanelLeft, Menu, PanelRight, Plus, Settings, SlidersHorizontal, UserRound, X, Zap } from "lucide-react";
+import {
+  Command,
+  FileText,
+  Focus,
+  LayoutPanelLeft,
+  Menu,
+  Minimize2,
+  PanelRight,
+  Plus,
+  Settings,
+  SlidersHorizontal,
+  UserRound,
+  X,
+  Zap,
+} from "lucide-react";
 import { ChatArea } from "@/components/ChatArea";
 import { ErrorToast } from "@/components/ErrorToast";
 import { PreviewPanel } from "@/components/preview";
@@ -22,20 +36,21 @@ import { buildSkillAgentTaskExecuteEnvelope } from "@/lib/skillHybridProtocol";
 import type { SduiUploadedFileRecord } from "@/lib/sdui";
 import { hybridSubtaskHintFromTaskStatus } from "@/lib/skillHybridProtocol";
 import {
-  buildProjectGuideColdStartUserPrompt,
+  buildProjectGuideColdStartIntent,
   isProjectGuideColdStartSettled,
   projectGuideColdStartStorageKey,
   PROJECT_GUIDE_COLD_START_DONE_BAD,
   PROJECT_GUIDE_COLD_START_OK,
 } from "@/lib/projectGuideColdStart";
+import { getAuthUser } from "@/lib/authStore";
 import { useTheme } from "@/hooks/useTheme";
 import { DashboardNavigator } from "@/components/DashboardNavigator";
 import { ControlCenterPanel } from "@/components/ControlCenterPanel";
-import { ModuleStepper } from "@/components/dashboard/ModuleStepper";
+import { ModuleStepper, ModuleStepperCompact } from "@/components/dashboard/ModuleStepper";
+import { useWorkbenchStepperView } from "@/hooks/useWorkbenchStepperView";
 import {
   hydrateProjectOverview,
   resetProjectOverviewSessionState,
-  selectProjectModule,
   selectProjectOverviewModules,
   useProjectOverviewStore,
 } from "@/lib/projectOverviewStore";
@@ -48,23 +63,13 @@ import {
   hasWorkspaceAccess,
   patchGlobalProjectContext,
 } from "@/lib/globalProjectContext";
+import { authFetch } from "@/lib/authFetch";
 import { clearAuthSession } from "@/lib/authStore";
-import {
-  createLocalProjectWithMeta,
-  deleteLocalProject,
-  getSelectedLocalProjectId,
-  listLocalProjects,
-  NANOBOT_LOCAL_PROJECTS_CHANGED,
-  setSelectedLocalProjectId,
-  type LocalProject,
-} from "@/lib/localProjects";
-import { workspacePayloadToLocalProjectMeta } from "@/lib/mapWorkspaceProjectPayload";
+// NOTE: localProjects (localStorage-backed project entities) are deprecated in favor of /api/projects registry.
 import type { WorkspaceProjectCreatePayload } from "@/lib/workspaceProjectCreate";
-import { LocalProjectNavDropdown } from "@/components/workbench/LocalProjectNavDropdown";
+import { ProjectNavDropdown } from "@/components/workbench/ProjectNavDropdown";
 import { WorkbenchTopNavSlot } from "@/components/workbench/shell/WorkbenchTopNavSlot";
 import { NewWorkspaceProjectModal } from "@/components/workbench/NewWorkspaceProjectModal";
-import { WorkbenchProfilePage, type ProfileSubView } from "@/components/workbench/WorkbenchProfilePage";
-import { CenteredConfirmModal } from "@/components/CenteredModal";
 import {
   CHAT_COLUMN_MIN_PX,
   getChatColumnMaxPx,
@@ -75,7 +80,46 @@ import {
 
 type SystemModal = null | "controlCenter" | "remoteAssetDetail" | "remoteUpload";
 type ControlCenterTab = "config" | "settings";
-type WorkbenchModule = "overview" | "profile";
+type ControlCenterSettingsPane = "systemSettings" | "profile" | "members";
+
+type RegistryProjectProfile = {
+  projectCode: string;
+  scenario: string;
+  scale: string | null;
+  startDate: string | null;
+  siteReadyDate: string | null;
+  deliveryTags: string[];
+};
+
+type RegistryProjectRow = {
+  projectId: string;
+  name: string;
+  ownerUserId?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  status?: string;
+  profile?: Partial<RegistryProjectProfile> | null;
+};
+
+const SELECTED_PROJECT_ID_KEY = "nanobot_selected_registry_project_v1";
+
+function readSelectedRegistryProjectId(): string {
+  if (typeof window === "undefined") return "";
+  try {
+    return (window.localStorage.getItem(SELECTED_PROJECT_ID_KEY) || "").trim();
+  } catch {
+    return "";
+  }
+}
+
+function writeSelectedRegistryProjectId(projectId: string): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(SELECTED_PROJECT_ID_KEY, projectId);
+  } catch {
+    /* ignore */
+  }
+}
 
 function previewTabLabel(path: string): string {
   if (path.startsWith("browser://")) return "浏览器";
@@ -136,20 +180,20 @@ function WorkbenchToolsMenuItems({
       <button type="button" role="menuitem" className={workbenchMenuItemClass} onClick={() => onPick(onToggleNav)}>
         <LayoutPanelLeft
           size={15}
-          className={navExpanded ? "shrink-0 text-emerald-400/90" : "shrink-0 text-zinc-500/80 dark:text-zinc-400/80"}
+          className={navExpanded ? "shrink-0 text-emerald-400/90" : "shrink-0 ui-text-muted"}
           strokeWidth={2.25}
           aria-hidden
         />
         <span>侧栏：{navExpanded ? "已展开" : "已收起"}（点按切换）</span>
       </button>
       <button type="button" role="menuitem" className={workbenchMenuItemClass} onClick={() => onPick(onOpenCommandPalette)}>
-        <Command size={15} className="shrink-0 text-zinc-500/80 dark:text-zinc-400/80" strokeWidth={2.25} aria-hidden />
+        <Command size={15} className="shrink-0 ui-text-muted" strokeWidth={2.25} aria-hidden />
         <span>命令面板（Ctrl/⌘+K）</span>
       </button>
       <button type="button" role="menuitem" className={workbenchMenuItemClass} onClick={() => onPick(onToggleZen)}>
         <Focus
           size={15}
-          className={zenMode ? "shrink-0 text-[var(--accent)]" : "shrink-0 text-zinc-500/80 dark:text-zinc-400/80"}
+          className={zenMode ? "shrink-0 text-[var(--accent)]" : "shrink-0 ui-text-muted"}
           strokeWidth={2.25}
           aria-hidden
         />
@@ -163,14 +207,14 @@ function WorkbenchToolsMenuItems({
       >
         <PanelRight
           size={15}
-          className={previewOpen ? "shrink-0 text-sky-400/90" : "shrink-0 text-zinc-500/80 dark:text-zinc-400/80"}
+          className={previewOpen ? "shrink-0 text-sky-400/90" : "shrink-0 ui-text-muted"}
           strokeWidth={2.25}
           aria-hidden
         />
         <span>{previewOpen ? "收起右侧预览" : "打开右侧预览"}</span>
       </button>
       <button type="button" role="menuitem" className={workbenchMenuItemClass} onClick={() => onPick(onOpenProfile)}>
-        <UserRound size={15} className="shrink-0 text-zinc-500/80 dark:text-zinc-400/80" strokeWidth={2.25} aria-hidden />
+        <UserRound size={15} className="shrink-0 ui-text-muted" strokeWidth={2.25} aria-hidden />
         <span>账号与成员</span>
       </button>
       <div className="my-1.5 h-px bg-[var(--border-subtle)]" />
@@ -182,7 +226,7 @@ function WorkbenchToolsMenuItems({
         <span>控制中心</span>
       </button>
       <button type="button" role="menuitem" className={workbenchMenuItemClass} onClick={() => onPick(onOpenAppSettings)}>
-        <Settings size={15} className="shrink-0 text-zinc-500/80 dark:text-zinc-400/80" strokeWidth={2.25} aria-hidden />
+        <Settings size={15} className="shrink-0 ui-text-muted" strokeWidth={2.25} aria-hidden />
         <span>应用设置</span>
       </button>
       <div className="mt-2 rounded-lg border border-[var(--border-subtle)] border-dashed px-2 py-1.5">
@@ -229,8 +273,6 @@ function extractSkillHintFromSduiNode(node: unknown): string | null {
 
 export default function WorkbenchContent() {
   const router = useRouter();
-  const [workbenchModule, setWorkbenchModule] = useState<WorkbenchModule>("overview");
-  const [profileSubView, setProfileSubView] = useState<ProfileSubView>("main");
   const {
     threadId,
     sessions,
@@ -274,6 +316,7 @@ export default function WorkbenchContent() {
     [overviewModules],
   );
   const activeModuleId = useProjectOverviewStore((snapshot) => snapshot.activeModuleId);
+  const { view: stepperView, setView: setStepperView } = useWorkbenchStepperView();
   const { overviewStageLabel, overviewModuleProgressText } = useMemo(() => {
     const mods = overviewModules;
     if (mods.length === 0) {
@@ -300,6 +343,7 @@ export default function WorkbenchContent() {
   const [activeRightTabId, setActiveRightTabId] = useState<string | null>(null);
   const [systemModal, setSystemModal] = useState<SystemModal>(null);
   const [controlCenterTab, setControlCenterTab] = useState<ControlCenterTab>("config");
+  const [controlCenterSettingsPane, setControlCenterSettingsPane] = useState<ControlCenterSettingsPane>("systemSettings");
   const [activeSkillName, setActiveSkillName] = useState<string | null>(null);
   const [selectedOrgAssetId, setSelectedOrgAssetId] = useState<string | null>(null);
   const [sidebarRefreshNonce, setSidebarRefreshNonce] = useState(0);
@@ -349,11 +393,16 @@ export default function WorkbenchContent() {
   const inputBarRef = useRef<HTMLDivElement | null>(null);
   const [inputBarWidth, setInputBarWidth] = useState(9999);
 
-  const [localProjects, setLocalProjects] = useState<LocalProject[]>([]);
-  const [selectedProjectId, setSelectedProjectIdState] = useState("");
+  const [projects, setProjects] = useState<RegistryProjectRow[]>([]);
+  const [projectsLoading, setProjectsLoading] = useState(false);
+  const [projectsError, setProjectsError] = useState<string | null>(null);
+  const [selectedProjectId, setSelectedProjectId] = useState<string>(() => readSelectedRegistryProjectId());
   const [newProjectModalOpen, setNewProjectModalOpen] = useState(false);
-  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
-  const [deleteBusy, setDeleteBusy] = useState(false);
+  // Project delete is intentionally disabled in this iteration (see product reasoning).
+
+  // keep eslint happy; reserved for inline loading/error UI later
+  void projectsLoading;
+  void projectsError;
 
   const apiBase = process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8765";
   const [runtimeMode, setRuntimeMode] = useState<"configured" | "unconfigured" | "fake" | null>(null);
@@ -387,12 +436,19 @@ export default function WorkbenchContent() {
       const tidNow = (threadId || "").trim();
       if (tidNow !== tid) return;
       projectGuideColdStartInFlightRef.current = true;
-      const coldPrompt = buildProjectGuideColdStartUserPrompt();
+      const authed = getAuthUser();
+      const intentText = buildProjectGuideColdStartIntent({
+        threadId: tid,
+        userId: authed?.userId,
+        workId: authed?.workId,
+      });
+      // Skill-First fast-path：showInTranscript=false 让 user 气泡不显示；
+      // GuidanceCard 由 driver 通过 chat.guidance 单独 emit，不需要 assistant 气泡。
       void sendChatRequestRef
-        .current(coldPrompt, selectedModel, {
+        .current(intentText, selectedModel, {
           showInTranscript: false,
-          showAssistantInTranscript: true,
-          showCompletionMessage: true,
+          showAssistantInTranscript: false,
+          showCompletionMessage: false,
         })
         .then((ok) => {
           projectGuideColdStartInFlightRef.current = false;
@@ -500,73 +556,94 @@ export default function WorkbenchContent() {
     void loadModelFromConfig();
   }, [loadModelFromConfig]);
 
-  const reloadProjectsFromStorage = useCallback(() => {
-    const list = listLocalProjects();
-    let sel = getSelectedLocalProjectId() ?? "";
-    let repaired = false;
-    if (sel && !list.some((p) => p.id === sel)) {
-      sel = list[0]?.id ?? "";
-      if (sel) {
-        setSelectedLocalProjectId(sel);
-        repaired = true;
-      }
-    }
-    setLocalProjects(list);
-    setSelectedProjectIdState(sel);
-    if (repaired && sel) {
-      const p = list.find((x) => x.id === sel);
-      if (p) patchGlobalProjectContext({ project: p });
+  const loadProjects = useCallback(async () => {
+    setProjectsLoading(true);
+    setProjectsError(null);
+    try {
+      const r = await authFetch("/api/projects", { cache: "no-store" });
+      const j = (await r.json().catch(() => ({}))) as { projects?: RegistryProjectRow[]; detail?: string };
+      if (!r.ok) throw new Error(j.detail || `HTTP ${r.status}`);
+      const list = Array.isArray(j.projects) ? j.projects : [];
+      setProjects(list);
+      setSelectedProjectId((cur) => {
+        const next = cur && list.some((p) => p?.projectId === cur) ? cur : (list[0]?.projectId ?? "");
+        if (next && next !== cur) writeSelectedRegistryProjectId(next);
+        return next;
+      });
+    } catch (e) {
+      setProjectsError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setProjectsLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    reloadProjectsFromStorage();
-    const onChange = () => reloadProjectsFromStorage();
-    window.addEventListener(NANOBOT_LOCAL_PROJECTS_CHANGED, onChange);
-    return () => window.removeEventListener(NANOBOT_LOCAL_PROJECTS_CHANGED, onChange);
-  }, [reloadProjectsFromStorage]);
+    void loadProjects();
+  }, [loadProjects]);
 
-  const patchProjectContext = useCallback((p: LocalProject) => {
-    patchGlobalProjectContext({ project: p });
+  const patchProjectContext = useCallback((p: RegistryProjectRow) => {
+    const prof = p.profile && typeof p.profile === "object" ? (p.profile as Partial<RegistryProjectProfile>) : {};
+    patchGlobalProjectContext({
+      project: {
+        id: String(p.projectId || "").trim(),
+        name: String(p.name || "").trim(),
+        code: String(prof.projectCode || "").trim(),
+        scenario: String(prof.scenario || "").trim(),
+        scale: String(prof.scale || "").trim(),
+        bidCode: "",
+        deliveryFeatures: Array.isArray(prof.deliveryTags) ? prof.deliveryTags.join("、") : "",
+        language: "",
+        projectGroup: "",
+        stakeholders: "",
+        createdAt: Date.now(),
+      },
+    });
   }, []);
 
   const handlePickProject = useCallback(
     (id: string) => {
-      setSelectedLocalProjectId(id);
-      setSelectedProjectIdState(id);
-      const p = listLocalProjects().find((x) => x.id === id);
+      setSelectedProjectId(id);
+      writeSelectedRegistryProjectId(id);
+      const p = projects.find((x) => x?.projectId === id);
       if (p) patchProjectContext(p);
     },
-    [patchProjectContext],
+    [patchProjectContext, projects],
   );
 
   const handleCreateProject = useCallback(
     async (payload: WorkspaceProjectCreatePayload) => {
-      const meta = workspacePayloadToLocalProjectMeta(payload);
-      const p = createLocalProjectWithMeta(meta);
-      setLocalProjects(listLocalProjects());
-      setSelectedProjectIdState(p.id);
-      patchProjectContext(p);
+      const m = payload.workspaceMeta;
+      const body = {
+        name: String(payload.name || "").trim(),
+        profile: {
+          projectCode: String(m.projectCode || "").trim(),
+          scenario: String(m.scenario || "").trim(),
+          scale: String(m.scale || "").trim() || null,
+          startDate: m.startDate ? String(m.startDate) : null,
+          siteReadyDate: m.datacenterReadyDate ? String(m.datacenterReadyDate) : null,
+          deliveryTags: Array.isArray(m.deliveryFeatures) ? m.deliveryFeatures : [],
+        },
+      };
+      const r = await authFetch("/api/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const j = (await r.json().catch(() => ({}))) as { project?: RegistryProjectRow; detail?: string };
+      if (!r.ok) throw new Error(j.detail || `HTTP ${r.status}`);
+      const proj = j.project;
+      if (proj?.projectId) {
+        const pid = String(proj.projectId);
+        writeSelectedRegistryProjectId(pid);
+        setSelectedProjectId(pid);
+        patchProjectContext(proj);
+      }
+      await loadProjects();
     },
-    [patchProjectContext],
+    [loadProjects, patchProjectContext],
   );
 
-  const confirmDeleteProject = useCallback(() => {
-    if (!deleteTargetId) return;
-    setDeleteBusy(true);
-    try {
-      const { projects, selectedId } = deleteLocalProject(deleteTargetId);
-      setLocalProjects(projects);
-      setSelectedProjectIdState(selectedId ?? "");
-      if (selectedId) {
-        const p = projects.find((x) => x.id === selectedId);
-        if (p) patchProjectContext(p);
-      }
-    } finally {
-      setDeleteBusy(false);
-      setDeleteTargetId(null);
-    }
-  }, [deleteTargetId, patchProjectContext]);
+  // 删除项目：本迭代刻意不支持（避免级联删除与脏数据）。
 
   /** 门禁由 workbench/page 负责；此处防止运行中门禁被撤销时仍停留 */
   useEffect(() => {
@@ -727,13 +804,16 @@ export default function WorkbenchContent() {
     setSystemModal(null);
   }, []);
 
-  const openControlCenter = useCallback((tab: ControlCenterTab = "config") => {
+  const openControlCenter = useCallback((opts?: { tab?: ControlCenterTab; settingsPane?: ControlCenterSettingsPane }) => {
+    const tab = opts?.tab ?? "config";
+    const pane = opts?.settingsPane ?? "systemSettings";
     setControlCenterTab(tab);
+    if (tab === "settings") setControlCenterSettingsPane(pane);
     setSystemModal("controlCenter");
   }, []);
 
   const openSettings = useCallback(() => {
-    openControlCenter("settings");
+    openControlCenter({ tab: "settings", settingsPane: "systemSettings" });
   }, [openControlCenter]);
 
   const openRemoteAssetDetail = useCallback((assetId: string) => {
@@ -1054,7 +1134,7 @@ export default function WorkbenchContent() {
     const onToggleDashboard = () => {
       console.log("[CommandPalette] toggle dashboard placeholder (no dedicated state yet)");
     };
-    const onOpenControlCenter = () => openControlCenter("config");
+    const onOpenControlCenter = () => openControlCenter({ tab: "config" });
     const onSetTheme = (e: Event) => {
       const ev = e as CustomEvent;
       const v = String(ev.detail ?? "").trim();
@@ -1086,21 +1166,9 @@ export default function WorkbenchContent() {
     };
   }, [clearChat, openControlCenter, selectedModel, setTheme, toggleZenMode, triggerRunSkill]);
 
-  useEffect(() => {
-    if (workbenchModule !== "overview") {
-      setSidebarOpen(false);
-      closePreview();
-    }
-  }, [workbenchModule, closePreview]);
-
-  useEffect(() => {
-    if (workbenchModule !== "profile") setProfileSubView("main");
-  }, [workbenchModule]);
-
   const openProfileHome = useCallback(() => {
-    setProfileSubView("main");
-    setWorkbenchModule("profile");
-  }, []);
+    openControlCenter({ tab: "settings", settingsPane: "profile" });
+  }, [openControlCenter]);
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -1160,16 +1228,13 @@ export default function WorkbenchContent() {
     (action: PersonalInfoMenuAction) => {
       switch (action) {
         case "profile_home":
-          setProfileSubView("main");
-          setWorkbenchModule("profile");
+          openControlCenter({ tab: "settings", settingsPane: "profile" });
           break;
         case "settings":
-          setProfileSubView("settings");
-          setWorkbenchModule("profile");
+          openControlCenter({ tab: "settings", settingsPane: "systemSettings" });
           break;
         case "member_management":
-          setProfileSubView("members");
-          setWorkbenchModule("profile");
+          openControlCenter({ tab: "settings", settingsPane: "members" });
           break;
         case "logout":
           handleLogout();
@@ -1178,11 +1243,11 @@ export default function WorkbenchContent() {
           break;
       }
     },
-    [handleLogout],
+    [handleLogout, openControlCenter],
   );
 
   const openConfig = useCallback(() => {
-    openControlCenter("config");
+    openControlCenter({ tab: "config" });
   }, [openControlCenter]);
 
   const artifacts = useMemo(() => {
@@ -1380,8 +1445,9 @@ export default function WorkbenchContent() {
       {systemModal === "controlCenter" && (
         <SystemShellModal onClose={closeSystemModal} title="控制中心">
           <ControlCenterPanel
-            key={controlCenterTab}
+            key={`${controlCenterTab}:${controlCenterSettingsPane}`}
             initialTab={controlCenterTab}
+            initialSettingsPane={controlCenterSettingsPane}
             onClose={closeSystemModal}
             onOpenRemoteUpload={openRemoteAssetUpload}
             onSaved={() => {
@@ -1419,31 +1485,6 @@ export default function WorkbenchContent() {
         onCreate={handleCreateProject}
       />
 
-      <CenteredConfirmModal
-        open={Boolean(deleteTargetId)}
-        title="删除项目"
-        variant="danger"
-        confirmText="删除"
-        loading={deleteBusy}
-        description={
-          deleteTargetId ? (
-            <span>
-              确定删除项目「
-              <span className="font-semibold ui-text-primary">
-                {localProjects.find((p) => p.id === deleteTargetId)?.name ?? deleteTargetId}
-              </span>
-              」？此操作不可恢复。
-            </span>
-          ) : null
-        }
-        onCancel={() => {
-          if (!deleteBusy) setDeleteTargetId(null);
-        }}
-        onConfirm={() => {
-          confirmDeleteProject();
-        }}
-      />
-
       {clearUndoToast ? (
         <div
           className="fixed bottom-5 left-1/2 z-[95] flex max-w-[min(100%,24rem)] -translate-x-1/2 flex-wrap items-center gap-3 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-1)] px-4 py-3 text-sm shadow-[var(--shadow-panel)]"
@@ -1469,17 +1510,32 @@ export default function WorkbenchContent() {
         </div>
       ) : null}
 
-      {workbenchModule === "overview" ? (
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        {moduleStepperModules.length > 0 ? (
-          <div
-            className="z-10 w-full min-w-0 shrink-0 rounded-b-xl border-b border-[var(--border-subtle)] bg-[color-mix(in_oklab,var(--paper-card)_82%,#000000)] shadow-[0_2px_16px_rgba(0,0,0,0.35)] backdrop-blur-sm"
-          >
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-b-2xl ui-elevation-1">
+        {moduleStepperModules.length > 0 && stepperView === "docked" ? (
+          <div className="relative z-10 w-full min-w-0 shrink-0 border-b border-[var(--border-subtle)] bg-[var(--paper-card)] animate-in slide-in-from-top-2 duration-200">
+            <button
+              type="button"
+              onClick={() => setStepperView("compact")}
+              className="nav-icon-btn absolute right-2 top-2 z-20 p-1.5"
+              title="收起到胶囊"
+              aria-label="收起到胶囊"
+            >
+              <Minimize2 size={16} strokeWidth={2.25} aria-hidden />
+            </button>
             <ModuleStepper
               modules={moduleStepperModules}
               activeModuleId={activeModuleId}
               onSelectModule={undefined}
-              className="px-1 pb-2.5 pt-2"
+              className="px-1 pb-2.5 pt-2 pr-12"
+            />
+          </div>
+        ) : null}
+        {moduleStepperModules.length > 0 && stepperView === "compact" ? (
+          <div className="z-10 flex w-full min-w-0 shrink-0 items-center justify-end px-3 pt-2">
+            <ModuleStepperCompact
+              modules={moduleStepperModules}
+              activeModuleId={activeModuleId}
+              onDock={() => setStepperView("docked")}
             />
           </div>
         ) : null}
@@ -1504,7 +1560,7 @@ export default function WorkbenchContent() {
         />
       )}
       {sidebarOpen && (
-        <div className="md:hidden fixed inset-y-0 left-0 z-40 w-[21rem] p-2 bg-zinc-100 dark:bg-[var(--canvas-rail)] rounded-r-2xl shadow-xl border-r border-zinc-200/90 dark:border-white/5">
+        <div className="md:hidden fixed inset-y-0 left-0 z-40 w-[21rem] p-2 bg-[var(--canvas-rail)] rounded-r-2xl shadow-xl border-r border-[var(--border-subtle)]">
           <button
             type="button"
             onClick={() => setSidebarOpen(false)}
@@ -1525,9 +1581,9 @@ export default function WorkbenchContent() {
       )}
 
       {/* Desktop layout: navigation + chat + overview, preview uses overlay drawer */}
-      <div className="hidden md:block h-full min-h-0 overflow-x-auto bg-[var(--surface-0)]">
+      <div className="hidden md:block h-full min-h-0 overflow-x-auto bg-[var(--paper-card)]">
         <div
-          className={`flex h-full min-h-0 bg-[var(--surface-0)] p-2 gap-2 lg:p-3 lg:gap-3 ${zenMode ? "min-w-0" : "min-w-max"}`}
+          className={`flex h-full min-h-0 bg-[var(--paper-card)] p-2 gap-2 lg:p-3 lg:gap-3 ${zenMode ? "min-w-0" : "min-w-max"}`}
         >
 
           {/* Col 1: Nav strip (collapsed 44px) or full Sidebar */}
@@ -1620,7 +1676,7 @@ export default function WorkbenchContent() {
                 <div className="mt-auto" />
                 <button
                   type="button"
-                  onClick={() => setWorkbenchModule("profile")}
+                  onClick={() => openControlCenter({ tab: "settings", settingsPane: "profile" })}
                   title="账号与资料"
                   className="nav-icon-btn"
                   aria-label="账号与资料"
@@ -1736,12 +1792,14 @@ export default function WorkbenchContent() {
               >
                 {dashboardNavigatorView === "overview" ? (
                   <div className="shrink-0 flex justify-center border-b border-[var(--border-subtle)] bg-[var(--surface-0)] px-3 pt-4 pb-2.5">
-                    <LocalProjectNavDropdown
-                      projects={localProjects}
+                    <ProjectNavDropdown
+                      projects={projects
+                        .filter((p) => p && typeof p === "object")
+                        .map((p) => ({ projectId: String(p.projectId || ""), name: String(p.name || "").trim() }))
+                        .filter((p) => p.projectId && p.name)}
                       selectedId={selectedProjectId}
                       onSelect={handlePickProject}
                       onOpenNew={() => setNewProjectModalOpen(true)}
-                      onRequestDelete={(id) => setDeleteTargetId(id)}
                       compact={false}
                       currentStageLabel={overviewStageLabel}
                       moduleProgressText={overviewModuleProgressText}
@@ -1845,7 +1903,7 @@ export default function WorkbenchContent() {
       )}
 
       {/* Mobile layout — single Paper column */}
-      <div className="md:hidden h-full min-h-0 flex flex-col rounded-2xl overflow-hidden bg-[var(--paper-chat)] shadow-[var(--shadow-card)] ring-1 ring-[var(--border-subtle)]">
+      <div className="md:hidden h-full min-h-0 flex flex-col rounded-2xl overflow-hidden bg-[var(--paper-chat)] ui-elevation-2">
         <div className="shrink-0 border-b border-[var(--border-subtle)] px-2 py-2">
           <div className="flex min-w-0 items-center gap-2">
             <div className="relative shrink-0" ref={workbenchToolsMenuMobileRef}>
@@ -1884,12 +1942,14 @@ export default function WorkbenchContent() {
             </div>
             <div className="min-w-0 flex-1">
               <WorkbenchTopNavSlot className="min-w-0">
-                <LocalProjectNavDropdown
-                  projects={localProjects}
+                <ProjectNavDropdown
+                  projects={projects
+                    .filter((p) => p && typeof p === "object")
+                    .map((p) => ({ projectId: String(p.projectId || ""), name: String(p.name || "").trim() }))
+                    .filter((p) => p.projectId && p.name)}
                   selectedId={selectedProjectId}
                   onSelect={handlePickProject}
                   onOpenNew={() => setNewProjectModalOpen(true)}
-                  onRequestDelete={(id) => setDeleteTargetId(id)}
                   compact
                   currentStageLabel={overviewStageLabel}
                   moduleProgressText={overviewModuleProgressText}
@@ -1934,15 +1994,6 @@ export default function WorkbenchContent() {
       </div>
         </div>
       </div>
-      ) : (
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-0)] shadow-[var(--shadow-card)]">
-          <WorkbenchProfilePage
-            subView={profileSubView}
-            onSubViewChange={setProfileSubView}
-            onBack={() => setWorkbenchModule("overview")}
-          />
-        </div>
-      )}
     </main>
   );
 }

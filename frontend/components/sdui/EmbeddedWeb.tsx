@@ -61,7 +61,9 @@ export function EmbeddedWeb({
   embedSandbox = true,
 }: Props) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  const hostRef = useRef<HTMLDivElement | null>(null);
   const [loaded, setLoaded] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const lastSentJsonRef = useRef<string | null>(null);
   const runtime = useSkillUiRuntime();
   const syncState = runtime.syncState;
@@ -112,6 +114,16 @@ export function EmbeddedWeb({
   const onLoad = useCallback(() => {
     setLoaded(true);
     lastSentJsonRef.current = null;
+  }, []);
+
+  useEffect(() => {
+    const onFsChange = () => {
+      const el = hostRef.current;
+      if (!el) return setIsFullscreen(false);
+      setIsFullscreen(document.fullscreenElement === el);
+    };
+    document.addEventListener("fullscreenchange", onFsChange);
+    return () => document.removeEventListener("fullscreenchange", onFsChange);
   }, []);
 
   // 上行：message 监听，cleanup 移除；handler 用 ref 保持最新 syncState/embedId，避免 Strict Mode 双绑
@@ -174,9 +186,49 @@ export function EmbeddedWeb({
 
   return (
     <div
+      ref={hostRef}
       className={["relative w-full overflow-hidden rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-0)]", className ?? ""].join(" ")}
       style={{ minHeight: minH }}
     >
+      <div className="absolute right-2 top-2 z-[3] flex items-center gap-2">
+        <button
+          type="button"
+          onClick={async () => {
+            const el = hostRef.current;
+            if (!el) return;
+            try {
+              if (document.fullscreenElement) await document.exitFullscreen();
+              else await el.requestFullscreen();
+            } catch {
+              try {
+                window.open(src, "_blank", "noopener,noreferrer");
+              } catch {
+                /* ignore */
+              }
+            }
+          }}
+          className="rounded-lg border border-[var(--border-subtle)] bg-[color-mix(in_oklab,var(--surface-0)_80%,transparent)] px-2 py-1 text-[10px] font-medium ui-text-secondary hover:ui-text-primary hover:bg-[var(--surface-2)] transition-colors"
+          aria-label={isFullscreen ? "退出全屏" : "全屏显示"}
+          title={isFullscreen ? "退出全屏" : "全屏显示"}
+        >
+          {isFullscreen ? "退出全屏" : "全屏"}
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            try {
+              window.open(src, "_blank", "noopener,noreferrer");
+            } catch {
+              /* ignore */
+            }
+          }}
+          className="rounded-lg border border-[var(--border-subtle)] bg-[color-mix(in_oklab,var(--surface-0)_80%,transparent)] px-2 py-1 text-[10px] font-medium ui-text-secondary hover:ui-text-primary hover:bg-[var(--surface-2)] transition-colors"
+          aria-label="新窗口打开"
+          title="新窗口打开"
+        >
+          新窗口
+        </button>
+      </div>
       {!loaded ? (
         <div
           className="absolute inset-0 z-[1] flex flex-col gap-3 p-4 animate-pulse"

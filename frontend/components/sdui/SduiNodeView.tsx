@@ -41,6 +41,7 @@ import { SduiHitlTextInput } from "@/components/sdui/HitlTextInput";
 import { SduiStatisticRow } from "@/components/sdui/SduiStatisticRow";
 import { SduiGanttLane } from "@/components/sdui/SduiGanttLane";
 import { EmbeddedWeb } from "@/components/sdui/EmbeddedWeb";
+import { SduiEmptyState } from "@/components/sdui/SduiEmptyState";
 
 function UnknownNode({ type }: { type: string }) {
   return (
@@ -115,7 +116,16 @@ export function SduiNodeView({ node, pathPrefix = "root" }: Props) {
       return <SduiTabs tabs={node.tabs} defaultTabId={node.defaultTabId} pathPrefix={pathPrefix} />;
 
     case "Stepper":
-      return <SduiStepper steps={node.steps} orientation={node.orientation} />;
+      return (
+        <SduiStepper
+          steps={node.steps}
+          orientation={node.orientation}
+          orientationOnNarrow={node.orientationOnNarrow}
+        />
+      );
+
+    case "EmptyState":
+      return <SduiEmptyState title={node.title} hint={node.hint} icon={node.icon} />;
 
     case "Skeleton": {
       const variant = node.variant ?? "rect";
@@ -221,6 +231,8 @@ export function SduiNodeView({ node, pathPrefix = "root" }: Props) {
         <SduiGuidanceCard
           context={node.context}
           actions={node.actions}
+          intro={node.intro}
+          variant={node.variant}
           cardId={(node as SduiGuidanceCardNode & { cardId?: string }).cardId}
         />
       );

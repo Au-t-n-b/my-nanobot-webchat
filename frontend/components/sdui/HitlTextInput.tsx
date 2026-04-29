@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useSkillUiRuntime } from "@/components/sdui/SkillUiRuntimeProvider";
+import { HitlCardShell } from "@/components/sdui/HitlCardShell";
 
 type Props = {
   cardId?: string;
@@ -70,43 +71,30 @@ export function SduiHitlTextInput(props: Props) {
   const submitDisabled = submitted || !text.trim();
 
   return (
-    <div
-      className="rounded-lg overflow-hidden border border-[var(--border-subtle)] bg-[var(--surface-1)]"
-    >
-      <div
-        className="flex flex-col gap-2 px-3 py-2.5 border-b border-[var(--border-subtle)]"
-      >
-        <span className="text-[10px] font-bold tracking-wide uppercase ui-text-muted">
-          需要你填写
-        </span>
-        {props.title ? <p className="text-xs ui-text-secondary leading-relaxed">{props.title}</p> : null}
-        {props.helpText ? <p className="text-[11px] ui-text-muted leading-relaxed">{props.helpText}</p> : null}
+    <HitlCardShell eyebrow="需要你填写">
+      {props.title ? <p className="text-xs ui-text-secondary leading-relaxed">{props.title}</p> : null}
+      {props.helpText ? <p className="ui-text-label ui-text-muted">{props.helpText}</p> : null}
+      {props.label ? <div className="text-xs font-semibold ui-text-primary">{props.label}</div> : null}
+      <textarea
+        className="w-full rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-0)] px-4 py-3 text-sm ui-text-primary placeholder:ui-text-muted focus:outline-none focus:ring-2 focus:ring-white/10 focus:border-[var(--border-strong)] transition-all resize-y min-h-[4rem]"
+        rows={rows}
+        placeholder={props.placeholder}
+        value={text}
+        disabled={submitted}
+        onChange={(e) => setText(e.target.value)}
+      />
+      <div className="flex items-center justify-end">
+        <button
+          type="button"
+          disabled={submitDisabled}
+          onClick={submit}
+          className="rounded-lg px-4 py-2 text-xs font-semibold text-white ui-motion-fast transition-opacity disabled:opacity-40"
+          style={{ background: "var(--accent)" }}
+        >
+          {(props.submitLabel ?? "").trim() || "提交"}
+        </button>
       </div>
-
-      <div className="px-3 py-2.5">
-        {props.label ? <div className="mb-2 text-xs font-semibold ui-text-primary">{props.label}</div> : null}
-        <textarea
-          className="w-full rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-0)] px-4 py-3 text-sm ui-text-primary placeholder:ui-text-muted focus:outline-none focus:ring-2 focus:ring-white/10 focus:border-[var(--border-strong)] transition-all resize-y min-h-[4rem]"
-          rows={rows}
-          placeholder={props.placeholder}
-          value={text}
-          disabled={submitted}
-          onChange={(e) => setText(e.target.value)}
-        />
-
-        <div className="mt-3 flex items-center justify-end gap-2">
-          <button
-            type="button"
-            disabled={submitDisabled}
-            onClick={submit}
-            className="rounded-lg px-4 py-2 text-xs font-semibold text-white disabled:opacity-40 transition-opacity"
-            style={{ background: "var(--accent)" }}
-          >
-            {(props.submitLabel ?? "").trim() || "提交"}
-          </button>
-        </div>
-      </div>
-    </div>
+    </HitlCardShell>
   );
 }
 

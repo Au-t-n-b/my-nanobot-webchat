@@ -285,13 +285,19 @@ class MissionControlManager:
         actions: list[dict[str, Any]],
         *,
         card_id: str | None = None,
+        intro: str | None = None,
+        variant: str | None = None,
     ) -> ChatCardHandle:
         """Send a GuidanceCard to the chat stream.
 
         Args:
             context: Human-readable progress description, e.g. "Step 2 complete, recommend continuing Step 3".
-            actions: Quick action list, format [{"label": "继续", "verb": "proceed"}, ...].
+            actions: Quick action list. Each item is at minimum
+                ``{"label": str, "verb": str}``; may also carry optional
+                ``payload``, ``hint`` (副标题/触发话术), ``disabled`` (置灰).
             card_id: Optional; used for later replace. Auto-generated if not provided.
+            intro: Optional intro paragraph for multi-row guidance cards.
+            variant: Optional render hint, e.g. ``"rows"`` for the multi-row layout.
         """
         cid = card_id or str(uuid.uuid4())
         did = await self._ensure_chat_doc()
@@ -301,6 +307,12 @@ class MissionControlManager:
             "context": context,
             "actions": actions,
         }
+        intro_text = (intro or "").strip()
+        if intro_text:
+            node["intro"] = intro_text
+        variant_text = (variant or "").strip()
+        if variant_text:
+            node["variant"] = variant_text
         payload: dict[str, Any] = {
             "threadId": self.thread_id,
             "cardId": cid,

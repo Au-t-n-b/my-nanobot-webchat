@@ -144,10 +144,14 @@ async def _emit_guidance(
     context = str(payload.get("context") or "").strip() or "请继续下一步。"
     raw_actions = payload.get("actions")
     actions = [dict(item) for item in raw_actions if isinstance(item, dict)] if isinstance(raw_actions, list) else []
+    intro = str(payload.get("intro") or "").strip() or None
+    variant = str(payload.get("variant") or "").strip() or None
     handle = await mc.emit_guidance(
         context,
         actions,
         card_id=str(payload.get("cardId") or "").strip() or None,
+        intro=intro,
+        variant=variant,
     )
     return {
         "ok": True,

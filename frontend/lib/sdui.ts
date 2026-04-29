@@ -86,6 +86,7 @@ export const SDUI_NODE_TYPE_VALUES: readonly SduiNodeType[] = [
   "GanttLane",
   "GanttChart",
   "EmbeddedWeb",
+  "EmptyState",
 ] as const;
 
 /** Tabs 子项图标的封闭枚举（宿主映射到 Lucide，禁止自由 SVG/URL） */
@@ -474,13 +475,29 @@ export type SduiGoldenMetricsNode = SduiOptionalId & {
   metrics?: SduiGoldenMetricItem[];
 };
 
-export type SduiGuidanceAction = { label: string; verb: string; payload?: unknown };
+export type SduiGuidanceAction = {
+  label: string;
+  verb: string;
+  payload?: unknown;
+  /** 副标题/触发话术，用于多行 rows 形态展示 “用户回复 xxx”。 */
+  hint?: string;
+  /** placeholder/未实装时置灰，点击不发 intent。 */
+  disabled?: boolean;
+  /** 子任务说明文字（可选），多行 rows 形态下展示在标题之下。 */
+  description?: string;
+  /** 子任务内部步骤（可选），多行 rows 形态下展示为有序列表。 */
+  steps?: string[];
+};
 
 export type SduiGuidanceCardNode = {
   type: "GuidanceCard";
   id?: string;
   context: string;
   actions: SduiGuidanceAction[];
+  /** 多行 rows 形态的引导卡总说明（可选，独立于 ``context``）。 */
+  intro?: string;
+  /** 渲染 variant 提示，可选。``rows`` 强制竖向横条；缺省时按 ``hint`` 是否存在自动判断。 */
+  variant?: "rows" | "buttons";
   flex?: number;
 };
 
@@ -555,6 +572,7 @@ export type SduiNode =
   | SduiTabsNode
   | SduiStepperNode
   | SduiSkeletonNode
+  | SduiEmptyStateNode
   | SduiTextNode
   | SduiTextAreaNode
   | SduiMarkdownNode
@@ -602,6 +620,8 @@ export type SduiCardNode = SduiOptionalId & {
   title?: string;
   /** 紧凑布局：更低内边距，适合产物行等列表 */
   density?: "default" | "compact";
+  /** 视觉色调：``accent`` 用于"需要关注"卡（眉色 / 副边走 accent），缺省 ``neutral`` */
+  tone?: "neutral" | "accent";
   children?: SduiNode[];
 };
 
@@ -644,6 +664,12 @@ export type SduiStepperStep = {
   status: SduiStepperStatus;
   /** 细分步骤：Hover Tooltip 展示 */
   detail?: SduiStepperDetailItem[];
+  /**
+   * 仅 dev mode 可见的"实现层文案"（API / 表名 / 内部 ID 等）。
+   * 生产环境永远不渲染，避免技术名词泄漏到业务用户面。
+   * Popover 在 ``?debug=1`` 时把这些项 append 到 ``detail`` 末尾并打 DEV badge。
+   */
+  _internal?: string[];
 };
 
 /** 横向/纵向流程步骤条 */
@@ -652,6 +678,12 @@ export type SduiStepperNode = SduiOptionalId & {
   steps: SduiStepperStep[];
   /** 默认横向；纵向时适用于窄栏 */
   orientation?: "horizontal" | "vertical";
+  /**
+   * 容器查询 fallback：当渲染容器宽度小于 720px 且当前 ``orientation === "horizontal"`` 时，
+   * 自动切换为该方向。常用于把横排 Stepper 在窄栏（如侧栏 / 移动端）改为纵排，
+   * 不需要驱动手动切换 orientation。
+   */
+  orientationOnNarrow?: "horizontal" | "vertical";
 };
 
 /** 流式 Bootstrap / 推测性渲染占位（封闭世界；无自由像素，仅用语义 variant） */
@@ -663,6 +695,22 @@ export type SduiSkeletonNode = SduiOptionalId & {
   /** variant=text 时的行数（1–8） */
   lines?: number;
   children?: SduiNode[];
+};
+
+/**
+ * 空态占位：``dashed border + 居中 icon + 灰文本 + 可选副提示``。
+ *
+ * 用于"列表 / 区块还没有数据但确实存在"的场景，替代仓内散落的把
+ * ``Text(color=subtle)`` 当占位文案的反模式。语义清晰、易扫读。
+ */
+export type SduiEmptyStateNode = SduiOptionalId & {
+  type: "EmptyState";
+  /** 主文案，必填，例如"暂无勘测摘要" */
+  title: string;
+  /** 次说明，可选，例如"启动智慧工勘后将在此展示" */
+  hint?: string;
+  /** 封闭枚举图标（与 ``SduiTabIconName`` 共享映射） */
+  icon?: SduiTabIconName;
 };
 
 export type SduiTextNode = SduiOptionalId & {

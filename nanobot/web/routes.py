@@ -709,6 +709,21 @@ def _try_parse_chat_card_intent(text: str) -> dict[str, Any] | None:
             return obj
         search_from = i + 1
 
+    # Phrase fast-path (current phase only): if the user's text exactly matches a
+    # ``trigger`` / ``alias`` from the current phase's
+    # ``<skills_root>/<phaseSkillDir>/data/guide_tasks.json``, produce the
+    # corresponding ``skill_runtime_start`` envelope. Placeholder rows are skipped
+    # by the resolver. Any I/O / parse error inside the resolver is swallowed and
+    # we fall through to the generic NL heuristic below.
+    try:
+        from nanobot.web.guide_tasks_resolver import match_phrase_to_intent
+
+        phrase_intent = match_phrase_to_intent(t)
+        if isinstance(phrase_intent, dict) and phrase_intent.get("type") == "chat_card_intent":
+            return phrase_intent
+    except Exception:
+        pass
+
     # Fallback fast-path: allow natural language "开启/打开/启动 <moduleId>" to start a module skill.
     # This avoids relying on the LLM to emit the JSON envelope.
     #

@@ -13,7 +13,7 @@ from nanobot.web.skill_runtime_driver import run_skill_runtime_driver
 # Anything *else* in ``payload`` (e.g. ``transition`` / ``transition_id``) is
 # forwarded into the chained driver's ``request.result``, so handoff metadata
 # from job_management/zhgk/jmfz reaches project_guide's stdin in the schema its
-# driver already expects (see ``templates/project_guide/runtime/driver.py``).
+# driver already expects (see ``~/.nanobot/workspace/skills/project_guide/runtime/driver.py``).
 _CHAIN_RESERVED_KEYS: frozenset[str] = frozenset({"skillName", "action", "requestId", "threadId"})
 
 # Per-call recursion guard. ``project_guide`` is allowed to be started from any

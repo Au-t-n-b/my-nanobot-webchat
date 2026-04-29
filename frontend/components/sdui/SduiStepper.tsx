@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useId } from "react";
+import { Fragment, useEffect, useId, useRef, useState } from "react";
 import { Check, Loader2, XCircle } from "lucide-react";
 
 import type { SduiStepperDetailItem, SduiStepperStatus, SduiStepperStep } from "@/lib/sdui";
@@ -8,7 +8,22 @@ import type { SduiStepperDetailItem, SduiStepperStatus, SduiStepperStep } from "
 type Props = {
   steps: SduiStepperStep[];
   orientation?: "horizontal" | "vertical";
+  /**
+   * 容器查询 fallback：渲染容器宽度 < 720px 且当前 ``orientation === "horizontal"`` 时，
+   * 自动切换至该方向。允许 dashboard.json 在窄栏自动改纵排，无需驱动手动切换。
+   */
+  orientationOnNarrow?: "horizontal" | "vertical";
 };
+
+/** ``?debug=1``（或任何 ``debug`` 查询键存在）时返回 true。SSR 期返回 false（保守）。 */
+function useDebugMode(): boolean {
+  const [debug, setDebug] = useState(false);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    setDebug(new URLSearchParams(window.location.search).has("debug"));
+  }, []);
+  return debug;
+}
 
 const NODE =
   "flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold transition-colors";
@@ -105,7 +120,7 @@ function stepperProgressPercent(steps: SduiStepperStep[]): number {
   return Math.max(0, Math.min(100, ((completed + running) / steps.length) * 100));
 }
 
-/** 悬停/聚焦时展示细分步骤；键盘可聚焦 */
+/** 悬停/聚焦时展示细分步骤；键盘可聚焦。``?debug=1`` 时把 ``step._internal[]`` 追加显示并打 DEV badge。 */
 function StepDetailPopover({
   step,
   stepIndex,
@@ -118,10 +133,14 @@ function StepDetailPopover({
   align?: "center" | "start";
 }) {
   const baseId = useId();
-  const descId = step.detail?.length ? `${baseId}-desc-${stepIndex}` : undefined;
+  const debug = useDebugMode();
+  const internalRows = debug && Array.isArray(step._internal) ? step._internal.filter((s) => typeof s === "string" && s.trim()) : [];
+  const hasDetail = !!step.detail?.length;
+  const hasInternal = internalRows.length > 0;
+  const descId = hasDetail || hasInternal ? `${baseId}-desc-${stepIndex}` : undefined;
   const titleTip = detailTitleAttr(step);
 
-  if (!step.detail?.length) {
+  if (!hasDetail && !hasInternal) {
     return <>{children}</>;
   }
 
@@ -146,29 +165,81 @@ function StepDetailPopover({
         id={descId}
         role="tooltip"
         className={[
-          "pointer-events-none absolute z-20 min-w-[10rem] max-w-[16rem] rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)] px-2.5 py-2 text-[10px] leading-snug text-[var(--text-primary)] shadow-[var(--shadow-card)]",
+          "pointer-events-none absolute z-20 min-w-[10rem] max-w-[18rem] rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)] px-2.5 py-2 text-[10px] leading-snug text-[var(--text-primary)] shadow-[var(--shadow-card)]",
           "opacity-0 transition-opacity duration-150",
           "group-hover/step:opacity-100 group-focus-within/step:opacity-100",
           align === "center" ? "bottom-full left-1/2 mb-1 -translate-x-1/2" : "bottom-full left-0 mb-1",
         ].join(" ")}
       >
-        <p className="mb-1 font-semibold text-[var(--text-secondary)]">细分进展</p>
-        <ul className="space-y-0.5">
-          {step.detail.map((d, i) => (
-            <li key={i} className="ui-text-muted">
-              {detailLineLabel(d)}
-            </li>
-          ))}
-        </ul>
+        {hasDetail ? (
+          <>
+            <p className="mb-1 font-semibold text-[var(--text-secondary)]">细分进展</p>
+            <ul className="space-y-0.5">
+              {step.detail!.map((d, i) => (
+                <li key={i} className="ui-text-muted">
+                  {detailLineLabel(d)}
+                </li>
+              ))}
+            </ul>
+          </>
+        ) : null}
+        {hasInternal ? (
+          <>
+            {hasDetail ? <div className="my-1.5 h-px bg-[var(--border-subtle)]" /> : null}
+            <p className="mb-1 flex items-center gap-1.5 font-semibold text-[var(--text-secondary)]">
+              <span className="rounded bg-[color-mix(in_oklab,var(--warning)_30%,transparent)] px-1 py-px font-mono text-[9px] uppercase tracking-wide text-[var(--warning)]">
+                DEV
+              </span>
+              实现层
+            </p>
+            <ul className="space-y-0.5">
+              {internalRows.map((row, i) => (
+                <li key={i} className="ui-text-muted font-mono text-[10px]">
+                  {row}
+                </li>
+              ))}
+            </ul>
+          </>
+        ) : null}
       </div>
     </div>
   );
 }
 
-export function SduiStepper({ steps, orientation = "horizontal" }: Props) {
+/** 容器宽度切换断点（与 dashboard density-viewport 1279px 上限协调）：< 720px 视为窄栏。 */
+const STEPPER_NARROW_BREAKPOINT_PX = 720;
+
+export function SduiStepper({ steps, orientation = "horizontal", orientationOnNarrow }: Props) {
+  // 容器宽度感知：仅当 ``orientationOnNarrow`` 显式声明时才安装 ResizeObserver。
+  // 没声明时永远走 ``orientation``，避免无谓订阅。
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [effectiveOrientation, setEffectiveOrientation] = useState(orientation);
+
+  useEffect(() => {
+    if (!orientationOnNarrow) {
+      setEffectiveOrientation(orientation);
+      return;
+    }
+    const node = containerRef.current;
+    if (!node) {
+      setEffectiveOrientation(orientation);
+      return;
+    }
+    const ro = new ResizeObserver((entries) => {
+      const w = entries[0]?.contentRect.width ?? 0;
+      if (w > 0 && w < STEPPER_NARROW_BREAKPOINT_PX) {
+        setEffectiveOrientation(orientationOnNarrow);
+      } else {
+        setEffectiveOrientation(orientation);
+      }
+    });
+    ro.observe(node);
+    return () => ro.disconnect();
+  }, [orientation, orientationOnNarrow]);
+
   if (!steps.length) {
     return (
-      <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--canvas-rail)] px-3 py-4 text-sm text-[var(--text-muted)]">
+      <div ref={containerRef} className="rounded-xl border border-[var(--border-subtle)] bg-[var(--canvas-rail)] px-3 py-4 text-sm text-[var(--text-muted)]">
         Stepper 无步骤
       </div>
     );
@@ -176,9 +247,10 @@ export function SduiStepper({ steps, orientation = "horizontal" }: Props) {
 
   const progressPct = stepperProgressPercent(steps);
 
-  if (orientation === "vertical") {
+  if (effectiveOrientation === "vertical") {
     return (
       <div
+        ref={containerRef}
         className="rounded-xl border border-[var(--border-subtle)] bg-[var(--canvas-rail)] p-3 sm:p-4"
         role="list"
         aria-label="流程步骤"
@@ -236,6 +308,7 @@ export function SduiStepper({ steps, orientation = "horizontal" }: Props) {
 
   return (
     <div
+      ref={containerRef}
       className="w-full min-w-0 rounded-xl border border-[var(--border-subtle)] bg-[var(--canvas-rail)] px-2 py-4 sm:px-4"
       role="list"
       aria-label="流程步骤"

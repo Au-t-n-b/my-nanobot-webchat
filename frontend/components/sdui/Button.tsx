@@ -13,13 +13,14 @@ type Props = {
 };
 
 const variantClass: Record<NonNullable<Props["variant"]>, string> = {
-  primary:
-    "bg-slate-900 text-white shadow-sm hover:bg-slate-800 hover:shadow-md dark:bg-white dark:text-slate-900",
-  secondary: "bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 hover:border-slate-300 shadow-sm",
-  ghost:
-    "bg-transparent text-[var(--text-secondary)] hover:bg-[var(--surface-3)] hover:text-[var(--text-primary)]",
+  primary: "ui-btn-accent hover:brightness-[1.03]",
+  secondary:
+    "border border-[var(--border-subtle)] bg-[var(--surface-2)] text-[var(--text-primary)] " +
+    "hover:bg-[var(--interactive-hover-bg)] hover:border-[var(--border-strong)]",
+  ghost: "ui-btn-ghost hover:bg-[var(--interactive-hover-bg)] hover:text-[var(--text-primary)]",
   outline:
-    "border border-[var(--border-strong)] bg-transparent text-[var(--text-primary)] hover:bg-[var(--surface-3)] shadow-sm",
+    "border border-[var(--border-strong)] bg-transparent text-[var(--text-primary)] " +
+    "hover:bg-[var(--interactive-hover-bg)]",
 };
 
 export function SduiButton({ label, variant = "primary", color, action }: Props) {
@@ -40,7 +41,7 @@ export function SduiButton({ label, variant = "primary", color, action }: Props)
     <button
       type="button"
       className={[
-        "rounded-lg px-3 py-1.5 text-sm font-medium active:scale-[0.98] transition-all duration-200 flex items-center justify-center gap-2",
+        "ui-motion rounded-lg px-3 py-1.5 text-sm font-medium active:scale-[0.98] transition-all flex items-center justify-center gap-2",
         variantClass[variant],
         // v2：语义色（accent 固定蓝色，不走主题 var(--accent)）
         (variant === "primary" && color)

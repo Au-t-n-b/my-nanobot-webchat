@@ -1605,7 +1605,12 @@ export default function WorkbenchContent() {
                   onClick={() => setNavExpanded(true)}
                   aria-label="展开侧边栏"
                 >
-                  🦞
+                  <span
+                    className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-1)] text-[11px] font-semibold tracking-tight ui-text-primary"
+                    aria-hidden="true"
+                  >
+                    NB
+                  </span>
                 </button>
                 <span className="w-1.5 h-1.5 rounded-full mb-2" style={{ background: "var(--success)" }} />
                 <button type="button" onClick={createSession} title="新建会话" className="nav-icon-btn">

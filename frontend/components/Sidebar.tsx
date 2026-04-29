@@ -58,6 +58,23 @@ type SkillItem = {
   organizationName?: string;
 };
 
+function SidebarMark({ collapsed }: { collapsed: boolean }) {
+  return (
+    <span
+      className={
+        "select-none font-semibold tracking-tight " +
+        (collapsed
+          ? "inline-flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)] ui-text-primary text-[11px]"
+          : "text-[13px] ui-text-primary")
+      }
+      aria-hidden="true"
+      title="Nanobot"
+    >
+      NB
+    </span>
+  );
+}
+
 type SkillsResp = { items: SkillItem[] };
 type OrgAssetItem = {
   id: string;
@@ -325,9 +342,9 @@ export function Sidebar({
     const iconBtn = "nav-icon-btn";
     return (
       <aside className={`${asideFrameClass} flex-col items-center gap-1 py-3`}>
-        <span className="text-lg leading-none mb-0.5" aria-hidden="true">
-          🦞
-        </span>
+        <div className="mb-1">
+          <SidebarMark collapsed />
+        </div>
 
         <button type="button" onClick={onCreateSession} title="新建会话" className={iconBtn}>
           <Plus size={18} />
@@ -506,9 +523,7 @@ export function Sidebar({
         {/* ── SidebarHeader：logo + 主 CTA "新建会话"（accent，最高视觉权重） ── */}
         <div className="shrink-0">
           <div className="flex items-center gap-2.5 min-w-0">
-            <span className="text-xl leading-none shrink-0 select-none" aria-hidden="true">
-              🦞
-            </span>
+            <SidebarMark collapsed={false} />
             <span className="min-w-0 flex-1 truncate font-semibold text-sm leading-tight ui-text-primary">
               AI应用使能 <span className="ui-text-muted">交付claw</span>
             </span>

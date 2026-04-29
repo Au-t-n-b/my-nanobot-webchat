@@ -50,8 +50,8 @@ export function ChatInput({
     "[&_label]:ui-text-secondary [&_select]:w-40 [&_select]:min-w-0 [&_select]:shrink-0 [&_select]:cursor-pointer [&_select]:rounded-md [&_select]:border-0 " +
     "[&_select]:bg-transparent [&_select]:px-2 [&_select]:py-1 [&_select]:text-[var(--text-secondary)] [&_select]:outline-none " +
     "[&_select]:ring-0 [&_select]:transition-colors " +
-    "[&_select:hover]:bg-slate-200/70 dark:[&_select:hover]:bg-white/[0.04] " +
-    "[&_select:focus]:bg-slate-200/90 dark:[&_select:focus]:bg-white/[0.06]";
+    "[&_select:hover]:bg-[var(--interactive-hover-bg)] " +
+    "[&_select:focus]:bg-[var(--interactive-active-bg)]";
 
   const fusedShellClass =
     "overflow-hidden rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-1)]/90 shadow-[var(--shadow-card)] transition-shadow " +

@@ -27,3 +27,6 @@ botpy.log
 nano.*.save
 .DS_Store
 uv.lock
+
+# 本地 HITL 队列（SQLite），由运行时自动生成，每人各自一份，勿提交
+.nanobot/hitl.db

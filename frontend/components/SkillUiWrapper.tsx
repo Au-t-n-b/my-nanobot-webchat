@@ -47,6 +47,8 @@ type Props = {
   isAgentRunning?: boolean;
   /** open_preview 动作打开预览 */
   onOpenPreview?: (path: string) => void;
+  /** 模块大盘整体全屏（宿主提供，SDUI 通过 action 触发） */
+  toggleFullscreen?: () => void;
   /** v3：单条 patch（兼容旧调用方；与 incomingPatchQueue 二选一或并存时队列优先） */
   incomingPatchEvent?: SkillUiDataPatchEvent | null;
   /** v3：本会话内同一面板的连续 patch（避免 React state 只保留最后一条导致 Stepper 等丢失） */
@@ -97,6 +99,7 @@ export function SkillUiWrapper({
   postToAgentSilently: postToAgentSilentlyProp,
   isAgentRunning = false,
   onOpenPreview,
+  toggleFullscreen,
   incomingPatchEvent = null,
   incomingPatchQueue = null,
 }: Props) {
@@ -457,6 +460,7 @@ export function SkillUiWrapper({
       postToAgentRaw={postToAgentRaw}
       postToAgentSilentlyRaw={postToAgentSilentlyRaw}
       onOpenPreview={onOpenPreview}
+      toggleFullscreenRaw={toggleFullscreen}
       docId={resolvedDocId}
       enableInternalSync
     >

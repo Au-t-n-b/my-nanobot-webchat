@@ -11,7 +11,7 @@ type Props = {
 };
 
 export function SduiLink({ label, href, action }: Props) {
-  const { postToAgent, openPreview } = useSkillUiRuntime();
+  const { postToAgent, openPreview, toggleFullscreen } = useSkillUiRuntime();
 
   if (href) {
     return (
@@ -26,6 +26,7 @@ export function SduiLink({ label, href, action }: Props) {
     if (!action) return;
     if (action.kind === "post_user_message") postToAgent(action.text);
     else if (action.kind === "open_preview") openPreview(action.path);
+    else if (action.kind === "toggle_fullscreen") toggleFullscreen?.();
   };
 
   return (

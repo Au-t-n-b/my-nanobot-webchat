@@ -114,6 +114,7 @@ export type SduiStepperDetailItem =
 export type SduiAction =
   | { kind: "post_user_message"; text: string }
   | { kind: "open_preview"; path: string }
+  | { kind: "toggle_fullscreen" }
   | { kind: "sync_state"; key: string; value: UiStateValue; behavior?: "debounce" | "immediate" }
   | { kind: "chat_card_intent"; verb: string; cardId: string; payload?: unknown };
 

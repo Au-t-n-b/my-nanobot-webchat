@@ -24,7 +24,7 @@ const variantClass: Record<NonNullable<Props["variant"]>, string> = {
 };
 
 export function SduiButton({ label, variant = "primary", color, action }: Props) {
-  const { postToAgent, openPreview } = useSkillUiRuntime();
+  const { postToAgent, openPreview, toggleFullscreen } = useSkillUiRuntime();
 
   const onClick = () => {
     if (!action) return;
@@ -32,6 +32,8 @@ export function SduiButton({ label, variant = "primary", color, action }: Props)
       postToAgent(action.text);
     } else if (action.kind === "open_preview") {
       openPreview(action.path);
+    } else if (action.kind === "toggle_fullscreen") {
+      toggleFullscreen?.();
     } else {
       console.warn("[SDUI] unknown button action kind:", (action as { kind?: unknown })?.kind);
     }

@@ -199,6 +199,8 @@ export type SkillUiRuntimeContextValue = {
   getInputValue: (id: string) => string;
   setInputValue: (id: string, value: string) => void;
   openPreview: (path: string) => void;
+  /** 宿主可选提供：切换 SDUI 大盘整体全屏 */
+  toggleFullscreen?: () => void;
   syncState: (args: {
     key: string;
     value: unknown;
@@ -216,6 +218,7 @@ type Props = {
   lockHitlTextInputCardRaw?: (cardId: string, text: string) => void;
   onSendTextRaw?: (text: string, opts?: { cardId?: string; submittedValue?: string }) => void;
   onOpenPreview?: (path: string) => void;
+  toggleFullscreenRaw?: () => void;
   syncStateRaw?: (args: { key: string; value: unknown; behavior?: "debounce" | "immediate" }) => void;
   docId?: string;
   enableInternalSync?: boolean;
@@ -229,6 +232,7 @@ export function SkillUiRuntimeProvider({
   lockHitlTextInputCardRaw,
   onSendTextRaw,
   onOpenPreview,
+  toggleFullscreenRaw,
   syncStateRaw,
   docId,
   enableInternalSync,
@@ -339,6 +343,7 @@ export function SkillUiRuntimeProvider({
       getInputValue,
       setInputValue,
       openPreview,
+      toggleFullscreen: toggleFullscreenRaw,
       syncState: (args) => {
         if (syncStateRaw) {
           syncStateRaw(args);
@@ -358,6 +363,7 @@ export function SkillUiRuntimeProvider({
       getInputValue,
       setInputValue,
       openPreview,
+      toggleFullscreenRaw,
       syncStateRaw,
       canInternal,
       syncStateInternal,

@@ -1,6 +1,7 @@
 "use client";
 
 import { ChevronLeft } from "lucide-react";
+import { useCallback, useRef } from "react";
 import type { ModuleEntry } from "@/components/DashboardNavigator";
 import type { SkillUiDataPatchEvent } from "@/hooks/useAgentChat";
 import { SkillUiWrapper } from "@/components/SkillUiWrapper";
@@ -29,6 +30,19 @@ export function ModuleDashboard({
   postToAgentSilently,
   isAgentRunning,
 }: Props) {
+  const hostRef = useRef<HTMLDivElement | null>(null);
+
+  const toggleFullscreen = useCallback(async () => {
+    const el = hostRef.current;
+    if (!el) return;
+    try {
+      if (document.fullscreenElement) await document.exitFullscreen();
+      else await el.requestFullscreen();
+    } catch {
+      // ignore: Fullscreen API may be blocked; SDUI can still offer EmbeddedWeb's own fullscreen.
+    }
+  }, []);
+
   return (
     <div className="h-full min-h-0 flex flex-col">
       <div
@@ -71,7 +85,7 @@ export function ModuleDashboard({
         {/* Skill-First (Option 1): entry/reset actions must be defined in the skill dashboard (SDUI). */}
       </div>
 
-      <div className="dashboard-density-viewport flex-1 min-h-0 overflow-hidden">
+      <div ref={hostRef} className="dashboard-density-viewport flex-1 min-h-0 overflow-hidden">
         {entry ? (
           <SkillUiWrapper
             key={entry.syntheticPath}
@@ -83,6 +97,7 @@ export function ModuleDashboard({
             postToAgent={postToAgent}
             postToAgentSilently={postToAgentSilently}
             isAgentRunning={isAgentRunning}
+            toggleFullscreen={toggleFullscreen}
           />
         ) : (
           <div className="flex items-center justify-center h-full ui-text-muted text-sm">

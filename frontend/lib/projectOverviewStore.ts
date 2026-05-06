@@ -3,6 +3,7 @@
 import { useSyncExternalStore } from "react";
 
 import type { TaskStatusPayload } from "@/hooks/useAgentChat";
+import { MODULE_TAB_LABEL_BY_ID, canonicalModuleIdForMerge } from "@/lib/moduleDisplayLabels";
 import { composeProjectRegistryItems } from "@/lib/projectOverviewRegistry";
 
 export type ProjectModuleRegistryItem = {
@@ -245,9 +246,11 @@ export function applyTaskStatusSnapshot(payload: TaskStatusPayload) {
 }
 
 export function selectProjectModule(moduleId: string | null) {
+  const trimmed = moduleId?.trim() || null;
+  const normalized = trimmed ? canonicalModuleIdForMerge(trimmed) : null;
   setState((prev) => ({
     ...prev,
-    activeModuleId: moduleId?.trim() || null,
+    activeModuleId: normalized,
   }));
 }
 
@@ -298,14 +301,35 @@ function findRegistryItemForTaskModuleId(
   taskId: string,
   composed: ProjectModuleRegistryItem[],
 ): ProjectModuleRegistryItem | null {
-  const t = String(taskId ?? "").trim();
-  for (const r of composed) {
-    if (String(r.taskProgress.moduleId).trim() === t) return r;
+  const raw = String(taskId ?? "").trim();
+  const candidates = new Set<string>([raw, raw.toLowerCase(), canonicalModuleIdForMerge(raw)]);
+  if (canonicalModuleIdForMerge(raw) === "jmfz") {
+    candidates.add("jmfz");
+    candidates.add("modeling_simulation_workbench");
   }
-  for (const r of composed) {
-    if (String(r.moduleId).trim() === t) return r;
+  for (const t of candidates) {
+    for (const r of composed) {
+      if (String(r.taskProgress.moduleId).trim() === t) return r;
+    }
+    for (const r of composed) {
+      if (String(r.moduleId).trim() === t) return r;
+    }
   }
   return null;
+}
+
+function overviewModuleTabLabel(
+  m: { id: string; name: string },
+  reg: ProjectModuleRegistryItem | null,
+): string {
+  const fromReg = String(reg?.label ?? "").trim();
+  if (fromReg) return fromReg;
+  const idKey = String(m.id ?? "").trim();
+  const fromKnown = MODULE_TAB_LABEL_BY_ID[idKey] ?? MODULE_TAB_LABEL_BY_ID[idKey.toLowerCase()];
+  if (fromKnown) return fromKnown;
+  const fromApi = String(m.name ?? "").trim();
+  if (fromApi) return fromApi;
+  return idKey;
 }
 
 /**
@@ -339,7 +363,7 @@ function buildOverviewViewsFromTaskStatus(
     const progressPct = totalCount ? Math.round((doneCount / totalCount) * 100) : 0;
     return {
       moduleId,
-      label: String(m.name || "").trim() || m.id,
+      label: overviewModuleTabLabel(m, reg),
       description: reg?.description ?? "",
       syntheticPath: moduleSyntheticPathFromDataFile(
         reg?.dashboard?.dataFile ? String(reg.dashboard.dataFile) : "",

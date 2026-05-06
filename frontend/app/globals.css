@@ -10,6 +10,14 @@
   --motion-base: 200ms;
   --motion-slow: 320ms;
   --ease-out: cubic-bezier(0.33, 1, 0.68, 1);
+
+  /* ── Layout density tokens（与高度自适应联动；非 theme 相关，三主题共享） ── */
+  --panel-pad: 1.25rem;        /* baseline = p-5 */
+  --section-gap: 1.25rem;      /* baseline = gap-5 */
+  --card-pad: 1.5rem;          /* baseline = SduiCard p-6 */
+  --card-pad-compact: 0.75rem; /* baseline = SduiCard p-3 */
+  --item-gap: 0.875rem;        /* baseline = gap-3.5 */
+  --row-pad-y: 0.625rem;       /* baseline = py-2.5 */
 }
 
 /* 与 html[data-theme] 同步：使 dark:* 在 data-theme="dark" 下生效（默认变体为 prefers-color-scheme） */
@@ -905,6 +913,29 @@ body,
 
   .dashboard-density-viewport .metrics-grid {
     gap: 0.35rem;
+  }
+}
+
+/* ── Viewport-height-aware density（笔记本屏纵向自适应） ── */
+@media (max-height: 900px) {
+  :root {
+    --panel-pad: 1rem;
+    --section-gap: 0.875rem;
+    --card-pad: 1.125rem;
+    --card-pad-compact: 0.625rem;
+    --item-gap: 0.625rem;
+    --row-pad-y: 0.5rem;
+  }
+}
+
+@media (max-height: 720px) {
+  :root {
+    --panel-pad: 0.75rem;
+    --section-gap: 0.625rem;
+    --card-pad: 0.875rem;
+    --card-pad-compact: 0.5rem;
+    --item-gap: 0.5rem;
+    --row-pad-y: 0.375rem;
   }
 }
 

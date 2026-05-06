@@ -19,41 +19,58 @@ export function ProjectOverview({ modules, onSelectModule }: Props) {
   const activity = deriveActivity(runningCount, modules.length);
 
   return (
-    <div className="h-full min-h-0 overflow-y-auto p-5 flex flex-col gap-5">
-      <div className="flex items-baseline justify-between">
-        <h2 className="text-base font-semibold ui-text-primary tracking-tight">项目总览</h2>
-        <span className="text-[12.5px] ui-text-muted tabular-nums">
-          {runningCount}/{modules.length} 模块活跃
-        </span>
-      </div>
-
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <ProgressCard
-          eyebrow="项目完成度"
-          pct={completionPct}
-          completedCount={completedCount}
-          total={modules.length}
-        />
-        <ActivityCard
-          eyebrow="任务活跃态"
-          runningCount={runningCount}
-          pendingCount={pendingCount}
-          activity={activity}
-        />
-      </div>
-
-      {modules.length === 0 ? (
-        <div className="flex-1 flex flex-col items-center justify-center gap-3 text-center py-16">
-          <div className="ui-text-eyebrow ui-text-muted opacity-70">PLAN</div>
-          <p className="text-sm ui-text-muted leading-relaxed">
-            等待 Skill 执行…
-            <br />
-            <span className="ui-text-label opacity-60">Skill 启动后，模块大盘将自动出现</span>
-          </p>
+    <div className="relative h-full min-h-0">
+      <div
+        className="absolute inset-0 overflow-y-auto flex flex-col"
+        style={{ padding: "var(--panel-pad)", gap: "var(--section-gap)" }}
+      >
+        <div className="flex items-baseline justify-between">
+          <h2 className="text-base font-semibold ui-text-primary tracking-tight">项目总览</h2>
+          <span className="text-[12.5px] ui-text-muted tabular-nums">
+            {runningCount}/{modules.length} 模块活跃
+          </span>
         </div>
-      ) : (
-        <ActivityTimeline modules={modules} onSelectModule={onSelectModule} />
-      )}
+
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <ProgressCard
+            eyebrow="项目完成度"
+            pct={completionPct}
+            completedCount={completedCount}
+            total={modules.length}
+          />
+          <ActivityCard
+            eyebrow="任务活跃态"
+            runningCount={runningCount}
+            pendingCount={pendingCount}
+            activity={activity}
+          />
+        </div>
+
+        {modules.length === 0 ? (
+          <div className="flex-1 flex flex-col items-center justify-center gap-3 text-center py-16">
+            <div className="ui-text-eyebrow ui-text-muted opacity-70">PLAN</div>
+            <p className="text-sm ui-text-muted leading-relaxed">
+              等待 Skill 执行…
+              <br />
+              <span className="ui-text-label opacity-60">Skill 启动后，模块大盘将自动出现</span>
+            </p>
+          </div>
+        ) : (
+          <ActivityTimeline modules={modules} onSelectModule={onSelectModule} />
+        )}
+      </div>
+
+      {/* 顶/底各一道 14px 渐变，提示“还有内容”，不遮挡 sticky 段头（段头 z-2，这里 z-1） */}
+      <span
+        aria-hidden
+        className="pointer-events-none absolute inset-x-0 top-0 h-3.5 z-[1]"
+        style={{ background: "linear-gradient(to bottom, var(--paper-card) 0%, transparent 100%)" }}
+      />
+      <span
+        aria-hidden
+        className="pointer-events-none absolute inset-x-0 bottom-0 h-3.5 z-[1]"
+        style={{ background: "linear-gradient(to top, var(--paper-card) 0%, transparent 100%)" }}
+      />
     </div>
   );
 }
@@ -73,7 +90,10 @@ function ProgressCard({
   total: number;
 }) {
   return (
-    <div className="ui-elevation-2 group relative overflow-hidden rounded-2xl border border-[var(--border-subtle)] p-5">
+    <div
+      className="ui-elevation-2 group relative overflow-hidden rounded-2xl border border-[var(--border-subtle)]"
+      style={{ padding: "var(--card-pad)" }}
+    >
       {/* 卡内极淡 accent 径向晕：避免"灰盒子"感，又不抢眼 */}
       <span
         aria-hidden
@@ -233,7 +253,10 @@ function ActivityCard({
         : "var(--success)";
 
   return (
-    <div className="ui-elevation-2 group relative overflow-hidden rounded-2xl border border-[var(--border-subtle)] p-5">
+    <div
+      className="ui-elevation-2 group relative overflow-hidden rounded-2xl border border-[var(--border-subtle)]"
+      style={{ padding: "var(--card-pad)" }}
+    >
       <span
         aria-hidden
         className="pointer-events-none absolute -top-12 -right-12 h-32 w-32 rounded-full"
@@ -310,8 +333,20 @@ function ActivityTimeline({
   const completionRatio = modules.length > 0 ? completed / modules.length : 0;
 
   return (
-    <section className="ui-elevation-2 rounded-2xl border border-[var(--border-subtle)] p-5 flex flex-col gap-3.5">
-      <div className="flex items-center justify-between gap-3">
+    <section
+      className="ui-elevation-2 rounded-2xl border border-[var(--border-subtle)] flex flex-col"
+      style={{ padding: "var(--card-pad)", gap: "var(--item-gap)" }}
+    >
+      <div
+        className="sticky top-0 z-[2] supports-[backdrop-filter]:backdrop-blur-sm flex items-center justify-between gap-3"
+        style={{
+          backgroundColor: "color-mix(in oklab, var(--paper-card) 88%, transparent)",
+          marginInline: "calc(var(--card-pad) * -1)",
+          paddingInline: "var(--card-pad)",
+          paddingTop: "calc(var(--card-pad) * 0.6)",
+          paddingBottom: "calc(var(--card-pad) * 0.4)",
+        }}
+      >
         <div className="flex items-center gap-2.5">
           <span
             aria-hidden

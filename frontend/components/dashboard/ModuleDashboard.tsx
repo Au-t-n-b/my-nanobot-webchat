@@ -38,7 +38,8 @@ export function ModuleDashboard({
         <button
           type="button"
           onClick={onBack}
-          className="flex items-center gap-1 px-3 py-2 text-xs ui-text-muted hover:ui-text-primary border-r border-[var(--border-subtle)] shrink-0 transition-colors"
+          className="flex items-center gap-1 px-3 text-xs ui-text-muted hover:ui-text-primary border-r border-[var(--border-subtle)] shrink-0 transition-colors"
+          style={{ paddingTop: "var(--row-pad-y)", paddingBottom: "var(--row-pad-y)" }}
         >
           <ChevronLeft size={13} />
           总览
@@ -52,11 +53,12 @@ export function ModuleDashboard({
               type="button"
               onClick={() => onSelectModule(m.moduleId)}
               className={[
-                "flex items-center gap-1.5 px-4 py-2 text-xs font-medium border-r border-[var(--border-subtle)] shrink-0 transition-colors relative",
+                "flex items-center gap-1.5 px-4 text-xs font-medium border-r border-[var(--border-subtle)] shrink-0 transition-colors relative",
                 isActive
                   ? "text-[var(--accent)] after:absolute after:bottom-0 after:inset-x-0 after:h-0.5 after:bg-[var(--accent)] after:rounded-t"
                   : "ui-text-muted hover:ui-text-primary",
               ].join(" ")}
+              style={{ paddingTop: "var(--row-pad-y)", paddingBottom: "var(--row-pad-y)" }}
             >
               {m.status === "running" && (
                 <span className="w-2 h-2 rounded-full bg-[var(--accent)] animate-pulse shadow-[0_0_5px_var(--accent)]" />

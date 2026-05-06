@@ -9,6 +9,7 @@ import {
   selectProjectOverviewModules,
   useProjectOverviewStore,
 } from "@/lib/projectOverviewStore";
+import { canonicalModuleIdForMerge, moduleTabLabelFromId } from "@/lib/moduleDisplayLabels";
 
 export type ModuleEntry = {
   moduleId: string;
@@ -51,13 +52,16 @@ function extractModuleId(syntheticPath: string): string | null {
   return m2?.[1] ?? null;
 }
 
-function moduleLabel(id: string): string {
-  return id.replace(/[-_]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-}
-
 /** 在收到 Patch 前仅有 moduleId 时，占位 dataFile（须含 `/skills/{id}/` 供 extractModuleId 与后续 Patch 对齐） */
 function placeholderSyntheticPath(moduleId: string): string {
   return `skill-ui://SduiView?dataFile=skills/${moduleId}/data/dashboard.json`;
+}
+
+function activeModuleIdsMatchCanon(activeModuleIds: ReadonlySet<string>, canon: string): boolean {
+  for (const id of activeModuleIds) {
+    if (canonicalModuleIdForMerge(id) === canon) return true;
+  }
+  return false;
 }
 
 export function DashboardNavigator({
@@ -101,12 +105,13 @@ export function DashboardNavigator({
     const name = activeSkillName?.trim();
     if (!name) return;
     if (name === "nanobot_agent") return;
+    const canon = canonicalModuleIdForMerge(name);
     setModules((prev) => {
-      if (prev.has(name)) return prev;
+      if (prev.has(canon)) return prev;
       const next = new Map(prev);
-      next.set(name, {
+      next.set(canon, {
         syntheticPath: placeholderSyntheticPath(name),
-        label: moduleLabel(name),
+        label: moduleTabLabelFromId(name),
       });
       return next;
     });
@@ -123,17 +128,19 @@ export function DashboardNavigator({
   const switchToModule = useCallback(
     (moduleId: string, byUser: boolean) => {
       if (byUser) userOverrideRef.current = true;
+      const raw = moduleId.trim();
+      const canon = canonicalModuleIdForMerge(raw);
       setModules((prev) => {
-        if (prev.has(moduleId)) return prev;
+        if (prev.has(canon)) return prev;
         const next = new Map(prev);
-        next.set(moduleId, {
-          syntheticPath: placeholderSyntheticPath(moduleId),
-          label: moduleLabel(moduleId),
+        next.set(canon, {
+          syntheticPath: placeholderSyntheticPath(raw),
+          label: moduleTabLabelFromId(raw),
         });
         return next;
       });
       fadeSwitch(() => {
-        selectProjectModule(moduleId);
+        selectProjectModule(canon);
         setView("module");
       });
     },
@@ -147,7 +154,13 @@ export function DashboardNavigator({
     const moduleId = extractModuleId(ev.syntheticPath);
     if (!moduleId) return;
     if (userOverrideRef.current) return;
-    if (view === "module" && activeModuleId === moduleId) return;
+    if (
+      view === "module" &&
+      activeModuleId &&
+      canonicalModuleIdForMerge(activeModuleId) === canonicalModuleIdForMerge(moduleId)
+    ) {
+      return;
+    }
     switchToModule(moduleId, false);
   }, [latestSkillUiPatch, view, activeModuleId, switchToModule]);
 
@@ -157,11 +170,14 @@ export function DashboardNavigator({
     if (!name) return;
     if (name === "nanobot_agent") return;
     if (userOverrideRef.current) return;
-    const knownByOverview = overviewModules.some((item) => item.moduleId === name);
-    if (!modules.has(name) && !knownByOverview) return;
+    const canon = canonicalModuleIdForMerge(name);
+    const knownByOverview = overviewModules.some(
+      (item) => canonicalModuleIdForMerge(item.moduleId) === canon,
+    );
+    if (!modules.has(canon) && !knownByOverview) return;
     if (view !== "overview") return;
-    if (autoOpenedSkillRef.current === name) return;
-    autoOpenedSkillRef.current = name;
+    if (autoOpenedSkillRef.current === canon) return;
+    autoOpenedSkillRef.current = canon;
     switchToModule(name, false);
   }, [activeSkillName, modules, overviewModules, view, switchToModule]);
 
@@ -184,13 +200,17 @@ export function DashboardNavigator({
     if (!syntheticPath) return;
     const moduleId = extractModuleId(syntheticPath);
     if (!moduleId) return;
+    const canon = canonicalModuleIdForMerge(moduleId);
 
     setModules((prev) => {
       const next = new Map(prev);
-      const existing = next.get(moduleId);
-      next.set(moduleId, {
+      for (const [k] of next.entries()) {
+        if (k !== canon && canonicalModuleIdForMerge(k) === canon) next.delete(k);
+      }
+      const existing = next.get(canon);
+      next.set(canon, {
         syntheticPath,
-        label: existing?.label ?? moduleLabel(moduleId),
+        label: existing?.label ?? moduleTabLabelFromId(moduleId),
       });
       return next;
     });
@@ -202,10 +222,11 @@ export function DashboardNavigator({
       let changed = false;
       const next = new Map(prev);
       for (const id of activeModuleIds) {
-        if (!next.has(id)) {
-          next.set(id, {
+        const canon = canonicalModuleIdForMerge(id);
+        if (!next.has(canon)) {
+          next.set(canon, {
             syntheticPath: placeholderSyntheticPath(id),
-            label: moduleLabel(id),
+            label: moduleTabLabelFromId(id),
           });
           changed = true;
         }
@@ -214,8 +235,8 @@ export function DashboardNavigator({
     });
 
     const prev = prevActiveRef.current;
-    const added = [...activeModuleIds].filter((id) => !prev.has(id));
-    prevActiveRef.current = new Set(activeModuleIds);
+    const added = [...activeModuleIds].filter((id) => !prev.has(canonicalModuleIdForMerge(id)));
+    prevActiveRef.current = new Set([...activeModuleIds].map((id) => canonicalModuleIdForMerge(id)));
 
     if (added.length > 0 && !userOverrideRef.current) {
       const newId = added[added.length - 1]!;
@@ -226,9 +247,10 @@ export function DashboardNavigator({
   const moduleEntries: ModuleEntry[] = useMemo(() => {
     const merged = new Map<string, ModuleEntry>();
     for (const item of overviewModules) {
-      const dynamic = modules.get(item.moduleId);
-      merged.set(item.moduleId, {
-        moduleId: item.moduleId,
+      const canon = canonicalModuleIdForMerge(item.moduleId);
+      const dynamic = modules.get(canon);
+      merged.set(canon, {
+        moduleId: canon,
         syntheticPath: dynamic?.syntheticPath ?? item.syntheticPath,
         label: dynamic?.label ?? item.label,
         description: item.description,
@@ -236,17 +258,33 @@ export function DashboardNavigator({
         progressPct: item.progressPct,
         progressLabel: item.currentStepLabel,
         steps: item.steps,
-        status: activeModuleIds.has(item.moduleId) ? "running" : item.status,
+        status: activeModuleIdsMatchCanon(activeModuleIds, canon) ? "running" : item.status,
       });
     }
     for (const [moduleId, row] of modules.entries()) {
-      if (merged.has(moduleId)) continue;
-      merged.set(moduleId, {
-        moduleId,
+      const canon = canonicalModuleIdForMerge(moduleId);
+      if (merged.has(canon)) {
+        const ex = merged.get(canon)!;
+        let syntheticPath = ex.syntheticPath;
+        if (
+          !syntheticPath.includes("modeling_simulation_workbench") &&
+          row.syntheticPath.includes("modeling_simulation_workbench")
+        ) {
+          syntheticPath = row.syntheticPath;
+        }
+        merged.set(canon, {
+          ...ex,
+          syntheticPath,
+          label: ex.label || row.label,
+        });
+        continue;
+      }
+      merged.set(canon, {
+        moduleId: canon,
         syntheticPath: row.syntheticPath,
         label: row.label,
         isPlaceholder: true,
-        status: activeModuleIds.has(moduleId) ? "running" : "idle",
+        status: activeModuleIdsMatchCanon(activeModuleIds, canon) ? "running" : "idle",
       });
     }
     return [...merged.values()];

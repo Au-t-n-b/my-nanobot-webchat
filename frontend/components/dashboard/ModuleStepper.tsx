@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ProjectOverviewModuleView } from "@/lib/projectOverviewStore";
+import { canonicalModuleIdForMerge } from "@/lib/moduleDisplayLabels";
 import { Check, ChevronDown, Pin } from "lucide-react";
 import { createPortal } from "react-dom";
 
@@ -15,7 +16,12 @@ type Props = {
 };
 
 function toneOf(m: ProjectOverviewModuleView, activeModuleId?: string | null): StepTone {
-  if ((activeModuleId ?? "") && m.moduleId === activeModuleId) return "running";
+  if (
+    (activeModuleId ?? "") &&
+    canonicalModuleIdForMerge(m.moduleId) === canonicalModuleIdForMerge(activeModuleId ?? "")
+  ) {
+    return "running";
+  }
   if (m.status === "completed") return "completed";
   if (m.status === "running") return "running";
   return "idle";
@@ -297,7 +303,9 @@ export function ModuleStepper({
                * @see buildOverviewViewsFromTaskStatus: isPlaceholder: !reg
                */
               const isPlaceholder = Boolean(m.isPlaceholder);
-              const isActive = (activeModuleId ?? "") && m.moduleId === activeModuleId;
+              const isActive =
+                (activeModuleId ?? "") &&
+                canonicalModuleIdForMerge(m.moduleId) === canonicalModuleIdForMerge(activeModuleId ?? "");
               const label = cleanLabel(m.label, m.moduleId);
 
               return (
@@ -491,7 +499,13 @@ export function ModuleStepperCompact({ modules, activeModuleId = null, className
   const completed = modules.filter((m) => m.status === "completed").length;
   const running = modules.find((m) => m.status === "running");
   const focusedModule =
-    running ?? (activeModuleId ? modules.find((m) => m.moduleId === activeModuleId) : undefined) ?? modules.find((m) => m.status !== "completed");
+    running ??
+      (activeModuleId
+        ? modules.find(
+            (m) => canonicalModuleIdForMerge(m.moduleId) === canonicalModuleIdForMerge(activeModuleId ?? ""),
+          )
+        : undefined) ??
+      modules.find((m) => m.status !== "completed");
   const tone: StepTone = running
     ? "running"
     : completed === total && total > 0

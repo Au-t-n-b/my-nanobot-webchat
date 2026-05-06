@@ -54,6 +54,7 @@ import {
   selectProjectOverviewModules,
   useProjectOverviewStore,
 } from "@/lib/projectOverviewStore";
+import { canonicalModuleIdForMerge } from "@/lib/moduleDisplayLabels";
 import {
   isBaseLayerDashboardSkillUi,
   normalizeSyntheticSkillUiPath,
@@ -324,7 +325,9 @@ export default function WorkbenchContent() {
     const done = mods.filter((m) => m.status === "completed").length;
     const progress = `${done}/${mods.length}`;
     const am = activeModuleId
-      ? mods.find((m) => m.moduleId === activeModuleId)
+      ? mods.find(
+          (m) => canonicalModuleIdForMerge(m.moduleId) === canonicalModuleIdForMerge(activeModuleId ?? ""),
+        )
       : mods.find((m) => m.status === "running") ?? mods.find((m) => m.status !== "completed");
     const pick = am ?? mods[0];
     let s = String(pick?.label ?? "").trim();

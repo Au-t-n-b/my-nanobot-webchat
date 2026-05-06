@@ -115,7 +115,7 @@ export function RemoteAssetUploadPanel({
     <aside className="ui-panel h-full rounded-2xl p-4 flex flex-col gap-4 min-h-0">
       <div className="flex items-center justify-between gap-2 shrink-0">
         <div>
-          <p className="text-[11px] font-semibold uppercase tracking-wider ui-text-secondary">
+          <p className="ui-text-eyebrow font-semibold uppercase tracking-wider ui-text-secondary">
             个人上传 <span className="font-normal normal-case tracking-normal ui-text-muted">Upload Center</span>
           </p>
           <p className="text-xs ui-text-muted mt-1">默认支持任意格式文件上传；如需上传 Skill，再切换到 Skill zip。</p>
@@ -171,7 +171,7 @@ export function RemoteAssetUploadPanel({
             </div>
 
             <div className="flex flex-col gap-1">
-              <label className="text-[11px] ui-text-muted">归属范围</label>
+              <label className="ui-text-label ui-text-muted">归属范围</label>
               <select
                 value={scope}
                 onChange={(e) => setScope(e.target.value as "project" | "personal")}
@@ -180,32 +180,32 @@ export function RemoteAssetUploadPanel({
                 <option value="project" disabled={!session?.selectedProjectId}>当前项目</option>
                 <option value="personal">个人空间</option>
               </select>
-              <p className="text-[11px] ui-text-muted">
+              <p className="ui-text-label ui-text-muted">
                 当前项目：{session?.selectedProjectName ?? "未绑定项目，将默认使用个人空间"}
               </p>
             </div>
 
             {kind === "skill" ? (
               <div className="flex flex-col gap-2">
-                <label className="text-[11px] ui-text-muted">选择 Skill zip 文件</label>
+                <label className="ui-text-label ui-text-muted">选择 Skill zip 文件</label>
                 <input
                   type="file"
                   accept=".zip,application/zip"
                   onChange={(e) => setSkillFile(e.target.files?.[0] ?? null)}
                   className="ui-input ui-input-focusable rounded-lg px-2.5 py-2 text-xs"
                 />
-                <p className="text-[11px] ui-text-muted">首版前端先支持 zip 上传，不改动现有其他侧栏功能。</p>
+                <p className="ui-text-label ui-text-muted">首版前端先支持 zip 上传，不改动现有其他侧栏功能。</p>
               </div>
             ) : (
               <div className="flex flex-col gap-2">
-                <label className="text-[11px] ui-text-muted">选择任意格式文件（可多选）</label>
+                <label className="ui-text-label ui-text-muted">选择任意格式文件（可多选）</label>
                 <input
                   type="file"
                   multiple
                   onChange={(e) => setArtifactFiles(Array.from(e.target.files ?? []))}
                   className="ui-input ui-input-focusable rounded-lg px-2.5 py-2 text-xs"
                 />
-                <p className="text-[11px] ui-text-muted">未绑定项目时会默认上传到个人空间。</p>
+                <p className="ui-text-label ui-text-muted">未绑定项目时会默认上传到个人空间。</p>
               </div>
             )}
 

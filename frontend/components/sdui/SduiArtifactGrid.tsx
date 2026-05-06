@@ -23,13 +23,13 @@ type KindConfig = {
 };
 
 const KIND_CONFIG: Record<SduiArtifactKind, KindConfig> = {
-  docx:  { icon: FileText,        color: "text-blue-400",   bg: "bg-blue-400/10",   border: "border-blue-400/25" },
-  xlsx:  { icon: FileSpreadsheet, color: "text-green-400",  bg: "bg-green-400/10",  border: "border-green-400/25" },
-  pdf:   { icon: FileText,        color: "text-red-400",    bg: "bg-red-400/10",    border: "border-red-400/25" },
-  html:  { icon: Globe,           color: "text-purple-400", bg: "bg-purple-400/10", border: "border-purple-400/25" },
-  json:  { icon: FileJson,        color: "text-orange-400", bg: "bg-orange-400/10", border: "border-orange-400/25" },
-  md:    { icon: FileCode,        color: "text-sky-400",    bg: "bg-sky-400/10",    border: "border-sky-400/25" },
-  png:   { icon: ImageIcon,       color: "text-pink-400",   bg: "bg-pink-400/10",   border: "border-pink-400/25" },
+  docx:  { icon: FileText,        color: "text-[var(--accent)]",  bg: "bg-[var(--accent-bg-soft)]", border: "border-[var(--accent-border)]" },
+  xlsx:  { icon: FileSpreadsheet, color: "text-[var(--success)]", bg: "bg-[var(--success-bg)]",     border: "border-[var(--success-border)]" },
+  pdf:   { icon: FileText,        color: "text-[var(--danger)]",  bg: "bg-[var(--danger-bg)]",      border: "border-[var(--danger-border)]" },
+  html:  { icon: Globe,           color: "text-[var(--accent)]",  bg: "bg-[var(--accent-bg-soft)]", border: "border-[var(--accent-border)]" },
+  json:  { icon: FileJson,        color: "text-[var(--warning)]", bg: "bg-[var(--warning-bg)]",     border: "border-[var(--warning-border)]" },
+  md:    { icon: FileCode,        color: "text-[var(--accent)]",  bg: "bg-[var(--accent-bg-soft)]", border: "border-[var(--accent-border)]" },
+  png:   { icon: ImageIcon,       color: "text-[var(--warning)]", bg: "bg-[var(--warning-bg)]",     border: "border-[var(--warning-border)]" },
   other: { icon: FileText,        color: "ui-text-secondary",   bg: "bg-[var(--surface-2)]/40",   border: "border-[var(--border-subtle)]" },
 };
 
@@ -97,7 +97,7 @@ export function SduiArtifactGrid({ artifacts, mode = "output", title }: Props) {
 
   return (
     <div className="flex flex-col gap-1.5">
-      <p className="text-[10px] font-bold uppercase tracking-[0.12em] ui-text-muted">{heading}</p>
+      <p className="ui-text-eyebrow ui-text-muted">{heading}</p>
       <div className="flex flex-wrap gap-2">
         {normalizedArtifacts.map((a, index) => {
           const cfg = KIND_CONFIG[a.kind ?? "other"] ?? KIND_CONFIG.other;
@@ -106,10 +106,10 @@ export function SduiArtifactGrid({ artifacts, mode = "output", title }: Props) {
           const isError = a.status === "error";
           const key = a.id?.trim() ? `${a.id.trim()}:${index}` : `${a.path}:${index}`;
           const chipClass = isInput
-            ? "border-amber-400/30 bg-amber-400/10 hover:border-amber-300/45"
+            ? "border-[var(--warning-border)] bg-[var(--warning-bg)] hover:brightness-110"
             : `${cfg.bg} ${cfg.border}`;
-          const textClass = isInput ? "text-amber-100" : cfg.color;
-          const iconClass = isInput ? "text-amber-300" : cfg.color;
+          const textClass = isInput ? "text-[var(--text-primary)]" : cfg.color;
+          const iconClass = isInput ? "text-[var(--warning)]" : cfg.color;
 
           if (isGenerating) {
             return (
@@ -142,7 +142,7 @@ export function SduiArtifactGrid({ artifacts, mode = "output", title }: Props) {
             >
               <Icon size={12} className={iconClass} />
               <span className={textClass}>{a.label}</span>
-              {isError && <span className="text-[var(--error)] ml-0.5">!</span>}
+              {isError && <span className="ui-status-danger ml-0.5">!</span>}
             </button>
           );
         })}

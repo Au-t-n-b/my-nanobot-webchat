@@ -19,7 +19,7 @@ function CopySourceBar({ text }: { text: string }) {
         type="button"
         onClick={copy}
         aria-label="复制源码"
-        className="inline-flex items-center gap-1 rounded-md border border-[var(--border-subtle)] px-2 py-0.5 text-[11px] ui-text-secondary hover:bg-[var(--surface-3)] transition-colors"
+        className="inline-flex items-center gap-1 rounded-lg border border-[var(--border-subtle)] px-2 py-0.5 ui-text-label ui-text-secondary hover:bg-[var(--surface-3)] transition-colors"
       >
         {copied ? <Check size={10} /> : <Copy size={10} />}
         {copied ? "已复制" : "复制源码"}

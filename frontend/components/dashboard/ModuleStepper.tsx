@@ -42,25 +42,28 @@ function cleanLabel(raw: string, moduleId: string): string {
 const TONE = {
   completed: {
     dot: "bg-emerald-500",
-    ring: "ring-emerald-500/25",
-    rail: "bg-emerald-500",
+    ring: "ring-emerald-500/20",
+    /** 克制的连线：完成段也只有 1.5px，不抢戏 */
+    rail: "bg-emerald-500/55",
     text: "ui-text-secondary",
-    chip: "bg-emerald-500/20 text-emerald-500 border-emerald-500/30",
+    chip: "bg-emerald-500/15 text-emerald-500 border-emerald-500/25",
   },
   running: {
-    dot: "bg-amber-500",
-    ring: "ring-amber-500/25",
-    rail: "bg-amber-500/40",
+    dot: "bg-[var(--accent)]",
+    /** 干净 accent 发光，替代旧 ring-4 厚环 */
+    ring: "ring-[color-mix(in_oklab,var(--accent)_22%,transparent)]",
+    /** 当前段的连线：accent → border-subtle 渐变，预示未完成 */
+    rail: "bg-gradient-to-r from-[color-mix(in_oklab,var(--accent)_60%,transparent)] to-[var(--border-subtle)]",
     text: "text-[var(--text-primary)] font-semibold",
-    chip: "bg-amber-500/20 text-amber-500 border-amber-500/30",
+    chip: "bg-[var(--accent-bg-soft)] text-[var(--accent)] border-[var(--accent-border)]",
   },
   idle: {
-    dot: "bg-transparent border-2 border-[color-mix(in_srgb,var(--text-secondary)_50%,var(--border-strong))]",
+    dot: "bg-transparent border border-[var(--border-strong)]",
     ring: "ring-[var(--border-subtle)]",
-    rail: "bg-[color-mix(in_srgb,var(--text-secondary)_25%,var(--border-subtle))]",
+    rail: "bg-[var(--border-subtle)]",
     text: "ui-text-secondary",
     chip:
-      "bg-[color-mix(in_oklab,var(--text-primary)_8%,transparent)] border-[var(--border-subtle)] text-[var(--text-secondary)]",
+      "bg-[color-mix(in_oklab,var(--text-primary)_6%,transparent)] border-[var(--border-subtle)] text-[var(--text-secondary)]",
   },
 } as const satisfies Record<StepTone, Record<string, string>>;
 
@@ -113,27 +116,27 @@ function ModuleStepperHoverTooltip({
             <div className="text-xs font-semibold leading-tight tracking-tight text-[var(--text-primary)] truncate">
               {label}
             </div>
-            <div className="mt-1 text-[10px] leading-relaxed text-[var(--text-secondary)] truncate">
+            <div className="mt-1 ui-text-eyebrow leading-relaxed text-[var(--text-secondary)] truncate">
               {hover.currentStepLabel || (hover.totalCount ? "进行中" : "待开始")}
             </div>
           </div>
-          <div className="shrink-0 text-[10px] font-medium tabular-nums text-[var(--text-secondary)]">{pct}%</div>
+          <div className="shrink-0 ui-text-eyebrow font-medium tabular-nums text-[var(--text-secondary)]">{pct}%</div>
         </div>
 
         {hover.steps && hover.steps.length > 0 ? (
           <ul className="mt-2.5 max-h-44 space-y-2 overflow-y-auto pr-0.5 text-left [scrollbar-gutter:stable]">
             {hover.steps.map((s) => (
-              <li key={s.id} className="flex items-start gap-2 text-[10px] leading-snug w-full">
+              <li key={s.id} className="flex items-start gap-2 ui-text-eyebrow leading-snug w-full">
                 {s.done ? (
-                  <Check className="mt-0.5 h-3 w-3 shrink-0 text-emerald-400" strokeWidth={2.5} aria-hidden />
+                  <Check className="mt-0.5 h-3 w-3 shrink-0 ui-status-success" strokeWidth={2.5} aria-hidden />
                 ) : (
                   <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full border border-[var(--border-strong)] bg-transparent" aria-hidden />
                 )}
                 <span className={["min-w-0 flex-1", s.done ? "text-[var(--text-primary)]/90" : "ui-text-muted"].join(" ")}>{s.name}</span>
                 <span
                   className={[
-                    "shrink-0 text-[9px] tabular-nums",
-                    s.done ? "text-emerald-400/90" : "ui-text-muted",
+                    "shrink-0 ui-text-eyebrow tabular-nums",
+                    s.done ? "ui-status-success" : "ui-text-muted",
                   ].join(" ")}
                 >
                   {s.done ? "已完成" : "未完成"}
@@ -142,7 +145,7 @@ function ModuleStepperHoverTooltip({
             ))}
           </ul>
         ) : (
-          <p className="mt-2.5 text-[10px] leading-relaxed text-[var(--text-secondary)]">
+          <p className="mt-2.5 ui-text-eyebrow leading-relaxed text-[var(--text-secondary)]">
             {hover.totalCount > 0
               ? "子任务与进度源同步中，请稍后重试"
               : "本阶段暂无可列出的子任务，仍显示总体完成度与阶段状态"}
@@ -177,7 +180,7 @@ function ModuleStepperHoverTooltip({
             ) : null}
           </div>
         </div>
-        <div className="mt-1 flex items-center justify-between gap-2 text-[10px] ui-text-muted tabular-nums">
+        <div className="mt-1 flex items-center justify-between gap-2 ui-text-eyebrow ui-text-muted tabular-nums">
           <span className="truncate">
             {hover.totalCount > 0
               ? `${hover.doneCount}/${hover.totalCount}`
@@ -313,24 +316,16 @@ export function ModuleStepper({
                     scheduleHideHover();
                   }}
                 >
-                  {/* 贯穿连线：从当前圆心向右发射，连接到下一个圆心；pointer-events-none 不阻塞列命中 */}
+                  {/* 贯穿连线：克制的 1.5px hairline，对齐圆心（li padding 8px + outer h-8 半径 16px = 24px） */}
                   {idx < modules.length - 1 ? (
                     <div
                       className={[
-                        "pointer-events-none absolute top-[22px] left-1/2 w-full h-[2px] overflow-hidden",
+                        "pointer-events-none absolute top-[24px] left-1/2 w-full h-[1.5px] overflow-hidden rounded-full",
                         tone === "completed" ? TONE.completed.rail : tone === "running" ? TONE.running.rail : TONE.idle.rail,
                       ].join(" ")}
                       style={{ zIndex: 0, transition: "background-color 240ms ease" }}
                       aria-hidden="true"
-                    >
-                      {tone === "completed" ? (
-                        <span
-                          className="absolute inset-0 bg-gradient-to-r from-transparent via-white/35 to-transparent"
-                          style={{ transform: "translateX(-120%)", animation: "module-stepper-shimmer 2.2s ease-in-out infinite" }}
-                          aria-hidden="true"
-                        />
-                      ) : null}
-                    </div>
+                    />
                   ) : null}
                     <button
                       type="button"
@@ -367,60 +362,77 @@ export function ModuleStepper({
                             .join(" ")}
                           data-stepper-anchor
                         >
-                        <span className="relative inline-flex h-7 w-7 items-center justify-center">
+                        <span className="relative inline-flex h-8 w-8 items-center justify-center">
                           {/* mask background so connector never shows through the circle */}
                           <span className="absolute inset-0 rounded-full bg-[var(--surface-1)] z-10" aria-hidden="true" />
                           {tone === "completed" ? (
                             <span
                               className={[
-                                "relative z-20 inline-flex h-6 w-6 items-center justify-center rounded-full ring-4",
+                                "relative z-20 inline-flex h-7 w-7 items-center justify-center rounded-full ring-4",
                                 "bg-emerald-500 text-white",
                                 TONE.completed.ring,
                               ].join(" ")}
                               aria-hidden="true"
                             >
-                              <Check size={14} strokeWidth={3} />
+                              <Check size={16} strokeWidth={3} />
                             </span>
                           ) : tone === "running" ? (
                             <span
                               className={[
-                                "relative z-20 inline-flex h-6 w-6 items-center justify-center rounded-full ring-4",
-                                "bg-transparent border-2 border-amber-500 text-amber-500",
-                                TONE.running.ring,
+                                "relative z-20 inline-flex h-7 w-7 items-center justify-center rounded-full",
+                                "bg-[color-mix(in_oklab,var(--accent)_12%,var(--surface-1))]",
+                                "border-2 border-[var(--accent)] text-[var(--accent)]",
+                                /* 双层 accent 发光：内 8px + 外 18px，一眼锁定"当前在哪一步" */
+                                "shadow-[0_0_0_3px_color-mix(in_oklab,var(--accent)_18%,transparent),0_0_18px_-2px_color-mix(in_oklab,var(--accent)_60%,transparent)]",
                               ].join(" ")}
                               aria-hidden="true"
                             >
                               <span className="relative inline-flex h-2.5 w-2.5">
-                                <span className="absolute inline-flex h-full w-full rounded-full bg-amber-500 opacity-30 animate-ping" />
-                                <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-amber-500" />
+                                <span
+                                  className="absolute inline-flex h-full w-full rounded-full opacity-50 animate-ping"
+                                  style={{ background: "var(--accent)" }}
+                                />
+                                <span
+                                  className="relative inline-flex h-2.5 w-2.5 rounded-full"
+                                  style={{ background: "var(--accent)" }}
+                                />
                               </span>
                             </span>
                           ) : (
                             <span
                               className={[
-                                "relative z-20 inline-flex h-6 w-6 items-center justify-center rounded-full ring-4",
-                                TONE.idle.dot,
-                                TONE.idle.ring,
-                                "group-hover/step:border-[color-mix(in_srgb,var(--text-primary)_35%,var(--text-secondary))] group-hover/step:shadow-sm",
+                                /* idle：与 completed/running 同尺寸 24px，hairline 双层环
+                                 * 这样三态在视觉重量上完全对齐，连接线不会"跳格"
+                                 */
+                                "relative z-20 inline-flex h-7 w-7 items-center justify-center rounded-full",
+                                "bg-[var(--surface-1)] border-2 border-[var(--border-subtle)]",
+                                "group-hover/step:border-[var(--border-strong)]",
+                                "ui-motion-fast",
                               ].join(" ")}
                               aria-hidden="true"
                               title="未开始"
-                            />
+                            >
+                              {/* 内嵌一个小 idle 点，避免空环看起来"挂着" */}
+                              <span
+                                aria-hidden
+                                className="h-2 w-2 rounded-full bg-[var(--text-muted)] opacity-60"
+                              />
+                            </span>
                           )}
                         </span>
 
                         <div className="w-full min-w-0 text-center">
                           <div className="w-full min-w-0">
-                            <div className={["text-xs font-semibold truncate text-center", tone === "idle" ? "text-[var(--text-primary)]" : TONE[tone].text].join(" ")}>
+                            <div className={["text-[14px] font-semibold leading-tight truncate text-center", tone === "idle" ? "ui-text-secondary" : TONE[tone].text].join(" ")}>
                               {label}
                             </div>
-                            <div className="mt-1 flex justify-center">
+                            <div className="mt-1.5 flex justify-center">
                               {tone === "running" ? (
-                                <span className="text-[10px] bg-amber-500/20 text-amber-500 px-1.5 py-0.5 rounded-full border border-amber-500/30">
+                                <span className={["ui-text-eyebrow px-2 py-0.5 rounded-full border", TONE.running.chip].join(" ")}>
                                   执行中
                                 </span>
                               ) : (
-                                <span className={["text-[10px] truncate", tone === "idle" ? "text-[var(--text-secondary)]" : "ui-text-muted"].join(" ")}>
+                                <span className={["text-[11.5px] truncate", tone === "idle" ? "text-[var(--text-secondary)]" : "ui-text-muted"].join(" ")}>
                                   {tone === "completed" ? "已完成" : m.currentStepLabel || (m.totalCount ? "进行中" : "待开始")}
                                 </span>
                               )}

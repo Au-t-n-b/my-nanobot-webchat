@@ -38,7 +38,7 @@ export function BaseDataGrid({
 
   return (
     <div className="flex flex-col min-w-0">
-      <div className="rounded-xl border border-slate-100 overflow-hidden shadow-sm dark:border-white/5">
+      <div className="rounded-xl border border-slate-100 overflow-hidden shadow-sm dark:border-[var(--border-subtle)]">
         <div className="overflow-x-auto">
           <table className="w-full border-collapse" style={{ minWidth }}>
             <thead>
@@ -46,7 +46,7 @@ export function BaseDataGrid({
                 {safeColumns.map((col) => (
                   <th
                     key={col.key}
-                    className="bg-slate-50/90 px-4 py-3 text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap dark:bg-[var(--surface-2)]/90 dark:text-[var(--text-secondary)]"
+                    className="bg-slate-50/90 px-4 py-3 text-left ui-text-label font-semibold text-slate-500 uppercase tracking-wider whitespace-nowrap dark:bg-[var(--surface-2)]/90 dark:text-[var(--text-secondary)]"
                   >
                     {col.label}
                   </th>
@@ -93,7 +93,7 @@ export function BaseDataGrid({
         </div>
       </div>
       {footer ? (
-        <div className="bg-slate-50/50 px-4 py-3 flex justify-end border-t border-slate-100 dark:bg-[var(--surface-2)]/50 dark:border-white/5">
+        <div className="bg-slate-50/50 px-4 py-3 flex justify-end border-t border-slate-100 dark:bg-[var(--surface-2)]/50 dark:border-[var(--border-subtle)]">
           {footer}
         </div>
       ) : null}

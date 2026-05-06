@@ -26,7 +26,7 @@ export function SduiStatisticRow({ items }: Props) {
             key={`${it.title}:${i}`}
             className="min-w-0 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-1)] px-3 py-3 text-center shadow-sm"
           >
-            <div className="mb-1 text-[11px] font-medium text-[var(--text-muted)]">{it.title}</div>
+            <div className="mb-1 ui-text-label font-medium text-[var(--text-muted)]">{it.title}</div>
             <div className={`text-2xl font-bold tabular-nums tracking-tight text-[var(--text-primary)] ${c}`.trim()}>
               {v}
             </div>

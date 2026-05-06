@@ -1,16 +1,22 @@
-import { IBM_Plex_Sans, Noto_Sans_SC } from "next/font/google";
+/**
+ * Static export helper.
+ *
+ * We intentionally avoid `next/font/google` so that:
+ * - air-gapped / restricted networks can still build/export
+ * - the workbench can be exported to a single offline HTML file
+ *
+ * The landing page only consumes `.variable` to bind CSS variables.
+ */
 
-export const landingPlex = IBM_Plex_Sans({
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
-  display: "swap",
+export const landingPlex = {
+  className: "",
+  style: undefined as undefined,
   variable: "--font-landing-plex",
-});
+};
 
-export const landingNoto = Noto_Sans_SC({
-  subsets: ["latin"],
-  weight: ["400", "500", "700"],
-  display: "swap",
+export const landingNoto = {
+  className: "",
+  style: undefined as undefined,
   variable: "--font-landing-noto",
-});
+};
 

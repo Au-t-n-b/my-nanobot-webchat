@@ -50,7 +50,8 @@ export type SduiNodeType =
   | "StatisticRow"
   | "GanttLane"
   | "GanttChart"
-  | "EmbeddedWeb";
+  | "EmbeddedWeb"
+  | "EmptyState";
 
 /** 运行时校验 / normalizer 用：全部合法 `type` 字面量 */
 export const SDUI_NODE_TYPE_VALUES: readonly SduiNodeType[] = [

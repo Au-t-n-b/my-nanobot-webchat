@@ -45,7 +45,7 @@ export function ChatInput({
   }, [prefillText]);
 
   const modelGhostRowClass =
-    "model-controls-ghost flex min-w-0 flex-wrap items-center gap-2 border-b border-[var(--border-subtle)] bg-transparent px-3 py-2 text-xs dark:border-white/10 " +
+    "model-controls-ghost flex min-w-0 flex-wrap items-center gap-2 border-b border-[var(--border-subtle)] bg-transparent px-3 py-2 text-xs " +
     "[&_label]:!m-0 [&_label]:inline-flex [&_label]:min-w-0 [&_label]:max-w-full [&_label]:items-center [&_label]:gap-1.5 " +
     "[&_label]:ui-text-secondary [&_select]:w-40 [&_select]:min-w-0 [&_select]:shrink-0 [&_select]:cursor-pointer [&_select]:rounded-md [&_select]:border-0 " +
     "[&_select]:bg-transparent [&_select]:px-2 [&_select]:py-1 [&_select]:text-[var(--text-secondary)] [&_select]:outline-none " +
@@ -57,12 +57,11 @@ export function ChatInput({
     "overflow-hidden rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-1)]/90 shadow-[var(--shadow-card)] transition-shadow " +
     "focus-within:ring-1 focus-within:ring-[color-mix(in_srgb,var(--accent)_28%,transparent)] " +
     "supports-[backdrop-filter]:backdrop-blur-md " +
-    "dark:border-white/10 dark:bg-[var(--surface-1)] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] dark:ring-1 dark:ring-white/[0.08] supports-[backdrop-filter]:dark:backdrop-blur-sm " +
-    "dark:focus-within:ring-1 dark:focus-within:ring-[color-mix(in_srgb,var(--accent)_30%,transparent)]";
+    "supports-[backdrop-filter]:backdrop-blur-sm";
 
   const textFieldClass =
     "min-w-0 flex-1 rounded-xl border-0 bg-[var(--surface-2)]/70 px-3 py-2.5 text-base leading-relaxed text-[var(--text-primary)] outline-none " +
-    "ring-0 placeholder:text-[var(--text-muted)] dark:bg-white/[0.03] dark:focus:bg-white/[0.05] " +
+    "ring-0 placeholder:text-[var(--text-muted)] " +
     "focus-visible:ring-0 focus-visible:outline-none";
 
   return (

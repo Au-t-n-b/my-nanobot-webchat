@@ -388,7 +388,7 @@ export function SduiFilePicker({
                 "mt-3 min-h-[112px] rounded-xl border-2 border-dashed px-4 py-7 text-center transition-colors cursor-pointer select-none flex flex-col items-center justify-center gap-2",
                 dragOver
                   ? "border-[var(--accent)] bg-[color-mix(in_oklab,var(--accent)_10%,transparent)]"
-                  : "border-[var(--border-subtle)] bg-transparent hover:bg-white/5 hover:border-[var(--accent)]/50",
+                  : "border-[var(--border-subtle)] bg-transparent hover:bg-[var(--interactive-hover-bg)] hover:border-[var(--accent)]/50",
                 showUploading ? "pointer-events-none opacity-80" : "",
               ].join(" ")}
             >

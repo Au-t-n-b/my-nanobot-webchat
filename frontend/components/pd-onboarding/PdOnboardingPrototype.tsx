@@ -97,7 +97,7 @@ export function PdOnboardingPrototype() {
                 onChange={(e) => setUsername(e.target.value)}
                 autoComplete="username"
                 placeholder="工号或账号"
-                className="ui-input ui-input-focusable w-full rounded-xl px-4 py-3 text-sm"
+                className="ui-input ui-input-focusable w-full rounded-lg px-4 py-3 text-sm"
               />
             </div>
             <div>
@@ -108,7 +108,7 @@ export function PdOnboardingPrototype() {
                 onChange={(e) => setPassword(e.target.value)}
                 autoComplete="current-password"
                 placeholder="••••••••"
-                className="ui-input ui-input-focusable w-full rounded-xl px-4 py-3 text-sm"
+                className="ui-input ui-input-focusable w-full rounded-lg px-4 py-3 text-sm"
               />
             </div>
             {error ? (
@@ -124,7 +124,7 @@ export function PdOnboardingPrototype() {
             <button
               type="submit"
               disabled={busy}
-              className="ui-btn-accent ui-btn-sheen relative overflow-hidden rounded-xl py-3 text-sm font-medium transition-transform hover:scale-[1.02] active:scale-[0.99] disabled:opacity-50"
+              className="ui-btn-accent ui-btn-sheen relative overflow-hidden rounded-lg py-3 text-sm font-medium transition-transform hover:scale-[1.02] active:scale-[0.99] disabled:opacity-50"
             >
               {busy ? "登录中…" : "登录"}
             </button>

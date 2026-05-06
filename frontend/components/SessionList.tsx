@@ -34,7 +34,7 @@ export function SessionList({ currentThreadId, sessions, onCreate, onSelect, onD
             <button
               type="button"
               onClick={onCreate}
-              className="inline-flex items-center justify-center rounded-lg p-2 text-[10px] font-medium tracking-[0.12em] ui-text-muted ui-hover-soft"
+              className="inline-flex items-center justify-center rounded-lg p-2 ui-text-eyebrow font-medium ui-text-muted ui-hover-soft"
               aria-label="创建新会话"
               title="创建新会话"
             >
@@ -72,7 +72,7 @@ export function SessionList({ currentThreadId, sessions, onCreate, onSelect, onD
                 <div className="flex items-center justify-between gap-2">
                   <span
                     className={
-                      "truncate text-[12px] font-medium " +
+                      "truncate ui-text-body font-medium " +
                       (active ? "ui-text-primary" : "ui-text-secondary")
                     }
                   >
@@ -80,7 +80,7 @@ export function SessionList({ currentThreadId, sessions, onCreate, onSelect, onD
                   </span>
                   <span
                     className={
-                      "inline-flex items-center gap-1 font-mono text-[10px] shrink-0 " +
+                      "inline-flex items-center gap-1 font-mono ui-text-eyebrow shrink-0 " +
                       (active ? "opacity-70 ui-text-primary" : "opacity-40 ui-text-muted")
                     }
                   >
@@ -90,7 +90,7 @@ export function SessionList({ currentThreadId, sessions, onCreate, onSelect, onD
                 </div>
                 <p
                   className={
-                    "mt-1 truncate text-[10px] " +
+                    "mt-1 truncate ui-text-eyebrow " +
                     (active ? "ui-text-secondary" : "ui-text-muted")
                   }
                 >

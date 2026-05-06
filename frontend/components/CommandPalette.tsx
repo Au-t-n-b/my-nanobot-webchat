@@ -217,7 +217,7 @@ export function CommandPalette() {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 pt-[15vh] backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-start justify-center pt-[15vh] ui-overlay ui-motion"
       role="presentation"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) setOpen(false);
@@ -227,7 +227,7 @@ export function CommandPalette() {
         role="dialog"
         aria-label="命令面板"
         aria-modal="true"
-        className="ui-motion w-full max-w-2xl overflow-hidden rounded-2xl bg-[var(--surface-elevated)]/90 shadow-2xl ring-1 ring-white/10 backdrop-blur-xl"
+        className="ui-motion ui-sheet w-full max-w-2xl overflow-hidden rounded-2xl backdrop-blur-xl"
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="flex items-center gap-2 border-b border-[var(--border-subtle)] px-4 py-3">
@@ -252,7 +252,7 @@ export function CommandPalette() {
           ) : (
             grouped.map(([group, items]) => (
               <div key={group} className="px-2">
-                <div className="px-2.5 pb-1.5 pt-2 text-[10px] font-semibold tracking-wider ui-text-muted">
+                <div className="px-2.5 pb-1.5 pt-2 ui-text-eyebrow font-semibold ui-text-muted">
                   {group}
                 </div>
                 <div className="space-y-1">
@@ -266,7 +266,7 @@ export function CommandPalette() {
                         data-cmd-index={idx}
                         className={
                           "flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2 text-left text-sm ui-text-primary transition-colors " +
-                          (active ? "bg-white/5" : "hover:bg-[var(--surface-3)]")
+                          (active ? "bg-[var(--surface-3)]" : "hover:bg-[var(--surface-3)]")
                         }
                         onMouseEnter={() => setActiveIndex(idx)}
                         onClick={() => {
@@ -277,22 +277,22 @@ export function CommandPalette() {
                         <div className="min-w-0 flex items-center gap-2">
                           <span
                             className={
-                              "inline-flex h-7 w-7 items-center justify-center rounded-lg border border-white/10 bg-white/[0.03] ui-text-muted " +
-                              (c.tone === "danger" ? "text-red-400" : c.tone === "accent" ? "text-amber-500" : "")
+                              "inline-flex h-7 w-7 items-center justify-center rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-2)] ui-text-muted " +
+                              (c.tone === "danger" ? "text-[var(--danger)]" : c.tone === "accent" ? "text-amber-500" : "")
                             }
                             aria-hidden
                           >
                             {c.icon}
                           </span>
                           <div className="min-w-0">
-                            <div className={"truncate " + (c.tone === "danger" ? "text-red-300" : c.tone === "accent" ? "text-amber-400" : "")}>
+                            <div className={"truncate " + (c.tone === "danger" ? "text-[var(--danger-fg)]" : c.tone === "accent" ? "text-amber-400" : "")}>
                               {c.label}
                             </div>
-                          {c.hint ? <div className="mt-0.5 truncate text-[11px] ui-text-muted">{c.hint}</div> : null}
+                          {c.hint ? <div className="mt-0.5 truncate ui-text-label ui-text-muted">{c.hint}</div> : null}
                           </div>
                         </div>
                         <div className="flex shrink-0 items-center gap-2">
-                          {c.shortcut ? <span className="text-[10px] ui-text-muted opacity-70">{c.shortcut}</span> : null}
+                          {c.shortcut ? <span className="ui-text-eyebrow ui-text-muted opacity-70">{c.shortcut}</span> : null}
                           <ChevronRight size={14} className="ui-text-muted opacity-70" aria-hidden />
                         </div>
                       </button>

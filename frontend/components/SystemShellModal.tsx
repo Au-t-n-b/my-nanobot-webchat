@@ -19,13 +19,13 @@ export function SystemShellModal({
 }) {
   return (
     <div
-      className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-6 bg-black/50 backdrop-blur-[1px]"
+      className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-6 ui-overlay ui-motion"
       role="dialog"
       aria-modal="true"
       aria-label={title ?? "系统设置"}
     >
       <div
-        className="relative flex max-h-[92vh] w-full max-w-5xl min-h-0 flex-col overflow-hidden rounded-2xl ui-elevation-4"
+        className="relative flex max-h-[92vh] w-full max-w-5xl min-h-0 flex-col overflow-hidden rounded-2xl ui-sheet"
       >
         <div className="shrink-0 flex items-center justify-between gap-3 px-4 py-3 border-b border-[var(--border-subtle)] bg-[var(--surface-2)]/60">
           <div className="min-w-0">

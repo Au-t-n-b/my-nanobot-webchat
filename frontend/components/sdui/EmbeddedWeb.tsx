@@ -207,7 +207,7 @@ export function EmbeddedWeb({
               }
             }
           }}
-          className="rounded-lg border border-[var(--border-subtle)] bg-[color-mix(in_oklab,var(--surface-0)_80%,transparent)] px-2 py-1 text-[10px] font-medium ui-text-secondary hover:ui-text-primary hover:bg-[var(--surface-2)] transition-colors"
+          className="rounded-lg border border-[var(--border-subtle)] bg-[color-mix(in_oklab,var(--surface-0)_80%,transparent)] px-2 py-1 ui-text-eyebrow font-medium ui-text-secondary hover:ui-text-primary hover:bg-[var(--surface-2)] transition-colors"
           aria-label={isFullscreen ? "退出全屏" : "全屏显示"}
           title={isFullscreen ? "退出全屏" : "全屏显示"}
         >
@@ -222,7 +222,7 @@ export function EmbeddedWeb({
               /* ignore */
             }
           }}
-          className="rounded-lg border border-[var(--border-subtle)] bg-[color-mix(in_oklab,var(--surface-0)_80%,transparent)] px-2 py-1 text-[10px] font-medium ui-text-secondary hover:ui-text-primary hover:bg-[var(--surface-2)] transition-colors"
+          className="rounded-lg border border-[var(--border-subtle)] bg-[color-mix(in_oklab,var(--surface-0)_80%,transparent)] px-2 py-1 ui-text-eyebrow font-medium ui-text-secondary hover:ui-text-primary hover:bg-[var(--surface-2)] transition-colors"
           aria-label="新窗口打开"
           title="新窗口打开"
         >
@@ -235,9 +235,9 @@ export function EmbeddedWeb({
           aria-busy="true"
           aria-label="加载嵌入页面"
         >
-          <div className="h-4 w-1/3 max-w-xs rounded-md bg-[var(--surface-3)]/40 dark:bg-white/10" />
-          <div className="flex-1 min-h-[200px] rounded-lg bg-[var(--surface-2)]/30 dark:bg-white/[0.06]" />
-          <div className="h-3 w-2/3 rounded-md bg-[var(--surface-3)]/30 dark:bg-white/[0.07]" />
+          <div className="h-4 w-1/3 max-w-xs rounded-md bg-[var(--surface-3)]/40" />
+          <div className="flex-1 min-h-[200px] rounded-lg bg-[var(--surface-2)]/30" />
+          <div className="h-3 w-2/3 rounded-md bg-[var(--surface-3)]/30" />
         </div>
       ) : null}
       <iframe

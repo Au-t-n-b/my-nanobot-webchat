@@ -33,7 +33,7 @@ function TabButton({
       type="button"
       onClick={onClick}
       className={
-        "inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm transition " +
+        "inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm transition " +
         (active
           ? "border-[color-mix(in_oklab,var(--accent)_45%,var(--border-subtle))] bg-[var(--surface-2)] ui-text-primary"
           : "border-[var(--border-subtle)] bg-[var(--surface-1)] ui-text-secondary hover:bg-[var(--surface-3)] hover:ui-text-primary")
@@ -57,7 +57,7 @@ export function WorkbenchProfilePage({ subView, onSubViewChange, onBack }: Props
         <button
           type="button"
           onClick={onBack}
-          className="inline-flex items-center gap-2 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-1)] px-3 py-2 text-sm ui-text-secondary hover:bg-[var(--surface-3)] hover:ui-text-primary"
+          className="inline-flex items-center gap-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)] px-3 py-2 text-sm ui-text-secondary hover:bg-[var(--surface-3)] hover:ui-text-primary"
         >
           <ArrowLeft size={16} aria-hidden />
           返回工作台
@@ -71,7 +71,7 @@ export function WorkbenchProfilePage({ subView, onSubViewChange, onBack }: Props
               clearGlobalProjectContext();
               router.replace("/");
             }}
-            className="inline-flex items-center gap-2 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-1)] px-3 py-2 text-sm ui-text-secondary hover:bg-[var(--surface-3)] hover:ui-text-primary"
+            className="inline-flex items-center gap-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)] px-3 py-2 text-sm ui-text-secondary hover:bg-[var(--surface-3)] hover:ui-text-primary"
             title="退出登录"
           >
             退出
@@ -89,7 +89,7 @@ export function WorkbenchProfilePage({ subView, onSubViewChange, onBack }: Props
           <div className="max-w-3xl space-y-4">
             <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-0)] p-5 shadow-[var(--shadow-card)]">
               <div className="flex items-start gap-3">
-                <div className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-1)]">
+                <div className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)]">
                   <UserRound size={18} aria-hidden />
                 </div>
                 <div className="min-w-0">

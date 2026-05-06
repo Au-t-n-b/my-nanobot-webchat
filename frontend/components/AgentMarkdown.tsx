@@ -102,8 +102,8 @@ function FoldableCodeBlock({ lang, children }: { lang: string; children: React.R
             [{label} - {lines} lines]
           </span>
           <span className="shrink-0 inline-flex items-center gap-1">
-            <span className="text-[10px] ui-text-muted">{copied ? "已复制" : ""}</span>
-            <span className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] ui-text-secondary border"
+            <span className="ui-text-eyebrow ui-text-muted">{copied ? "已复制" : ""}</span>
+            <span className="inline-flex items-center gap-1 rounded-lg px-1.5 py-0.5 ui-text-eyebrow ui-text-secondary border"
               style={{ borderColor: "var(--border-subtle)", background: "var(--surface-3)" }}
               onClick={(e) => { e.stopPropagation(); copy(); }}
               role="button"
@@ -125,16 +125,16 @@ function FoldableCodeBlock({ lang, children }: { lang: string; children: React.R
       <div className="flex items-center justify-between px-3 py-1.5 border-b ui-divider" style={{ background: "var(--surface-3)" }}>
         <div className="flex items-center gap-2">
           {lang && (
-            <span className="rounded px-1.5 py-0.5 text-[10px] font-mono" style={{ background: "var(--accent-soft)", color: "var(--accent)" }}>{lang}</span>
+            <span className="rounded-lg px-1.5 py-0.5 ui-text-eyebrow font-mono" style={{ background: "var(--accent-soft)", color: "var(--accent)" }}>{lang}</span>
           )}
-          <span className="ui-text-muted text-[10px]">{lines} lines</span>
+          <span className="ui-text-eyebrow ui-text-muted">{lines} lines</span>
         </div>
         <div className="flex items-center gap-1">
           <button
             type="button"
             onClick={copy}
             aria-label="复制代码"
-            className="rounded px-1.5 py-0.5 text-[10px] ui-text-secondary hover:bg-[var(--surface-2)] flex items-center gap-1 transition-colors"
+            className="rounded-lg px-1.5 py-0.5 ui-text-eyebrow ui-text-secondary hover:bg-[var(--surface-2)] flex items-center gap-1 transition-colors"
           >
             {copied ? <Check size={10} /> : <Copy size={10} />}
             {copied ? "已复制" : "复制"}
@@ -144,7 +144,7 @@ function FoldableCodeBlock({ lang, children }: { lang: string; children: React.R
               type="button"
               onClick={() => setCollapsed((v) => !v)}
               aria-label={collapsed ? "展开代码" : "收起代码"}
-              className="rounded px-1.5 py-0.5 text-[10px] ui-text-secondary hover:bg-[var(--surface-2)] flex items-center gap-1 transition-colors"
+              className="rounded-lg px-1.5 py-0.5 ui-text-eyebrow ui-text-secondary hover:bg-[var(--surface-2)] flex items-center gap-1 transition-colors"
             >
               {collapsed ? <ChevronDown size={10} /> : <ChevronUp size={10} />}
               {collapsed ? "展开" : "收起"}

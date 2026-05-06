@@ -5,6 +5,8 @@ import type { AgentMessage, ChoiceItem, RunStatus, StepLog, ToolPendingPayload }
 import { MessageList } from "@/components/MessageList";
 import { StepLogs } from "@/components/StepLogs";
 import { ChatInput } from "@/components/ChatInput";
+import { ChatEmptyState } from "@/components/ChatEmptyState";
+import { FollowUpDock } from "@/components/FollowUpDock";
 import type { SduiUploadedFileRecord } from "@/lib/sdui";
 type Props = {
   messages: AgentMessage[];
@@ -83,6 +85,23 @@ export function ChatArea({
     isLoading && last && last.role === "assistant" && (last.content?.trim()?.length ?? 0) > 0,
   );
 
+  // 中央黑洞 → Empty State：纯净起点，仅当 chat 流为空且没有任何 tool/log 干扰时显示
+  const showEmptyState =
+    !isLoading &&
+    messages.length === 0 &&
+    stepLogs.length === 0 &&
+    !pendingTool;
+
+  // Follow-up Dock：早期对话（≤3 条）且最后一条来自 assistant 且不在 loading/工具确认中
+  const showFollowUpDock =
+    !isLoading &&
+    !pendingTool &&
+    !disabled &&
+    messages.length > 0 &&
+    messages.length <= 3 &&
+    last?.role === "assistant" &&
+    (last?.content?.trim()?.length ?? 0) > 0;
+
   useEffect(() => {
     // no-op: present_choices is rendered as an inline ChoiceCard in the message stream
   }, []);
@@ -92,7 +111,7 @@ export function ChatArea({
       {pendingTool && (
         <div
           id="nanobot-pending-tool"
-          className="mx-auto mb-1 w-full max-w-3xl xl:max-w-[56rem] 2xl:max-w-[64rem] rounded-xl border px-3 py-3 text-sm border-[color-mix(in_oklab,var(--accent)_28%,var(--border-subtle))] bg-[color-mix(in_oklab,var(--accent)_6%,var(--surface-1))] shadow-sm"
+          className="mx-auto mb-1 w-full max-w-3xl xl:max-w-[56rem] 2xl:max-w-[64rem] rounded-2xl border px-3 py-3 text-sm border-[color-mix(in_oklab,var(--accent)_28%,var(--border-subtle))] bg-[color-mix(in_oklab,var(--accent)_6%,var(--surface-1))] shadow-sm"
         >
           <div className="font-medium text-[var(--accent)]">等待确认工具：{pendingTool.toolName}</div>
           <div className="ui-text-secondary mt-1 break-all">{pendingTool.arguments}</div>
@@ -130,22 +149,27 @@ export function ChatArea({
           onRequestSwitchModel={onStepLogRequestSwitchModel}
         />
         <div className="min-h-0 w-full min-w-0 flex-1 overflow-hidden">
-          <MessageList
-            messages={messages}
-            isLoading={isLoading}
-            showStreamingCaret={showStreamCaret}
-            inlineStatusTag={undefined}
-            onFileLinkClick={onFileLinkClick}
-            activePreviewPath={activePreviewPath}
-            onTogglePreviewPath={onTogglePreviewPath}
-            onDeleteMessage={onDeleteMessage}
-            searchQuery={searchQuery}
-            chatCardPostToAgent={chatCardPostToAgent}
-            chatCardPostToAgentSilently={chatCardPostToAgentSilently}
-            chatCardOnSendText={chatCardOnSendText}
-            chatCardOnLockFilePicker={chatCardOnLockFilePicker}
-          />
+          {showEmptyState ? (
+            <ChatEmptyState onPick={(text) => onSend(text)} />
+          ) : (
+            <MessageList
+              messages={messages}
+              isLoading={isLoading}
+              showStreamingCaret={showStreamCaret}
+              inlineStatusTag={undefined}
+              onFileLinkClick={onFileLinkClick}
+              activePreviewPath={activePreviewPath}
+              onTogglePreviewPath={onTogglePreviewPath}
+              onDeleteMessage={onDeleteMessage}
+              searchQuery={searchQuery}
+              chatCardPostToAgent={chatCardPostToAgent}
+              chatCardPostToAgentSilently={chatCardPostToAgentSilently}
+              chatCardOnSendText={chatCardOnSendText}
+              chatCardOnLockFilePicker={chatCardOnLockFilePicker}
+            />
+          )}
         </div>
+        {showFollowUpDock ? <FollowUpDock onPick={(text) => onSend(text)} /> : null}
         <ChatInput
           onSubmit={onSend}
           onStop={onStop}

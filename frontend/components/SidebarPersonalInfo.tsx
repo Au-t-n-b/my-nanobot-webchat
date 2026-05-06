@@ -116,7 +116,8 @@ export function SidebarPersonalInfo({ variant = "nav", className = "", onMenuAct
           <div className="my-1.5 h-px bg-[var(--border-subtle)]" />
           <button
             type="button"
-            className="w-full rounded-lg px-3 py-2 text-left text-sm text-red-400 hover:bg-red-500/10"
+            className="w-full rounded-lg px-3 py-2 text-left text-sm ui-btn-danger-soft"
+            style={{ color: "var(--danger)" }}
             onClick={() => run("logout")}
           >
             <span className="inline-flex items-center gap-2">

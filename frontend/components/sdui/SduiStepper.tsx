@@ -59,7 +59,7 @@ function StepGlyph({ status, stepIndex }: { status: SduiStepperStatus; stepIndex
           className={`${NODE} border-2 border-[color-mix(in_oklab,var(--text-muted)_40%,var(--border-subtle))] bg-[color-mix(in_oklab,var(--text-muted)_8%,var(--surface-2))] text-[var(--text-muted)]`}
           aria-label={`步骤 ${stepIndex + 1} 未开始`}
         >
-          <span className="text-[11px] font-bold tabular-nums leading-none">{stepIndex + 1}</span>
+          <span className="ui-text-label font-bold tabular-nums leading-none">{stepIndex + 1}</span>
         </div>
       );
     case "running":
@@ -165,7 +165,7 @@ function StepDetailPopover({
         id={descId}
         role="tooltip"
         className={[
-          "pointer-events-none absolute z-20 min-w-[10rem] max-w-[18rem] rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)] px-2.5 py-2 text-[10px] leading-snug text-[var(--text-primary)] shadow-[var(--shadow-card)]",
+          "pointer-events-none absolute z-20 min-w-[10rem] max-w-[18rem] rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)] px-2.5 py-2 ui-text-eyebrow leading-snug text-[var(--text-primary)] shadow-[var(--shadow-card)]",
           "opacity-0 transition-opacity duration-150",
           "group-hover/step:opacity-100 group-focus-within/step:opacity-100",
           align === "center" ? "bottom-full left-1/2 mb-1 -translate-x-1/2" : "bottom-full left-0 mb-1",
@@ -187,14 +187,14 @@ function StepDetailPopover({
           <>
             {hasDetail ? <div className="my-1.5 h-px bg-[var(--border-subtle)]" /> : null}
             <p className="mb-1 flex items-center gap-1.5 font-semibold text-[var(--text-secondary)]">
-              <span className="rounded bg-[color-mix(in_oklab,var(--warning)_30%,transparent)] px-1 py-px font-mono text-[9px] uppercase tracking-wide text-[var(--warning)]">
+              <span className="rounded bg-[color-mix(in_oklab,var(--warning)_30%,transparent)] px-1 py-px font-mono ui-text-eyebrow font-semibold uppercase tracking-wide text-[var(--warning)]">
                 DEV
               </span>
               实现层
             </p>
             <ul className="space-y-0.5">
               {internalRows.map((row, i) => (
-                <li key={i} className="ui-text-muted font-mono text-[10px]">
+                <li key={i} className="ui-text-muted font-mono ui-text-eyebrow">
                   {row}
                 </li>
               ))}
@@ -293,7 +293,7 @@ export function SduiStepper({ steps, orientation = "horizontal", orientationOnNa
                   {step.title}
                 </p>
                 {normalizeStatus(step.status) === "running" ? (
-                  <span className="inline-flex w-fit items-center gap-1 rounded-full border border-[color-mix(in_oklab,var(--accent)_35%,transparent)] bg-[color-mix(in_oklab,var(--accent)_10%,var(--surface-2))] px-2 py-0.5 text-[10px] font-medium text-[var(--accent)]">
+                  <span className="inline-flex w-fit items-center gap-1 rounded-full border border-[color-mix(in_oklab,var(--accent)_35%,transparent)] bg-[color-mix(in_oklab,var(--accent)_10%,var(--surface-2))] px-2 py-0.5 ui-text-eyebrow font-medium text-[var(--accent)]">
                     <Loader2 className="h-3 w-3 shrink-0 animate-spin" aria-hidden />
                     执行中
                   </span>
@@ -325,7 +325,7 @@ export function SduiStepper({ steps, orientation = "horizontal", orientationOnNa
                 <StepGlyph status={step.status} stepIndex={i} />
               </StepDetailPopover>
               <span
-                className={`w-full max-w-[9rem] text-center text-[10px] font-medium leading-tight sm:max-w-none sm:text-xs ${
+                className={`w-full max-w-[9rem] text-center ui-text-eyebrow font-medium leading-tight sm:max-w-none sm:text-xs ${
                   normalizeStatus(step.status) === "running"
                     ? "text-[var(--accent)]"
                     : normalizeStatus(step.status) === "done"
@@ -337,7 +337,7 @@ export function SduiStepper({ steps, orientation = "horizontal", orientationOnNa
                 {step.title}
               </span>
               {normalizeStatus(step.status) === "running" ? (
-                <span className="inline-flex max-w-full items-center justify-center gap-0.5 rounded-full border border-[color-mix(in_oklab,var(--accent)_35%,transparent)] bg-[color-mix(in_oklab,var(--accent)_10%,var(--surface-2))] px-1.5 py-px text-[9px] font-medium leading-none text-[var(--accent)]">
+                <span className="inline-flex max-w-full items-center justify-center gap-0.5 rounded-full border border-[color-mix(in_oklab,var(--accent)_35%,transparent)] bg-[color-mix(in_oklab,var(--accent)_10%,var(--surface-2))] px-1.5 py-px ui-text-eyebrow font-medium leading-none text-[var(--accent)]">
                   <Loader2 className="h-2.5 w-2.5 shrink-0 animate-spin" aria-hidden />
                   执行中
                 </span>

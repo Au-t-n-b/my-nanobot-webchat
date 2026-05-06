@@ -144,7 +144,7 @@ export function StepLogs({
               console.log("[StepLogs] pending tool: scrollIntoView placeholder");
             }}
             className={
-              "relative flex w-full flex-wrap items-center gap-x-2 gap-y-0.5 overflow-hidden rounded-full border px-3 py-2 text-[11px] leading-tight " +
+              "relative flex w-full flex-wrap items-center gap-x-2 gap-y-0.5 overflow-hidden rounded-full border px-3 py-2 ui-text-label leading-tight " +
               "border-[color-mix(in_oklab,var(--accent)_25%,var(--border-subtle))] bg-[var(--accent-soft)] text-[var(--text-primary)] " +
               "ring-1 ring-[color-mix(in_oklab,var(--accent)_30%,transparent)] " +
               "transition-[transform,background,border] duration-200 ease-out hover:brightness-[1.02] active:scale-[0.995] " +
@@ -154,10 +154,10 @@ export function StepLogs({
             aria-label="查看要授权的工具"
             title="查看要授权的工具"
           >
-            <span className="inline-flex shrink-0 text-amber-500" aria-hidden>
+            <span className="inline-flex shrink-0 ui-status-warning" aria-hidden>
               {meta.icon}
             </span>
-            <span className="font-semibold shrink-0 text-amber-500">⚠️ 查看要授权的工具</span>
+            <span className="font-semibold shrink-0 ui-status-warning">⚠️ 查看要授权的工具</span>
             {showMessageLine ? (
               <>
                 {stepText ? <span className="text-[var(--text-muted)] shrink-0">·</span> : null}
@@ -195,27 +195,27 @@ export function StepLogs({
       ) : useErrorUi ? (
         <div
           className={
-            "relative flex flex-wrap items-center gap-x-2 gap-y-1 overflow-hidden rounded-2xl border px-3 py-2 text-[11px] leading-tight " +
-            "border-red-500/20 bg-red-500/10 text-red-400 ring-1 ring-red-500/20 " +
+            "relative flex flex-wrap items-center gap-x-2 gap-y-1 overflow-hidden rounded-2xl border px-3 py-2 ui-text-label leading-tight " +
+            "border-[var(--danger-border)] bg-[var(--danger-bg)] text-[var(--danger-fg)] ring-1 ring-[var(--danger-border)] " +
             (shimmer ? " nanobot-status-pill-shimmer" : "")
           }
         >
           <span className={`inline-flex shrink-0 ${meta.className}`} aria-hidden>
             {meta.icon}
           </span>
-          <span className="font-semibold shrink-0 text-red-400">错误</span>
+          <span className="font-semibold shrink-0 ui-status-danger">错误</span>
           {showMessageLine ? (
             <>
-              {stepText ? <span className="text-red-300/60 shrink-0">·</span> : null}
+              {stepText ? <span className="ui-text-muted shrink-0">·</span> : null}
               {stepText ? (
-                <span className="min-w-0 max-w-full flex-1 text-red-200/90 sm:max-w-[20rem] sm:truncate sm:[display:-webkit-box] sm:[-webkit-line-clamp:2] sm:[-webkit-box-orient:vertical] break-words">
+                <span className="min-w-0 max-w-full flex-1 ui-text-primary sm:max-w-[20rem] sm:truncate sm:[display:-webkit-box] sm:[-webkit-line-clamp:2] sm:[-webkit-box-orient:vertical] break-words">
                   {stepText}
                 </span>
               ) : null}
-              {runModel ? <span className="text-red-300/60 shrink-0">·</span> : null}
-              {runModel ? <span className="shrink-0 tabular-nums text-red-300/80">{runModel}</span> : null}
-              <span className="text-red-300/60 shrink-0">·</span>
-              <span className="shrink-0 tabular-nums text-red-300/80">{elapsedLabel}</span>
+              {runModel ? <span className="ui-text-muted shrink-0">·</span> : null}
+              {runModel ? <span className="shrink-0 tabular-nums ui-text-secondary">{runModel}</span> : null}
+              <span className="ui-text-muted shrink-0">·</span>
+              <span className="shrink-0 tabular-nums ui-text-secondary">{elapsedLabel}</span>
             </>
           ) : null}
 
@@ -223,7 +223,7 @@ export function StepLogs({
             <button
               type="button"
               onClick={() => (onRetryAfterError ? onRetryAfterError() : console.log("[StepLogs] retry placeholder"))}
-              className="rounded-full border border-white/10 bg-transparent px-2 py-0.5 text-[10px] font-medium text-red-200/90 transition-colors hover:bg-white/[0.06] focus-visible:outline focus-visible:outline-2 focus-visible:outline-red-400/60"
+              className="rounded-full border border-[var(--border-subtle)] bg-transparent px-2 py-0.5 ui-text-eyebrow ui-text-primary transition-colors hover:bg-[var(--interactive-hover-bg)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--interactive-focus-ring)]"
             >
               重试
             </button>
@@ -237,14 +237,14 @@ export function StepLogs({
                 }
                 console.log("[StepLogs] copy placeholder");
               }}
-              className="rounded-full border border-white/10 bg-transparent px-2 py-0.5 text-[10px] font-medium text-red-200/90 transition-colors hover:bg-white/[0.06]"
+              className="rounded-full border border-[var(--border-subtle)] bg-transparent px-2 py-0.5 ui-text-eyebrow ui-text-primary transition-colors hover:bg-[var(--interactive-hover-bg)]"
             >
               复制
             </button>
             <button
               type="button"
               onClick={() => (onRequestSwitchModel ? onRequestSwitchModel() : console.log("[StepLogs] switch model placeholder"))}
-              className="rounded-full border border-white/10 bg-transparent px-2 py-0.5 text-[10px] font-medium text-red-200/90 transition-colors hover:bg-white/[0.06]"
+              className="rounded-full border border-[var(--border-subtle)] bg-transparent px-2 py-0.5 ui-text-eyebrow ui-text-primary transition-colors hover:bg-[var(--interactive-hover-bg)]"
             >
               切换模型
             </button>
@@ -252,7 +252,7 @@ export function StepLogs({
               <button
                 type="button"
                 onClick={() => setOpen((v) => !v)}
-                className="ml-auto inline-flex items-center gap-0.5 pl-1 text-[10px] text-red-200/70 hover:text-red-100 transition-colors"
+                className="ml-auto inline-flex items-center gap-0.5 pl-1 ui-text-eyebrow ui-text-secondary hover:ui-text-primary transition-colors"
               >
                 {open ? "收起" : "详情"}
                 <ChevronRight size={12} className={open ? "rotate-90 transition-transform duration-200" : "transition-transform duration-200"} />
@@ -263,7 +263,7 @@ export function StepLogs({
       ) : (
         <div
           className={
-            "relative flex flex-wrap items-center gap-x-2 gap-y-0.5 overflow-hidden rounded-full border px-3 py-1.5 text-[11px] leading-tight transition-all duration-300 " +
+            "relative flex flex-wrap items-center gap-x-2 gap-y-0.5 overflow-hidden rounded-full border px-3 py-1.5 ui-text-label leading-tight transition-all duration-300 " +
             "border-[color-mix(in_oklab,var(--border-subtle)_90%,transparent)] " +
             "bg-[color-mix(in_oklab,var(--surface-1)_75%,transparent)] backdrop-blur-md " +
             (autoCompact && runStatus === "completed" && hasLogs && !open ? "py-1" : "") +
@@ -306,7 +306,7 @@ export function StepLogs({
       )}
 
       {open && hasLogs && (
-        <ul className="space-y-1 max-h-40 overflow-y-auto text-[11px] rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)]/50 px-2 py-2">
+        <ul className="space-y-1 max-h-40 overflow-y-auto ui-text-label rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)]/50 px-2 py-2">
           {stepLogs.map((s) => (
             <li key={s.id} className="ui-subtle rounded-md px-2 py-1.5 ui-text-secondary">
               <span className="ui-text-muted mr-2">[{s.stepName === "tool" ? "工具" : "分析"}]</span>
@@ -319,7 +319,7 @@ export function StepLogs({
       {hybridSubtaskHint ? (
         <div
           className={
-            "flex flex-wrap items-center gap-x-2 gap-y-0.5 rounded-lg border px-3 py-1.5 text-[10px] leading-tight " +
+            "flex flex-wrap items-center gap-x-2 gap-y-0.5 rounded-lg border px-3 py-1.5 ui-text-eyebrow leading-tight " +
             "border-[color-mix(in_oklab,var(--border-subtle)_90%,transparent)] " +
             "bg-[color-mix(in_oklab,var(--surface-2)_55%,transparent)] text-[var(--text-secondary)]"
           }

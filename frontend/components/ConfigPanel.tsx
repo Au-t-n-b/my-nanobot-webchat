@@ -464,7 +464,7 @@ export function ConfigPanel({
             配置中心
           </span>
           <span
-            className="text-[10px] font-mono px-1.5 py-0.5 rounded"
+            className="ui-text-eyebrow font-mono px-1.5 py-0.5 rounded-lg"
             style={{
               background: "var(--surface-3)",
               color: "var(--text-tertiary)",
@@ -518,7 +518,7 @@ export function ConfigPanel({
         </button>
         <div className="flex-1" />
         {mode === "form" && (
-          <span className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>
+          <span className="ui-text-eyebrow" style={{ color: "var(--text-tertiary)" }}>
             保存后会热加载，可直接在右上角切换模型
           </span>
         )}
@@ -682,7 +682,7 @@ export function ConfigPanel({
                   保存为方案
                 </button>
               </div>
-              <div className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>
+              <div className="ui-text-eyebrow" style={{ color: "var(--text-tertiary)" }}>
                 方案只保存：provider / 默认模型 / 右上角常用模型列表。API Key 与 API Base 仍保存在 providers.* 中，不会重复存两份。
               </div>
             </section>
@@ -805,7 +805,7 @@ export function ConfigPanel({
                     <Plus size={12} />
                   </button>
                 </div>
-                <span className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>
+                <span className="ui-text-eyebrow" style={{ color: "var(--text-tertiary)" }}>
                   配好 key 后，你只需要在右上角切换模型名（glm-4 / glm-4v / glm-4.7 / glm-5 等）
                 </span>
               </label>
@@ -834,7 +834,7 @@ export function ConfigPanel({
                   <div className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
                     内网代理
                   </div>
-                  <div className="text-[11px]" style={{ color: "var(--text-tertiary)" }}>
+                  <div className="ui-text-label" style={{ color: "var(--text-tertiary)" }}>
                     tools.web.proxy / sslVerify
                   </div>
                 </div>
@@ -883,16 +883,16 @@ export function ConfigPanel({
                       className="rounded-lg px-2.5 py-1.5 text-xs ui-input ui-input-focusable"
                     />
                   </label>
-                  <div className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>
+                  <div className="ui-text-eyebrow" style={{ color: "var(--text-tertiary)" }}>
                     示例：<code className="font-mono">http://工号:密码@proxyhk.huawei.com:8088</code>
                   </div>
 
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex flex-col gap-0.5">
-                      <span className="text-[11px]" style={{ color: "var(--text-secondary)" }}>
+                      <span className="ui-text-label" style={{ color: "var(--text-secondary)" }}>
                         关闭 SSL 证书校验
                       </span>
-                      <span className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>
+                      <span className="ui-text-eyebrow" style={{ color: "var(--text-tertiary)" }}>
                         对应 tools.web.sslVerify = false（内网代理常用）
                       </span>
                     </div>
@@ -916,10 +916,10 @@ export function ConfigPanel({
 
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex flex-col gap-0.5">
-                      <span className="text-[11px]" style={{ color: "var(--text-secondary)" }}>
+                      <span className="ui-text-label" style={{ color: "var(--text-secondary)" }}>
                         全局模型 API 走相同代理
                       </span>
-                      <span className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>
+                      <span className="ui-text-eyebrow" style={{ color: "var(--text-tertiary)" }}>
                         写入 providers[{form.providerName || "…"}].proxy
                       </span>
                     </div>
@@ -952,7 +952,7 @@ export function ConfigPanel({
                 <span>
                   API Key{" "}
                   {form.apiKeyConfigured && (
-                    <span className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>
+                    <span className="ui-text-eyebrow" style={{ color: "var(--text-tertiary)" }}>
                       （已配置；留空则保持不变）
                     </span>
                   )}
@@ -994,14 +994,14 @@ export function ConfigPanel({
                   </button>
                 </div>
                 {providerDefaultApiBase ? (
-                  <div className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>
+                  <div className="ui-text-eyebrow" style={{ color: "var(--text-tertiary)" }}>
                     当前提供商默认：<code className="font-mono">{providerDefaultApiBase}</code>
                   </div>
                 ) : null}
               </label>
               {testMsg && (
                 <div
-                  className="text-[11px] leading-relaxed"
+                  className="ui-text-label leading-relaxed"
                   style={{
                     color:
                       testStatus === "error"
@@ -1053,14 +1053,14 @@ export function ConfigPanel({
             撤销更改
           </button>
         ) : (
-          <span className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>
+          <span className="ui-text-eyebrow" style={{ color: "var(--text-tertiary)" }}>
             提示：API Key 不会回显；保存时留空表示保持原值
           </span>
         )}
 
         <div className="flex items-center gap-3">
           {mode === "json" && isDirty && (
-            <span className="text-[10px]" style={{ color: "var(--warning)" }}>
+            <span className="ui-text-eyebrow" style={{ color: "var(--warning)" }}>
               未保存的更改
             </span>
           )}
@@ -1078,7 +1078,7 @@ export function ConfigPanel({
             >
               {testStatus === "saving" ? (
                 <>
-                  <div className="w-3 h-3 border-2 border-white/20 border-t-white/70 rounded-full animate-spin" />
+                  <div className="w-3 h-3 border-2 border-[var(--border-subtle)] border-t-[var(--text-primary)]/70 rounded-full animate-spin" />
                   测试中…
                 </>
               ) : (
@@ -1103,7 +1103,7 @@ export function ConfigPanel({
             >
               {testStatus === "saving" ? (
                 <>
-                  <div className="w-3 h-3 border-2 border-white/20 border-t-white/70 rounded-full animate-spin" />
+                  <div className="w-3 h-3 border-2 border-[var(--border-subtle)] border-t-[var(--text-primary)]/70 rounded-full animate-spin" />
                   测试中…
                 </>
               ) : (
@@ -1123,7 +1123,7 @@ export function ConfigPanel({
           >
             {status === "saving" ? (
               <>
-                <div className="w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                <div className="w-3 h-3 border-2 border-[var(--border-subtle)] border-t-[var(--text-primary)] rounded-full animate-spin" />
                 保存中…
               </>
             ) : (

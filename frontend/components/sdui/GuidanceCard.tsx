@@ -13,6 +13,21 @@ type Props = {
   variant?: "rows" | "buttons";
 };
 
+function HintPill({ hint, muted }: { hint: string; muted: boolean }) {
+  return (
+    <span className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-[var(--surface-2)] px-2 py-0.5 ui-text-label font-medium ring-1 ring-inset ring-[var(--border-subtle)] ui-text-secondary">
+      <span
+        className="inline-block h-1.5 w-1.5 rounded-full"
+        style={{
+          background: muted ? "var(--text-muted)" : "var(--accent)",
+          opacity: muted ? 0.35 : 0.55,
+        }}
+      />
+      {hint}
+    </span>
+  );
+}
+
 function ActionRow({
   action,
   cardId,
@@ -29,47 +44,20 @@ function ActionRow({
     ? action.steps.filter((s) => typeof s === "string" && s.trim())
     : [];
 
-  // Visual variants:
-  //   active      → ui-elevation-1 (hairline ring), hover → accent ring 42%
-  //   placeholder → ring-1 + text-muted (NOT opacity-60: that compresses contrast & A11y)
-  const baseShell = disabled
-    ? "bg-[var(--surface-1)] ring-1 ring-inset ring-[var(--border-subtle)] cursor-not-allowed"
-    : "ui-elevation-1 hover:ring-1 hover:ring-inset hover:ring-[color-mix(in_oklab,var(--accent)_42%,transparent)] cursor-pointer";
-
-  return (
-    <button
-      type="button"
-      disabled={disabled}
-      onClick={() => onTrigger(action)}
-      className={[
-        "group/row w-full rounded-lg px-3 py-3 text-left ui-motion-fast",
-        "transition-[box-shadow,background-color]",
-        baseShell,
-      ].join(" ")}
-    >
+  const inner = (
+    <>
       <div className="flex items-start justify-between gap-3">
         <span
           className={[
-            "ui-text-body font-semibold truncate",
+            "ui-text-body min-w-0 flex-1 font-semibold",
             disabled ? "ui-text-muted" : "ui-text-primary",
           ].join(" ")}
         >
           {action.label}
         </span>
-        {hint ? (
-          <kbd
-            className={[
-              "shrink-0 rounded px-1.5 py-0.5 font-mono text-[10px] leading-tight",
-              "bg-[color-mix(in_oklab,var(--surface-3)_70%,transparent)]",
-              disabled ? "ui-text-muted" : "ui-text-secondary",
-            ].join(" ")}
-          >
-            {hint}
-          </kbd>
-        ) : null}
+        {hint ? <HintPill hint={hint} muted={disabled} /> : null}
       </div>
       {description ? (
-        // Default: 1-line clamp; expand fully on hover/focus of this row.
         <p
           className={[
             "mt-2 ui-text-label whitespace-pre-line",
@@ -81,13 +69,45 @@ function ActionRow({
         </p>
       ) : null}
       {steps.length > 0 ? (
-        // Default hidden; reveal on hover/focus to keep the card compact.
-        <ol className="mt-2 ml-4 hidden list-decimal space-y-0.5 ui-text-label ui-text-muted group-hover/row:block group-focus-within/row:block">
+        <ol className="mt-2 ml-4 hidden list-decimal space-y-0.5 ui-text-label group-hover/row:block group-focus-within/row:block ui-text-muted">
           {steps.map((s, i) => (
             <li key={i}>{s}</li>
           ))}
         </ol>
       ) : null}
+    </>
+  );
+
+  if (disabled) {
+    return (
+      <div
+        className={[
+          "group/row w-full rounded-lg border border-dashed border-[var(--border-subtle)] bg-transparent px-3 py-3 text-left opacity-[0.55]",
+          "pointer-events-none select-none",
+        ].join(" ")}
+        aria-disabled
+      >
+        {inner}
+      </div>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={() => onTrigger(action)}
+      className={[
+        "group/row relative w-full rounded-lg border border-transparent bg-[var(--surface-1)] py-3 pl-4 pr-3 text-left ui-motion-fast",
+        "ring-1 ring-inset ring-[var(--border-subtle)]",
+        "cursor-pointer hover:bg-[var(--interactive-hover-bg)]",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--interactive-focus-ring)]",
+      ].join(" ")}
+    >
+      <span
+        className="pointer-events-none absolute top-2 bottom-2 left-0 w-1 rounded-full bg-[var(--accent)]"
+        aria-hidden
+      />
+      {inner}
     </button>
   );
 }
@@ -107,8 +127,6 @@ export function SduiGuidanceCard({ context, actions, cardId, intro, variant }: P
     );
   };
 
-  // Render hint: explicit ``variant === "rows"``, OR any action carries a row-style payload
-  // (hint / description / steps).
   const useRows =
     variant === "rows" ||
     (variant !== "buttons" &&
@@ -119,16 +137,32 @@ export function SduiGuidanceCard({ context, actions, cardId, intro, variant }: P
           (Array.isArray(a.steps) && a.steps.length > 0),
       ));
 
+  const contextLines = (context || "")
+    .split("\n")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const greeting = contextLines[0] ?? "";
+  const bodyLines = greeting ? contextLines.slice(1) : contextLines;
+
   return (
     <HitlCardShell eyebrow="引导 · Claw" icon={<Zap size={12} style={{ color: "var(--accent)" }} />}>
-      {context && (
-        <p className="ui-text-body ui-text-secondary whitespace-pre-line">{context}</p>
-      )}
-      {intro && (
-        <p className="ui-text-label ui-text-muted whitespace-pre-line">{intro}</p>
-      )}
+      {context ? (
+        <div className="space-y-2">
+          {greeting ? (
+            <p className="text-base font-semibold tracking-tight ui-text-primary">{greeting}</p>
+          ) : null}
+          {bodyLines.map((line, i) => (
+            <p key={i} className="ui-text-body ui-text-secondary leading-relaxed whitespace-pre-line">
+              {line}
+            </p>
+          ))}
+        </div>
+      ) : null}
+      {intro ? (
+        <p className="mt-2 ui-text-label ui-text-muted leading-relaxed whitespace-pre-line">{intro}</p>
+      ) : null}
       {actions.length > 0 && useRows && (
-        <ul className="flex flex-col gap-2">
+        <ul className="mt-2 flex flex-col gap-2">
           {actions.map((a, i) => (
             <li key={`${a.verb}-${i}`}>
               <ActionRow action={a} cardId={cardId} onTrigger={sendIntent} />
@@ -137,7 +171,7 @@ export function SduiGuidanceCard({ context, actions, cardId, intro, variant }: P
         </ul>
       )}
       {actions.length > 0 && !useRows && (
-        <div className="flex gap-2 flex-wrap">
+        <div className="mt-2 flex flex-wrap gap-2">
           {actions.map((a, i) => (
             <button
               key={`${a.verb}-${i}`}
@@ -149,7 +183,7 @@ export function SduiGuidanceCard({ context, actions, cardId, intro, variant }: P
                 i === 0
                   ? "text-white hover:opacity-90"
                   : "border ui-text-muted hover:ui-text-primary hover:bg-[var(--surface-3)]",
-                a.disabled ? "opacity-60 cursor-not-allowed" : "",
+                a.disabled ? "cursor-not-allowed opacity-60" : "",
               ].join(" ")}
               style={i === 0 ? { background: "var(--accent)" } : { borderColor: "var(--border-subtle)" }}
             >

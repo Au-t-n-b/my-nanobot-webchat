@@ -176,7 +176,7 @@ export function SduiChoiceCard({
                   background: isSelected ? "var(--warning)" : "transparent",
                 }}
               >
-                {isSelected ? <span className="w-1.5 h-1.5 rounded-full bg-black/80" /> : null}
+                {isSelected ? <span className="w-1.5 h-1.5 rounded-full bg-[var(--text-primary)]/80" /> : null}
               </span>
               <span className="min-w-0 flex-1">
                 <span className="block font-medium">{String(opt.label ?? "")}</span>
@@ -233,7 +233,7 @@ export function SduiChoiceCard({
               background: selected === OTHER_VALUE ? "var(--warning)" : "transparent",
             }}
           >
-            {selected === OTHER_VALUE ? <span className="w-1.5 h-1.5 rounded-full bg-black/80" /> : null}
+            {selected === OTHER_VALUE ? <span className="w-1.5 h-1.5 rounded-full bg-[var(--text-primary)]/80" /> : null}
           </button>
 
           <div className="min-w-0 flex-1">

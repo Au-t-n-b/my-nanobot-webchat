@@ -71,9 +71,9 @@ function UnknownSkillUiPanel({ component, hint }: { component: string; hint?: st
         未在 <code className="px-1 rounded bg-[var(--surface-3)]">SKILL_UI_REGISTRY</code> 中注册，或不是 SDUI 顶层外壳。
       </p>
       {hint ? (
-        <p className="text-[11px] ui-text-muted leading-relaxed">{hint}</p>
+        <p className="ui-text-label ui-text-muted leading-relaxed">{hint}</p>
       ) : (
-        <p className="text-[11px] ui-text-muted">
+        <p className="ui-text-label ui-text-muted">
           SDUI 请使用{" "}
           <code className="ui-text-secondary">skill-ui://SduiView?dataFile=&lt;workspace 相对路径&gt;</code>，内容由 JSON 内{" "}
           <code className="ui-text-secondary">root</code> 递归渲染。

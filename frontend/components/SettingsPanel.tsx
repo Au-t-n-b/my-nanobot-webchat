@@ -223,14 +223,14 @@ export function SettingsPanel({
     <aside className="ui-panel h-full rounded-2xl p-4 flex flex-col gap-4 min-h-0">
       {/* Header */}
       <div className="flex items-center justify-between gap-2 shrink-0">
-        <span className="text-[11px] font-semibold uppercase tracking-wider ui-text-secondary">
+        <span className="ui-text-eyebrow font-semibold ui-text-secondary">
           设置 <span className="font-normal normal-case tracking-normal ui-text-muted">Settings</span>
         </span>
         {showCloseButton && (
           <button
             type="button"
             onClick={onClose}
-            className="rounded-md p-1 ui-text-muted hover:text-[var(--text-primary)] hover:bg-[var(--surface-3)] transition-colors"
+            className="rounded-lg p-1 ui-text-muted hover:text-[var(--text-primary)] hover:bg-[var(--surface-3)] transition-colors"
             aria-label="关闭设置"
           >
             <X size={14} />
@@ -241,7 +241,7 @@ export function SettingsPanel({
       {/* Toast */}
       {toast.kind !== "none" && (
         <div
-          className="rounded-xl px-3 py-2 text-xs flex items-center gap-2 shrink-0"
+          className="rounded-2xl px-3 py-2 text-xs flex items-center gap-2 shrink-0"
           style={
             toast.kind === "success"
               ? { background: "rgba(34,197,94,0.12)", border: "1px solid rgba(34,197,94,0.28)", color: "var(--success)" }
@@ -260,10 +260,10 @@ export function SettingsPanel({
         </div>
       ) : (
         <div className="flex-1 min-h-0 overflow-auto flex flex-col gap-4">
-          <section className="ui-card rounded-xl p-4 flex flex-col gap-3">
+          <section className="ui-card rounded-2xl p-4 flex flex-col gap-3">
             <div>
               <p className="text-sm font-medium ui-text-primary">流程进度展示</p>
-              <p className="text-[11px] ui-text-muted mt-0.5">与顶栏图钉/收起为同一项偏好，持久化在本机</p>
+              <p className="ui-text-label ui-text-muted mt-0.5">与顶栏图钉/收起为同一项偏好，持久化在本机</p>
             </div>
             <div className="flex flex-col gap-2" role="radiogroup" aria-label="流程进度展示">
               <label className="flex cursor-pointer items-center gap-3 rounded-lg border border-[var(--border-subtle)] px-3 py-2.5 has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-[var(--accent)]">
@@ -276,7 +276,7 @@ export function SettingsPanel({
                 />
                 <div className="min-w-0">
                   <p className="text-sm ui-text-primary">紧凑胶囊</p>
-                  <p className="text-[11px] ui-text-muted">默认占一行，点击展开完整流程与悬停子任务</p>
+                  <p className="ui-text-label ui-text-muted">默认占一行，点击展开完整流程与悬停子任务</p>
                 </div>
                 <Minimize2 size={16} className="shrink-0 ui-text-muted" aria-hidden />
               </label>
@@ -290,18 +290,18 @@ export function SettingsPanel({
                 />
                 <div className="min-w-0">
                   <p className="text-sm ui-text-primary">顶栏常驻</p>
-                  <p className="text-[11px] ui-text-muted">全宽步骤条始终可见，适合需随时盯盘全流程的场景</p>
+                  <p className="ui-text-label ui-text-muted">全宽步骤条始终可见，适合需随时盯盘全流程的场景</p>
                 </div>
               </label>
             </div>
           </section>
 
           {/* Proxy Section */}
-          <section className="ui-card rounded-xl p-4 flex flex-col gap-3">
+          <section className="ui-card rounded-2xl p-4 flex flex-col gap-3">
             <div className="flex items-center justify-between gap-2">
               <div>
                 <p className="text-sm font-medium ui-text-primary">内网代理</p>
-                <p className="text-[11px] ui-text-muted mt-0.5">Proxy</p>
+                <p className="ui-text-label ui-text-muted mt-0.5">Proxy</p>
               </div>
               {/* Toggle switch */}
               <button
@@ -323,7 +323,7 @@ export function SettingsPanel({
               <div className="flex flex-col gap-2 pt-1">
                 <div className="grid grid-cols-3 gap-2">
                   <div className="col-span-2 flex flex-col gap-1">
-                    <label className="text-[11px] ui-text-muted">主机 Host</label>
+                    <label className="ui-text-label ui-text-muted">主机 Host</label>
                     <input
                       type="text"
                       value={proxy.host}
@@ -333,7 +333,7 @@ export function SettingsPanel({
                     />
                   </div>
                   <div className="flex flex-col gap-1">
-                    <label className="text-[11px] ui-text-muted">端口 Port</label>
+                    <label className="ui-text-label ui-text-muted">端口 Port</label>
                     <input
                       type="text"
                       value={proxy.port}
@@ -344,7 +344,7 @@ export function SettingsPanel({
                   </div>
                 </div>
                 <div className="flex flex-col gap-1">
-                  <label className="text-[11px] ui-text-muted">用户名（可选）</label>
+                  <label className="ui-text-label ui-text-muted">用户名（可选）</label>
                   <input
                     type="text"
                     value={proxy.username}
@@ -355,7 +355,7 @@ export function SettingsPanel({
                   />
                 </div>
                 <div className="flex flex-col gap-1">
-                  <label className="text-[11px] ui-text-muted">密码（可选）</label>
+                  <label className="ui-text-label ui-text-muted">密码（可选）</label>
                   <div className="relative">
                     <input
                       type={showPassword ? "text" : "password"}
@@ -379,14 +379,14 @@ export function SettingsPanel({
             )}
           </section>
 
-          <section className="ui-card rounded-xl p-4 flex flex-col gap-3">
+          <section className="ui-card rounded-2xl p-4 flex flex-col gap-3">
             <div className="flex items-center justify-between gap-2">
               <div>
                 <p className="text-sm font-medium ui-text-primary">远端交付中心</p>
-                <p className="text-[11px] ui-text-muted mt-0.5">Remote Delivery Center</p>
+                <p className="ui-text-label ui-text-muted mt-0.5">Remote Delivery Center</p>
               </div>
               <span
-                className="rounded-full px-2 py-1 text-[10px]"
+                className="rounded-full px-2 py-1 ui-text-eyebrow"
                 style={{
                   background: remoteSession?.connected ? "rgba(34,197,94,0.12)" : "var(--surface-3)",
                   color: remoteSession?.connected ? "var(--success)" : "var(--text-tertiary)",
@@ -398,7 +398,7 @@ export function SettingsPanel({
 
             <div className="grid grid-cols-2 gap-2">
               <div className="flex flex-col gap-1">
-                <label className="text-[11px] ui-text-muted">前端地址</label>
+                <label className="ui-text-label ui-text-muted">前端地址</label>
                 <input
                   type="text"
                   value={remoteForm.frontendBase}
@@ -407,7 +407,7 @@ export function SettingsPanel({
                 />
               </div>
               <div className="flex flex-col gap-1">
-                <label className="text-[11px] ui-text-muted">后端地址</label>
+                <label className="ui-text-label ui-text-muted">后端地址</label>
                 <input
                   type="text"
                   value={remoteForm.apiBase}
@@ -416,7 +416,7 @@ export function SettingsPanel({
                 />
               </div>
               <div className="flex flex-col gap-1">
-                <label className="text-[11px] ui-text-muted">工号</label>
+                <label className="ui-text-label ui-text-muted">工号</label>
                 <input
                   type="text"
                   value={remoteForm.workId}
@@ -425,7 +425,7 @@ export function SettingsPanel({
                 />
               </div>
               <div className="flex flex-col gap-1">
-                <label className="text-[11px] ui-text-muted">密码</label>
+                <label className="ui-text-label ui-text-muted">密码</label>
                 <input
                   type="password"
                   value={remoteForm.password}
@@ -464,7 +464,7 @@ export function SettingsPanel({
             </div>
 
             <div className="flex flex-col gap-1">
-              <label className="text-[11px] ui-text-muted">当前项目</label>
+              <label className="ui-text-label ui-text-muted">当前项目</label>
               <select
                 value={remoteSession?.selectedProjectId ?? ""}
                 onChange={(e) => void handleProjectChange(e.target.value)}
@@ -476,14 +476,14 @@ export function SettingsPanel({
                   <option key={project.id} value={project.id}>{project.name}</option>
                 ))}
               </select>
-              <p className="text-[11px] ui-text-muted">
+            <p className="ui-text-label ui-text-muted">
                 当前用户：{remoteSession?.user ? `${remoteSession.user.name} (${remoteSession.user.workId})` : "未登录"}
               </p>
             </div>
           </section>
 
           {/* More sections can be added here */}
-          <div className="text-[11px] ui-text-muted px-1">
+          <div className="ui-text-label ui-text-muted px-1">
             配置保存至 <code className="ui-text-secondary">~/.nanobot/config.json</code>
           </div>
         </div>
@@ -495,7 +495,7 @@ export function SettingsPanel({
           type="button"
           onClick={() => void handleSave()}
           disabled={loading || saving}
-          className="w-full rounded-xl px-4 py-2.5 text-sm font-medium text-white flex items-center justify-center gap-2 transition-opacity disabled:opacity-50"
+          className="w-full rounded-2xl px-4 py-2.5 text-sm font-medium text-white flex items-center justify-center gap-2 transition-opacity disabled:opacity-50"
           style={{ background: "var(--accent)" }}
         >
           {saving ? (

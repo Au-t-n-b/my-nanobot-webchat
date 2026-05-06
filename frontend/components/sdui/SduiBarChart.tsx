@@ -119,7 +119,7 @@ export function SduiBarChart({ data, valueUnit }: Props) {
         })}
       </svg>
 
-      <div className="flex flex-wrap gap-x-3 gap-y-1 border-t border-[var(--border-subtle)] pt-2 text-[11px] text-[var(--text-secondary)]">
+      <div className="flex flex-wrap gap-x-3 gap-y-1 border-t border-[var(--border-subtle)] pt-2 ui-text-label text-[var(--text-secondary)]">
         {rows.map((d, i) => (
           <span key={`sum-${d.label}-${i}`} className="tabular-nums">
             <span className="text-[var(--text-muted)]">{d.label}</span>{" "}

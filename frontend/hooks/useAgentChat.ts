@@ -1295,7 +1295,7 @@ export function useAgentChat() {
             const timeoutPromise = new Promise<never>((_, reject) => {
               timeoutHandle = setTimeout(() => reject(new Error("SSE stream idle timeout")), STREAM_IDLE_TIMEOUT_MS);
             });
-            let readResult: ReadableStreamReadResult<Uint8Array>;
+            let readResult: Awaited<ReturnType<typeof reader.read>>;
             try {
               readResult = await Promise.race([reader.read(), timeoutPromise]);
             } finally {

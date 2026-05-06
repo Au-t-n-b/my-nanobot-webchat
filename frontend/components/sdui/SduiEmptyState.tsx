@@ -43,7 +43,7 @@ export function SduiEmptyState({ title, hint, icon }: Props) {
     >
       <IconComponent size={20} className="ui-text-muted" aria-hidden />
       <p className="text-xs font-medium ui-text-secondary">{title}</p>
-      {hint ? <p className="text-[11px] leading-relaxed ui-text-muted">{hint}</p> : null}
+      {hint ? <p className="ui-text-label leading-relaxed ui-text-muted">{hint}</p> : null}
     </div>
   );
 }

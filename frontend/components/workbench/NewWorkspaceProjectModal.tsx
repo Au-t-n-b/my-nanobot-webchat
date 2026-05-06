@@ -21,7 +21,7 @@ type Props = {
 };
 
 const inputClass =
-  "w-full rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-2)] px-3 py-2.5 text-sm sm:text-[15px] ui-text-primary " +
+  "w-full rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-2)] px-3 py-2.5 text-sm ui-text-primary " +
   "focus:outline-none focus:ring-2 focus:ring-[color-mix(in_srgb,var(--accent)_45%,transparent)] " +
   "disabled:cursor-not-allowed disabled:opacity-60";
 
@@ -63,14 +63,14 @@ function NativeSelectWithChevron({
 
 const CHIP_OPTION_BASE =
   "inline-flex min-h-[2.25rem] min-w-[4.5rem] shrink-0 items-center justify-center rounded-full border px-3 py-2 text-sm font-medium " +
-  "transition-[color,background-color,border-color,box-shadow,transform] duration-150 sm:text-[15px] " +
+  "transition-[color,background-color,border-color,box-shadow,transform] duration-150 " +
   "active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60 ";
 
 const chipInactive =
   "border-[var(--border-subtle)] bg-[var(--surface-2)] ui-text-secondary hover:border-[color-mix(in_oklab,var(--border-subtle)_120%,transparent)] hover:bg-[var(--surface-3)] hover:ui-text-primary";
 
 const labelClass =
-  "mb-1.5 block text-sm font-semibold leading-snug ui-text-primary sm:text-[15px]";
+  "mb-1.5 block text-sm font-semibold leading-snug ui-text-primary";
 
 export function NewWorkspaceProjectModal({ open, onDismiss, onCreate }: Props) {
   const titleId = useId();
@@ -178,13 +178,13 @@ export function NewWorkspaceProjectModal({ open, onDismiss, onCreate }: Props) {
       <button
         type="button"
         aria-label="关闭"
-        className="absolute inset-0 bg-black/55 backdrop-blur-[3px]"
+        className="absolute inset-0 ui-overlay"
         onClick={() => !busy && onDismiss()}
       />
       <div
         className={[
           "relative z-10 flex w-full flex-col overflow-hidden rounded-2xl border border-[var(--border-subtle)]",
-          "bg-[var(--surface-1)] shadow-[0_24px_80px_rgba(0,0,0,0.45)] ring-1 ring-black/5 dark:ring-white/10",
+          "bg-[var(--surface-1)] shadow-[0_24px_80px_rgba(0,0,0,0.45)] ring-1 ring-[var(--border-subtle)]",
           "max-h-[min(90dvh,36rem)] max-w-[min(calc(100vw-1.5rem),36rem)] sm:max-w-xl",
         ].join(" ")}
       >
@@ -210,7 +210,7 @@ export function NewWorkspaceProjectModal({ open, onDismiss, onCreate }: Props) {
           <div className="space-y-5">
             <div>
               <label className={labelClass} htmlFor="new-ws-project-name">
-                项目名称 <span className="text-red-500 dark:text-red-400">*</span>
+                项目名称 <span className="text-[var(--danger)]">*</span>
               </label>
               <input
                 id="new-ws-project-name"
@@ -229,7 +229,7 @@ export function NewWorkspaceProjectModal({ open, onDismiss, onCreate }: Props) {
             <div className="grid grid-cols-1 items-start gap-4 sm:grid-cols-2">
               <div>
                 <label className={labelClass} htmlFor="ws-project-code">
-                  项目编码 <span className="text-red-500 dark:text-red-400">*</span>
+                  项目编码 <span className="text-[var(--danger)]">*</span>
                 </label>
                 <input
                   id="ws-project-code"
@@ -259,7 +259,7 @@ export function NewWorkspaceProjectModal({ open, onDismiss, onCreate }: Props) {
             </div>
             <div>
               <label className={labelClass} htmlFor="ws-scenario">
-                项目场景 <span className="text-red-500 dark:text-red-400">*</span>
+                项目场景 <span className="text-[var(--danger)]">*</span>
               </label>
               <NativeSelectWithChevron
                 id="ws-scenario"
@@ -299,7 +299,7 @@ export function NewWorkspaceProjectModal({ open, onDismiss, onCreate }: Props) {
             <div className="grid grid-cols-1 items-start gap-4 sm:grid-cols-2">
               <div>
                 <label className={labelClass} htmlFor="ws-start">
-                  项目开始时间 <span className="text-red-500 dark:text-red-400">*</span>
+                  项目开始时间 <span className="text-[var(--danger)]">*</span>
                 </label>
                 <input
                   id="ws-start"
@@ -315,7 +315,7 @@ export function NewWorkspaceProjectModal({ open, onDismiss, onCreate }: Props) {
               </div>
               <div>
                 <label className={labelClass} htmlFor="ws-dc-ready">
-                  机房改造完成时间 <span className="text-red-500 dark:text-red-400">*</span>
+                  机房改造完成时间 <span className="text-[var(--danger)]">*</span>
                 </label>
                 <input
                   id="ws-dc-ready"
@@ -332,7 +332,7 @@ export function NewWorkspaceProjectModal({ open, onDismiss, onCreate }: Props) {
             </div>
             <fieldset id="ws-delivery-fieldset" className="min-w-0 border-0 p-0" tabIndex={-1}>
               <legend className={labelClass}>
-                交付特点 <span className="text-red-500 dark:text-red-400">*</span>
+                交付特点 <span className="text-[var(--danger)]">*</span>
               </legend>
               <div className="flex flex-wrap gap-x-2 gap-y-3">
                 {DELIVERY_FEATURE_OPTIONS.map((opt) => {
@@ -347,7 +347,7 @@ export function NewWorkspaceProjectModal({ open, onDismiss, onCreate }: Props) {
                       className={
                         CHIP_OPTION_BASE +
                         (on
-                          ? "border-[color-mix(in_srgb,var(--accent)_45%,transparent)] bg-[color-mix(in_srgb,var(--accent)_14%,transparent)] text-[var(--accent)]"
+                          ? "border-[var(--accent-border)] bg-[var(--accent-bg-soft)] text-[var(--accent)]"
                           : chipInactive)
                       }
                     >
@@ -360,7 +360,7 @@ export function NewWorkspaceProjectModal({ open, onDismiss, onCreate }: Props) {
 
             <fieldset id="ws-lang-group" className="min-w-0 border-0 p-0" tabIndex={-1}>
               <legend className={labelClass}>
-                项目语言 <span className="text-red-500 dark:text-red-400">*</span>
+                项目语言 <span className="text-[var(--danger)]">*</span>
               </legend>
               <div className="flex flex-wrap gap-x-2 gap-y-3" role="radiogroup" aria-label="项目语言">
                 {(
@@ -382,7 +382,7 @@ export function NewWorkspaceProjectModal({ open, onDismiss, onCreate }: Props) {
                     className={
                       CHIP_OPTION_BASE +
                       (meta.language === v
-                        ? "border-[color-mix(in_srgb,var(--accent)_45%,transparent)] bg-[color-mix(in_srgb,var(--accent)_14%,transparent)] text-[var(--accent)]"
+                        ? "border-[var(--accent-border)] bg-[var(--accent-bg-soft)] text-[var(--accent)]"
                         : chipInactive)
                     }
                   >

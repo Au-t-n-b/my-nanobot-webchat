@@ -71,7 +71,7 @@ export function SduiView({ data, loading, error, dataFilePath }: SkillUiComponen
         <p className="font-medium">SDUI 文档无效</p>
         <p className="ui-text-secondary text-xs whitespace-pre-wrap">{parsed.error}</p>
         {dataFilePath ? (
-          <p className="text-[10px] ui-text-muted truncate" title={dataFilePath}>
+          <p className="ui-text-eyebrow ui-text-muted truncate" title={dataFilePath}>
             {dataFilePath}
           </p>
         ) : null}
@@ -91,7 +91,7 @@ export function SduiView({ data, loading, error, dataFilePath }: SkillUiComponen
         <div className="flex items-center justify-between gap-2 flex-wrap shrink-0">
           <h3 className="text-sm font-semibold ui-text-primary">Skill UI · SDUI</h3>
           {dataFilePath ? (
-            <code className="text-[10px] px-2 py-1 rounded-md ui-text-muted truncate max-w-full" title={dataFilePath}>
+            <code className="ui-text-eyebrow px-2 py-1 rounded-lg ui-text-muted truncate max-w-full" title={dataFilePath}>
               {dataFilePath}
             </code>
           ) : null}

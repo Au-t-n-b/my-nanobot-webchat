@@ -32,7 +32,7 @@ function ProjectOptionRow({
           aria-selected={active}
           onClick={onSelect}
           className={
-            "min-w-0 flex-1 truncate rounded-lg px-2 py-2 text-left text-sm sm:text-[15px] ui-text-primary " +
+            "min-w-0 flex-1 truncate rounded-lg px-2 py-2 text-left text-sm ui-text-primary " +
             (active ? "font-medium" : "")
           }
         >
@@ -64,7 +64,7 @@ function NewProjectAction({ onClick }: { onClick: () => void }) {
       <button
         type="button"
         onClick={onClick}
-        className="flex w-full items-center gap-1.5 px-2 py-2 text-left text-sm sm:text-[15px] text-[var(--accent)] transition-colors hover:bg-[color-mix(in_oklab,var(--accent)_10%,transparent)]"
+        className="flex w-full items-center gap-1.5 px-2 py-2 text-left text-sm text-[var(--accent)] transition-colors hover:bg-[color-mix(in_oklab,var(--accent)_10%,transparent)]"
       >
         <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-[color-mix(in_srgb,var(--accent)_40%,transparent)] bg-[var(--surface-2)]">
           <Plus className="h-3.5 w-3.5" strokeWidth={2.25} aria-hidden />
@@ -134,7 +134,7 @@ export function LocalProjectNavDropdown({
             aria-expanded={open}
             aria-haspopup="listbox"
             className={
-              "relative flex h-7 w-full min-w-0 items-center rounded-full border border-[color-mix(in_oklab,var(--border-subtle)_72%,var(--text-primary)_16%)] bg-[var(--surface-2)] px-2 py-0.5 text-sm font-medium transition-colors sm:text-[15px] " +
+              "relative flex h-7 w-full min-w-0 items-center rounded-full border border-[color-mix(in_oklab,var(--border-subtle)_72%,var(--text-primary)_16%)] bg-[var(--surface-2)] px-2 py-0.5 text-sm font-medium transition-colors " +
               "ui-text-primary hover:bg-[color-mix(in_oklab,var(--surface-3)_90%,transparent)] " +
               "hover:border-[color-mix(in_oklab,var(--border-subtle)_62%,var(--text-primary)_22%)] " +
               "dark:border-[color-mix(in_oklab,var(--border-subtle)_50%,rgb(255_255_255/0.22))] " +
@@ -161,7 +161,7 @@ export function LocalProjectNavDropdown({
               role="listbox"
             >
               {projects.length === 0 ? (
-                <div className="px-3 py-3 text-center text-sm sm:text-[15px] ui-text-muted">暂无项目，请新建</div>
+                <div className="px-3 py-3 text-center text-sm ui-text-muted">暂无项目，请新建</div>
               ) : (
                 <ul className="max-h-[min(50dvh,280px)] min-w-0 overflow-y-auto py-0.5 [scrollbar-width:thin]">
                   {projects.map((p) => {

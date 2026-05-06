@@ -142,7 +142,7 @@ export function RemoteAssetDetailPanel({ assetId, onClose, onOpenUpload, onImpor
     <aside className="ui-panel h-full rounded-2xl p-4 flex flex-col gap-4 min-h-0">
       <div className="flex items-center justify-between gap-2 shrink-0">
         <div>
-          <p className="text-[11px] font-semibold uppercase tracking-wider ui-text-secondary">
+          <p className="ui-text-eyebrow font-semibold uppercase tracking-wider ui-text-secondary">
             组织资产 <span className="font-normal normal-case tracking-normal ui-text-muted">Org Asset Detail</span>
           </p>
           <p className="text-xs ui-text-muted mt-1">右侧查看详情，不影响现有预览与会话区域。</p>
@@ -197,7 +197,7 @@ export function RemoteAssetDetailPanel({ assetId, onClose, onOpenUpload, onImpor
                   <h2 className="text-lg font-semibold ui-text-primary">{detail.title || detail.name}</h2>
                   <p className="text-xs ui-text-muted mt-1">{detail.description || "暂无描述"}</p>
                 </div>
-                <span className="rounded-full px-2 py-1 text-[10px]" style={{ background: "var(--surface-3)", color: "var(--text-tertiary)" }}>
+                <span className="rounded-full px-2 py-1 ui-text-eyebrow" style={{ background: "var(--surface-3)", color: "var(--text-tertiary)" }}>
                   v{detail.version || "未标注"}
                 </span>
               </div>
@@ -210,7 +210,7 @@ export function RemoteAssetDetailPanel({ assetId, onClose, onOpenUpload, onImpor
               {detail.tags?.length ? (
                 <div className="flex flex-wrap gap-2 pt-1">
                   {detail.tags.map((tag) => (
-                    <span key={tag} className="rounded-full px-2 py-1 text-[10px]" style={{ background: "var(--accent-soft)", color: "var(--accent)" }}>
+                    <span key={tag} className="rounded-full px-2 py-1 ui-text-eyebrow" style={{ background: "var(--accent-soft)", color: "var(--accent)" }}>
                       {tag}
                     </span>
                   ))}

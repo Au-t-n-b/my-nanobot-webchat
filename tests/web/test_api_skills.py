@@ -135,6 +135,7 @@ async def test_get_modules_scans_module_json_contract(
                     "moduleId": "intelligent_analysis_workbench",
                     "label": "智能分析工作台",
                     "description": "标准案例模块",
+                        "showWorkbenchModuleStepper": True,
                     "taskProgress": {
                         "moduleId": "intelligent_analysis_workbench",
                         "moduleName": "智能分析工作台",
@@ -187,6 +188,7 @@ async def test_get_modules_skips_invalid_module_json(
                     "moduleId": "valid_module",
                     "label": "有效模块",
                     "description": "可显示",
+                        "showWorkbenchModuleStepper": True,
                     "taskProgress": {
                         "moduleId": "valid_module",
                         "moduleName": "有效模块",

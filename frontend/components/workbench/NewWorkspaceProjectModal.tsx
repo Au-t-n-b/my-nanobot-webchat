@@ -9,7 +9,6 @@ import {
   GROUP_SELECT_OPTIONS,
   SCALE_SELECT_OPTIONS,
   SCENARIO_SELECT_OPTIONS,
-  type ProjectLanguage,
   type WorkspaceProjectCreatePayload,
   type WorkspaceProjectFormMeta,
   emptyWorkspaceProjectFormMeta,
@@ -55,7 +54,7 @@ function NativeSelectWithChevron({
       <ChevronDown
         size={18}
         strokeWidth={2}
-        className="pointer-events-none absolute right-3 top-1/2 z-[1] -translate-y-1/2 text-zinc-500/85 transition-colors peer-hover:text-zinc-600 peer-focus-visible:text-[var(--accent)] dark:text-zinc-400/95 dark:peer-hover:text-zinc-300 peer-disabled:opacity-40"
+        className="pointer-events-none absolute right-3 top-1/2 z-[1] -translate-y-1/2 ui-text-muted ui-motion-fast peer-hover:text-[var(--text-secondary)] peer-focus-visible:!text-[var(--accent)] peer-disabled:opacity-40"
         aria-hidden
       />
     </div>
@@ -71,7 +70,7 @@ const chipInactive =
   "border-[var(--border-subtle)] bg-[var(--surface-2)] ui-text-secondary hover:border-[color-mix(in_oklab,var(--border-subtle)_120%,transparent)] hover:bg-[var(--surface-3)] hover:ui-text-primary";
 
 const labelClass =
-  "mb-1.5 block text-sm font-semibold leading-snug text-zinc-700 dark:text-zinc-200 sm:text-[15px]";
+  "mb-1.5 block text-sm font-semibold leading-snug ui-text-primary sm:text-[15px]";
 
 export function NewWorkspaceProjectModal({ open, onDismiss, onCreate }: Props) {
   const titleId = useId();
@@ -128,28 +127,7 @@ export function NewWorkspaceProjectModal({ open, onDismiss, onCreate }: Props) {
       document.getElementById("ws-scenario")?.focus();
       return;
     }
-    if (!meta.startDate) {
-      setError("请选择项目开始时间");
-      document.getElementById("ws-start")?.focus();
-      return;
-    }
-    if (!meta.datacenterReadyDate) {
-      setError("请选择机房改造完成时间");
-      document.getElementById("ws-dc-ready")?.focus();
-      return;
-    }
-    if (meta.deliveryFeatures.length === 0) {
-      setError("请至少选择一项交付特点");
-      document.getElementById("ws-delivery-fieldset")?.focus();
-      return;
-    }
-    if (!meta.language) {
-      setError("请选择项目语言");
-      document.getElementById("ws-lang-group")?.focus();
-      return;
-    }
 
-    const lang: ProjectLanguage = meta.language;
     const descriptionParts = [meta.projectCode.trim(), meta.scenario.trim()].filter(Boolean);
     const description = descriptionParts.length ? descriptionParts.join(" · ") : "";
 
@@ -165,7 +143,7 @@ export function NewWorkspaceProjectModal({ open, onDismiss, onCreate }: Props) {
         startDate: meta.startDate,
         datacenterReadyDate: meta.datacenterReadyDate,
         deliveryFeatures: [...meta.deliveryFeatures],
-        language: lang,
+        language: meta.language,
         owner: meta.owner.trim(),
         group: meta.group.trim(),
       },

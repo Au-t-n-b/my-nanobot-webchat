@@ -1,7 +1,7 @@
 # Phase 3：Agentic Preview（智能降级与 Agent 洞察）设计稿
 
 **日期**：2026-04-22  
-**状态**：草案（待评审后进入实现计划）  
+**状态**：**已裁决（Architecture Locked）** — 开放问题已收口；实施见 `docs/superpowers/plans/2026-04-22-agentic-preview.md`  
 **依赖**：Phase 0 预览子系统（resolver / parsers / renderers）、Phase 2 ZIP、`skill.agent_task_execute` 混合子任务协议、`BaseRendererProps.onAction` 预留契约  
 
 ---
@@ -39,19 +39,29 @@
 
 **推荐**：
 
-- **解析层**：仍只由 `path` → `PreviewResolution`（含 kind / fetch）。
-- **洞察层**：在 `PreviewFileViewer` / `PreviewPanel` 壳层维护 `insight` 状态机：`idle | requesting | ready | error`，与 parser 输出 **正交**。
+- **解析层**：仍只由 `path` → `PreviewResolution`（含 kind / fetch / url；**可选** `meta` 字段见下文「文件大小元数据」）。
+- **洞察层**：在 `PreviewFileViewer`（壳层）维护 `insight` 状态机：`idle | requesting | ready | error`，与 parser 输出 **正交**。
 - **呈现层**：当 `insight.status === "ready"` 时，**优先**渲染 `InsightRenderer`（或 split：上半原预览/降级，下半洞察面板），而不是改 resolver。
 
-### 2) `onAction` 上升路径
+### 2) Workbench 注入：专属 RPC 契约 `onPreviewInsightRequest`
 
-`BaseRendererProps` 已预留 `onAction?: (action: string, payload: unknown) => void`。
+**裁决**：不复用 `onFillInput` / `postToAgent` 的「聊天流」语义；预览洞察需要 **明确的 RPC 语义**。
 
-- **Renderer**（如升级后的 `BinaryRenderer` / 新增 `FallbackRenderer`）：只 `onAction("REQUEST_AGENT_INSIGHT", { path, reason, ... })`。
-- **PreviewFileViewer / PreviewPanel**：默认不处理则忽略；若父组件传入 `onPreviewInsightRequest`，则向上抛出。
-- **Workbench**：注入实现：组装 `buildSkillAgentTaskExecuteEnvelope(...)` 所需字段（`threadId`、`skillRunId`、`skillName`、白名单工具等），通过既有 **SDUI / Agent 消息通道** 发往 bridge（与现有 Hybrid 一致）。
+- 在 **`PreviewFileViewerProps`** 增加：  
+  `onPreviewInsightRequest?: (path: string) => Promise<FileInsightReport>`
+- 外层 **Workbench** 负责：组装 `skill.agent_task_execute` 信封、发起请求、订阅 SSE、在特定 `taskId` 完成时 **resolve Promise**；`PreviewFileViewer` 内只 `await` 并驱动状态机，便于 Storybook Mock。
 
-> 说明：具体「发到哪条 API / 是否复用 `postToAgent`」以 Workbench 现有能力为准；Phase 3 实现前在计划中锁定唯一入口，避免双通道。
+`BaseRendererProps.onAction` 仍可作为 renderer 内部向壳层冒泡的 **实现细节**（例如 `"REQUEST_AGENT_INSIGHT"`），但 **对外契约** 以 `onPreviewInsightRequest` 为准。
+
+### 3) 文件大小元数据（`PreviewResolution.meta`）
+
+**裁决**：超大文件 CTA 拦截 **复用** 已知大小信息，**禁止**为「能否点 CTA」再单独打一圈预检请求。
+
+- 在 **`PreviewResolution`** 上增加可选字段，例如 `meta?: { sizeBytes?: number }`。
+- **`resolvePreview(path)` 仍不发起网络**、也不读取异步状态；`meta` **不由** resolver 同步填充。
+- **壳层合并**：凡已通过 `/api/file` 拉取或解析的路径（parser 首包已读到 `Content-Length`），将 `sizeBytes` 写入 **派生** 的 `resolutionForUi` 再传给 renderer；对 **`fetch === "none"` 且需展示 CTA 的二进制路径**，允许壳层做 **与下载同源的一次** `HEAD`（或等价元数据）以填充 `meta` —— 这与「不为 CTA 单独再加一次预检」一致：要么复用已有响应头，要么二进制路径仅此一次元数据请求。
+
+**产品规则**：若 `meta.sizeBytes > 500 * 1024 * 1024`，CTA **disabled**，文案：「文件极其庞大，为确保性能，AI 诊断暂不可用。」
 
 ---
 
@@ -61,7 +71,7 @@
 
 当前二进制降级为 `frontend/components/preview/renderers/BinaryRenderer.tsx`（仅下载）。Phase 3 可二选一：
 
-- **A（推荐）**：扩展 `BinaryRenderer`，增加 CTA + `onAction`（保持单组件职责：降级 + CTA）。
+- **A（推荐）**：扩展 `BinaryRenderer`，增加 CTA + 与壳层传入的回调绑定（保持单组件职责：降级 + CTA）。
 - **B**：抽 `FallbackRenderer.tsx`，把「不支持 / 过大 / 加密」统一收口，再让 `PreviewFileViewer` 路由到它。
 
 CTA 文案示例：「该文件过大或无法预览，是否调用认知引擎进行结构化诊断？」
@@ -90,13 +100,16 @@ insight: idle → requesting → ready | error
 
 ### Goal 模板（示例）
 
-> 仅分析工作区内路径 `{path}`：在不下载到临时目录的前提下，通过允许的工具读取有限字节/尾部行数，输出符合 `FileInsightReport` 的 JSON。
+> 仅分析工作区内路径 `{path}`：通过允许的工具读取 **严格上限** 的字节/行，输出 **唯一** 一段符合 `FileInsightReport` 的 JSON（不要 markdown 围栏）。
 
-### 工具白名单（建议）
+### 工具白名单（已裁决 + 避坑）
 
-- `read_file`（必须带 offset/limit 或平台支持的「仅读头/尾」语义；若无则严格限制 max 字符）
-- 可选：`extract_doc_text` 仅当扩展名为 doc/docx 且策略允许
-- **禁止**：任意 shell、网络、写文件
+- **禁止**向 File Insight 子任务暴露无约束的 `read_file` 作为主力工具（即使现有 `ReadFileTool` 有分页，仍可能被宽 `limit` 或大行撑爆进程 / 上下文）。
+- **必须**提供签名层即卡死读取量的工具，例如：  
+  - `read_file_head(path, lines=100)`  
+  - `read_file_tail(path, lines=100)`  
+  - `read_hex_dump(path, bytes=256)`  
+- 可保留 `list_dir` 等低风险只读工具；其它工具按场景收紧。
 
 ### 强 Schema（Pydantic，后端）
 
@@ -112,10 +125,13 @@ class FileInsightReport(BaseModel):
     next_action_suggestion: str
 ```
 
-返回方式（二选一，实现前锁定）：
+### Insight 结果回传（已裁决）
 
-1. **子任务结束 JSON** 写入某 SSE 事件 payload（与现有 hybrid 结果路径一致），前端监听同一 thread 解析。
-2. **`dashboard.patch`** 写入专用节点（需 SDUI 节点 id 约定）；预览侧订阅 patch 流（若 Workbench 已暴露则复用）。
+**走 SSE 专用子任务结果通道；坚决不走 `dashboard.patch`。**
+
+- **理由**：预览洞察是 **临时态（Ephemeral）**；写入 SDUI 状态树会导致膨胀并破坏模块数据隔离。
+- **做法**：子任务完成后，由后端经 **与现有 chat SSE 同流** 的事件推送结构化 payload（实现层事件名建议与前端枚举对齐，例如 **`SkillAgentTaskResult`**；概念上即「`skill_agent_task_result` 类通道」）。前端按 **`taskId`** 过滤，在 **`onPreviewInsightRequest` 的 Promise** 中 resolve；`PreviewFileViewer` 仅更新局部 `insight` state。
+- **与现状对齐**：当前 `_emit_skill_agent_task_execute` 在存在 `syntheticPath` 时会把摘要 **merge 进 dashboard** —— **File Insight 模式必须跳过该分支**，仅发 SSE 结果事件。
 
 ---
 
@@ -133,6 +149,7 @@ class FileInsightReport(BaseModel):
 - 对至少一类「仅 Binary 降级」的文件，用户点击 CTA 后能看到 **进行中** → **结构化报告** 或 **明确错误**。
 - 全程不破坏 `resolvePreview` 纯函数与现有 parser/renderer 无副作用契约。
 - 不自动发起子任务；失败时仍可下载。
+- Insight 结果 **不**经 `SkillUiDataPatch` / `dashboard.patch` 进入主干 SDUI 树。
 
 ---
 
@@ -141,11 +158,21 @@ class FileInsightReport(BaseModel):
 - 子任务信封：`frontend/lib/skillHybridProtocol.ts` → `buildSkillAgentTaskExecuteEnvelope`
 - 混合提示：`hybridSubtaskHintFromTaskStatus`（可与预览区「呼吸态」并存）
 - 降级 UI：`BinaryRenderer`（当前扩展主入口）
+- Hybrid 执行与 patch：`nanobot/web/skill_runtime_bridge.py` → `_emit_skill_agent_task_execute`
+- SSE 写出：`nanobot/web/routes.py`（`TaskStatusUpdate` 等同路径旁新增结果事件绑定）
 
 ---
 
-## 开放问题（实现计划前需拍板）
+## 架构师裁决摘要（The Rulings）
 
-1. **Insight 结果回传**：优先走「SSE 子任务结果」还是 `dashboard.patch`？（建议优先与 hybrid 现有回传路径一致。）
-2. **Workbench 注入点**：`PreviewPanel` 是否新增 `onPreviewInsightRequest` prop，还是复用 `onFillInput`/`postToAgent` 的既有回调？
-3. **超大文件**：是否在 CTA 前就做 `HEAD`/`content-length` 拦截，避免用户误点？
+| # | 主题 | 裁决 |
+|---|------|------|
+| 1 | Insight 回传 | **SSE 子任务结果通道**；**禁止** `dashboard.patch` 持久化 JSON。 |
+| 2 | Workbench 注入 | 新增 **`onPreviewInsightRequest?: (path: string) => Promise<FileInsightReport>`**（`PreviewFileViewerProps`）；**禁止**复用 `onFillInput` / `postToAgent` 作为对外契约。 |
+| 3 | 超大文件 CTA | 使用 **`PreviewResolution.meta.sizeBytes`**（壳层填充）；`> 500MB` 禁用 CTA 并固定中文提示；**禁止**为 CTA 单独再加无意义的二次预检。 |
+
+---
+
+## 后端避坑锦囊（Agent 也会被大文件撑爆）
+
+在实现工具层时，**不要**把原生大容量 `read_file` 交给 Insight Agent。必须在 **工具签名与实现** 上限制读取量，迫使模型「管中窥豹」并完成 `file_type_guess` —— 见上文 **工具白名单（已裁决 + 避坑）**。

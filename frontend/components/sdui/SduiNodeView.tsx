@@ -8,6 +8,7 @@ import type {
   SduiConfirmCardNode,
   SduiGanttChartNode,
   SduiEmbeddedWebNode,
+  SduiHitlTextInputNode,
 } from "@/lib/sdui";
 import { stableChildKey } from "@/lib/sduiKeys";
 import { SduiStack } from "@/components/sdui/Stack";
@@ -36,6 +37,7 @@ import { SduiArtifactGrid } from "@/components/sdui/SduiArtifactGrid";
 import { SduiGuidanceCard } from "@/components/sdui/GuidanceCard";
 import { SduiChoiceCard } from "@/components/sdui/ChoiceCard";
 import { SduiConfirmCard } from "@/components/sdui/ConfirmCard";
+import { SduiHitlTextInput } from "@/components/sdui/HitlTextInput";
 import { SduiStatisticRow } from "@/components/sdui/SduiStatisticRow";
 import { SduiGanttLane } from "@/components/sdui/SduiGanttLane";
 import { EmbeddedWeb } from "@/components/sdui/EmbeddedWeb";
@@ -253,6 +255,30 @@ export function SduiNodeView({ node, pathPrefix = "root" }: Props) {
           skillName={cn.skillName}
           stateNamespace={cn.stateNamespace}
           stepId={cn.stepId}
+        />
+      );
+    }
+
+    case "HitlTextInput": {
+      const tn = node as SduiHitlTextInputNode & { cardId?: string };
+      return (
+        <SduiHitlTextInput
+          cardId={tn.cardId}
+          purpose={tn.purpose}
+          title={tn.title}
+          label={tn.label}
+          placeholder={tn.placeholder}
+          rows={tn.rows}
+          defaultValue={tn.defaultValue}
+          submitLabel={tn.submitLabel}
+          helpText={tn.helpText}
+          moduleId={tn.moduleId}
+          nextAction={tn.nextAction}
+          skillName={tn.skillName}
+          hitlRequestId={tn.hitlRequestId}
+          stateNamespace={tn.stateNamespace}
+          stepId={tn.stepId}
+          submittedText={tn.submittedText}
         />
       );
     }

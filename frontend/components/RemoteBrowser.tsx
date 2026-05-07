@@ -492,7 +492,7 @@ export function RemoteBrowser({ filePath, onClosePanel }: Props) {
       >
         {/* Favicon / live indicator */}
         <div className="relative shrink-0">
-          <Globe size={12} className="text-zinc-400" />
+          <Globe size={12} className="ui-text-secondary" />
           {isLive && (
             <span
               className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full"
@@ -584,11 +584,11 @@ export function RemoteBrowser({ filePath, onClosePanel }: Props) {
           }}
         >
           <div className="flex items-center justify-between gap-2">
-            <span className="font-medium text-zinc-400">剪贴板同步</span>
+            <span className="font-medium ui-text-secondary">剪贴板同步</span>
             <button
               type="button"
               onClick={() => setClipboardOpen(false)}
-              className="rounded p-0.5 text-zinc-500 hover:text-zinc-200 transition-colors"
+              className="rounded p-0.5 ui-text-muted ui-hover-soft"
               aria-label="关闭剪贴板"
             >
               <X size={11} />
@@ -603,7 +603,7 @@ export function RemoteBrowser({ filePath, onClosePanel }: Props) {
               onChange={(e) => setClipText(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleSendClipText(); } }}
               placeholder="输入或粘贴文本 → 发送到远端"
-              className="flex-1 min-w-0 rounded-md px-2 py-1 text-[11px] font-mono bg-black/40 border border-white/10 text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-blue-500/50"
+              className="flex-1 min-w-0 rounded-md px-2 py-1 text-[11px] font-mono bg-black/40 border border-white/10 ui-text-primary placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)]/50"
               aria-label="待发送到远端的文本"
             />
             <button
@@ -623,7 +623,7 @@ export function RemoteBrowser({ filePath, onClosePanel }: Props) {
             type="button"
             onClick={handleGetSelection}
             disabled={status !== "connected"}
-            className="flex items-center gap-1.5 text-[11px] text-zinc-400 hover:text-zinc-200 disabled:opacity-40 disabled:cursor-not-allowed transition-colors self-start"
+            className="flex items-center gap-1.5 text-[11px] ui-text-secondary ui-hover-soft disabled:opacity-40 disabled:cursor-not-allowed self-start"
             title="获取远端选中文本（自动复制到本地剪贴板）"
           >
             <ClipboardCopy size={11} />
@@ -698,8 +698,8 @@ export function RemoteBrowser({ filePath, onClosePanel }: Props) {
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/80 text-white">
             {status === "connecting" && (
               <>
-                <Loader2 size={28} className="animate-spin text-zinc-400" />
-                <p className="text-sm text-zinc-400">正在连接浏览器…</p>
+                <Loader2 size={28} className="animate-spin ui-text-secondary" />
+                <p className="text-sm ui-text-secondary">正在连接浏览器…</p>
               </>
             )}
             {status === "error" && (
@@ -709,7 +709,7 @@ export function RemoteBrowser({ filePath, onClosePanel }: Props) {
                   {errorMsg ?? "连接失败"}
                 </p>
                 {(errorMsg?.includes("playwright") || errorMsg?.includes("Chromium")) && (
-                  <code className="text-xs text-zinc-400 bg-zinc-900/80 rounded-lg px-3 py-1.5 mt-1 border border-zinc-700">
+                  <code className="text-xs ui-text-secondary bg-[var(--surface-1)]/80 rounded-lg px-3 py-1.5 mt-1 border border-[var(--border-strong)]">
                     python -m playwright install chromium
                   </code>
                 )}
@@ -717,8 +717,8 @@ export function RemoteBrowser({ filePath, onClosePanel }: Props) {
             )}
             {status === "closed" && (
               <>
-                <WifiOff size={28} className="text-zinc-500" />
-                <p className="text-sm text-zinc-400">连接已关闭</p>
+                <WifiOff size={28} className="ui-text-muted" />
+                <p className="text-sm ui-text-secondary">连接已关闭</p>
               </>
             )}
           </div>
@@ -727,7 +727,7 @@ export function RemoteBrowser({ filePath, onClosePanel }: Props) {
         {/* Connected but no frame painted yet */}
         {status === "connected" && !hasFrame && (
           <div className="absolute inset-0 flex items-center justify-center">
-            <Loader2 size={22} className="animate-spin text-zinc-500" />
+            <Loader2 size={22} className="animate-spin ui-text-muted" />
           </div>
         )}
       </div>

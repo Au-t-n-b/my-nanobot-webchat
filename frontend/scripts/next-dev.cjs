@@ -11,7 +11,8 @@ const { envForNextChild } = require("../../scripts/node-env-for-next.cjs");
 const frontendRoot = path.join(__dirname, "..");
 const nextBin = require.resolve("next/dist/bin/next", { paths: [frontendRoot] });
 
-const child = spawn(process.execPath, [nextBin, "dev", "--turbopack"], {
+// 开发不用 --turbopack：next/font/google 在 Turbopack 下可能无法解析内部字体模块。
+const child = spawn(process.execPath, [nextBin, "dev"], {
   cwd: frontendRoot,
   env: envForNextChild(),
   stdio: "inherit",

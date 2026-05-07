@@ -4,6 +4,7 @@ import dynamic from "next/dynamic";
 import { useLayoutEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { hasWorkspaceAccess } from "@/lib/globalProjectContext";
+import { hydrateAuthFromStorage, isAuthed } from "@/lib/authStore";
 
 function WorkbenchShellLoading() {
   return (
@@ -33,7 +34,12 @@ export default function WorkbenchPage() {
 
   useLayoutEffect(() => {
     setHydrated(true);
+    hydrateAuthFromStorage();
     if (!hasWorkspaceAccess()) {
+      router.replace("/");
+      return;
+    }
+    if (!isAuthed()) {
       router.replace("/");
     }
   }, [router]);
@@ -43,6 +49,10 @@ export default function WorkbenchPage() {
   }
 
   if (!hasWorkspaceAccess()) {
+    return <WorkbenchShellLoading />;
+  }
+
+  if (!isAuthed()) {
     return <WorkbenchShellLoading />;
   }
 

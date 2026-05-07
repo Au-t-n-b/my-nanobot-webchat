@@ -26,6 +26,9 @@ async def test_task_status_returns_default_when_file_missing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _set_nanobot_home(monkeypatch=monkeypatch, tmp_path=tmp_path)
+    tp = tmp_path / "no_dir" / "task_progress.json"
+    monkeypatch.setenv("NANOBOT_TASK_PROGRESS_FILE", str(tp))
+    assert not tp.is_file()
     app = create_app(config=None)
 
     async with TestClient(TestServer(app)) as client:
@@ -35,7 +38,7 @@ async def test_task_status_returns_default_when_file_missing(
 
     modules = body.get("modules")
     assert isinstance(modules, list)
-    assert len(modules) == 7
+    assert len(modules) == 6
     assert body["overall"]["totalCount"] == len(modules)
     assert body["overall"]["doneCount"] == sum(1 for m in modules if m.get("status") == "completed")
     assert body["summary"] == {
@@ -44,7 +47,7 @@ async def test_task_status_returns_default_when_file_missing(
         "completedCount": 0,
         "completionRate": 0,
     }
-    assert any(module.get("name") == "智能分析工作台" for module in modules)
+    assert any(module.get("name") == "作业管理" for module in modules)
     for module in modules:
         assert module.get("status") in {"pending", "running", "completed"}
         assert isinstance(module.get("steps"), list)
@@ -55,7 +58,8 @@ async def test_task_status_returns_file_payload_when_valid(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    nanobot_home = _set_nanobot_home(monkeypatch, tmp_path)
+    _set_nanobot_home(monkeypatch, tmp_path)
+    tp = tmp_path / "task_progress.json"
     payload = {
         "schemaVersion": 1,
         "updatedAt": 1774659000,
@@ -80,7 +84,8 @@ async def test_task_status_returns_file_payload_when_valid(
             },
         ],
     }
-    (nanobot_home / "task_progress.json").write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    tp.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    monkeypatch.setenv("NANOBOT_TASK_PROGRESS_FILE", str(tp))
 
     app = create_app(config=None)
 
@@ -124,8 +129,10 @@ async def test_task_status_returns_500_when_invalid_json(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    nanobot_home = _set_nanobot_home(monkeypatch, tmp_path)
-    (nanobot_home / "task_progress.json").write_text("{invalid json", encoding="utf-8")
+    _set_nanobot_home(monkeypatch, tmp_path)
+    tp = tmp_path / "bad_task_progress.json"
+    tp.write_text("{invalid json", encoding="utf-8")
+    monkeypatch.setenv("NANOBOT_TASK_PROGRESS_FILE", str(tp))
     app = create_app(config=None)
 
     async with TestClient(TestServer(app)) as client:

@@ -1,5 +1,19 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
+## 依赖安装（仓库协作必读）
+
+在 **`frontend` 目录**下安装依赖（与仓库根目录 `package.json` 无关）：
+
+```bash
+cd frontend
+npm ci
+# 若尚未生成 lock 或需补装：npm install
+```
+
+出现 **`Module not found: Can't resolve 'jszip'`** 时，说明 `node_modules` 未装全，请执行上述 `npm ci` 或 `npm install`，勿只在仓库根目录装包。
+
+根目录一键安装可使用仓库的 `npm run setup`（会进入 `frontend` 执行 `npm ci`）。
+
 ## Getting Started
 
 First, run the development server:

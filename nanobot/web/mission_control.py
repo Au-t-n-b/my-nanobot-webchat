@@ -150,6 +150,72 @@ class MissionControlManager:
         await self._emit_chat_card(payload)
         return ChatCardHandle(card_id=cid, doc_id=did)
 
+    async def ask_for_text_input(
+        self,
+        *,
+        purpose: str,
+        title: str,
+        label: str | None = None,
+        placeholder: str | None = None,
+        rows: int | None = None,
+        default_value: str | None = None,
+        submit_label: str | None = None,
+        help_text: str | None = None,
+        card_id: str | None = None,
+        hitl_request_id: str | None = None,
+        module_id: str | None = None,
+        next_action: str | None = None,
+        skill_name: str | None = None,
+        state_namespace: str | None = None,
+        step_id: str | None = None,
+    ) -> ChatCardHandle:
+        """Emit a chat card that asks user for multi-line text input."""
+        p = (purpose or "").strip() or "text"
+        t = (title or "").strip() or "请填写"
+        did = await self._ensure_chat_doc()
+        cid = (card_id or "").strip() or f"text:{p}:{uuid.uuid4().hex}"
+        node: dict[str, Any] = {
+            "type": "HitlTextInput",
+            "purpose": p,
+            "title": t,
+            "label": (label or "").strip() or None,
+            "placeholder": (placeholder or "").strip() or None,
+            "rows": rows if isinstance(rows, int) and 1 <= rows <= 30 else None,
+            "defaultValue": (default_value or "").strip() or None,
+            "submitLabel": (submit_label or "").strip() or None,
+            "helpText": (help_text or "").strip() or None,
+        }
+        mid = (module_id or "").strip()
+        na = (next_action or "").strip()
+        if mid:
+            node["moduleId"] = mid
+        if na:
+            node["nextAction"] = na
+        skill = (skill_name or "").strip()
+        namespace = (state_namespace or "").strip()
+        sid = (step_id or "").strip()
+        if skill:
+            node["skillName"] = skill
+        if namespace:
+            node["stateNamespace"] = namespace
+        if sid:
+            node["stepId"] = sid
+        hr = (hitl_request_id or "").strip()
+        if hr:
+            node["hitlRequestId"] = hr
+
+        payload: dict[str, Any] = {
+            "threadId": self.thread_id,
+            "cardId": cid,
+            "mode": "replace" if card_id else "append",
+            "docId": did,
+            "title": t,
+            "node": node,
+            "ts": _now_ms(),
+        }
+        await self._emit_chat_card(payload)
+        return ChatCardHandle(card_id=cid, doc_id=did)
+
     async def replace_card(
         self,
         *,

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 
 import { composeProjectRegistryItems } from "../lib/projectOverviewRegistry.js";
 
-test("composeProjectRegistryItems prepends canonical modules and preserves real smart survey/workbench entries", () => {
+test("composeProjectRegistryItems only returns installed modules in preferred order", () => {
   const items = composeProjectRegistryItems([
     {
       moduleId: "intelligent_analysis_workbench",
@@ -19,19 +19,24 @@ test("composeProjectRegistryItems prepends canonical modules and preserves real 
       taskProgress: { moduleId: "smart_survey_workbench", moduleName: "智慧工勘", tasks: [] },
       dashboard: { docId: "dashboard:smart-survey", dataFile: "skills/smart_survey_workbench/data/dashboard.json" },
     },
+    {
+      moduleId: "job_management",
+      label: "作业管理",
+      description: "jm",
+      taskProgress: { moduleId: "job_management", moduleName: "作业管理", tasks: [] },
+      dashboard: { docId: "dashboard:job-management", dataFile: "skills/job_management/data/dashboard.json" },
+    },
   ]);
 
   assert.deepEqual(
-    items.slice(0, 4).map((item) => [item.moduleId, item.label, Boolean(item.placeholder)]),
-    [
-      ["job_management", "作业管理", true],
-      ["smart_survey_workbench", "智慧工勘", false],
-      ["modeling_simulation_workbench", "建模仿真模块", true],
-      ["intelligent_analysis_workbench", "智能分析工作台", false],
-    ],
+    items.map((item) => item.moduleId),
+    ["job_management", "smart_survey_workbench", "intelligent_analysis_workbench"],
   );
   assert.equal(items[1].dashboard.dataFile, "skills/smart_survey_workbench/data/dashboard.json");
-  assert.match(items[1].description, /工勘|报告/);
-  assert.match(items[2].description, /访问页|嵌入网页/);
-  assert.doesNotMatch(items[2].description, /哔哩哔哩/);
+  assert.ok(!items.some((x) => x.placeholder));
+});
+
+test("composeProjectRegistryItems empty input yields empty list", () => {
+  assert.deepEqual(composeProjectRegistryItems([]), []);
+  assert.deepEqual(composeProjectRegistryItems(null), []);
 });

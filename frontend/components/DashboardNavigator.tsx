@@ -51,8 +51,44 @@ function extractModuleId(syntheticPath: string): string | null {
   return m2?.[1] ?? null;
 }
 
+/** 六阶段标准 ID + 已知 chat-only skill 的中文显示名。
+ *
+ * 与 ``frontend/lib/projectOverviewRegistry.js`` 的 ``CANONICAL_SIX`` 一致；
+ * 多录入两个 alias（``smart_survey`` / ``modeling_simulation_workbench``）以覆盖
+ * 后端 driver 与 ``task_progress.json`` 中可能并存的两套 moduleId 写法。
+ *
+ * 该表只用于 tab 显示名的兜底，**不**改变路由 / 分发 / 文件路径里的 moduleId。
+ */
+const KNOWN_MODULE_LABELS: Record<string, string> = {
+  job_management: "作业管理",
+  smart_survey_workbench: "智慧工勘",
+  smart_survey: "智慧工勘",
+  jmfz: "建模仿真",
+  modeling_simulation_workbench: "建模仿真",
+  system_design: "系统设计",
+  device_install: "设备安装",
+  sw_deploy_commission: "软件部署与调测",
+  project_guide: "项目引导",
+};
+
 function moduleLabel(id: string): string {
+  const known = KNOWN_MODULE_LABELS[id];
+  if (known) return known;
   return id.replace(/[-_]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+/** Chat-only skills：这些 skill 仅经左侧 chat 卡片输出（如 ``project_guide`` 的 GuidanceCard），
+ * 不应在右侧 DashboardNavigator 注册成 panel tab，否则会出现一个空壳 module（白屏）。
+ *
+ * 后端 ``skill_runtime_bridge._NON_PANEL_SKILL_NAMES`` 已经避免了 ``ModuleSessionFocus``
+ * 抢焦点；前端这层是兜底：``activeSkillName`` / Patch / Bootstrap 三条 useEffect 都不应把
+ * 这些 skill 写进本地 ``modules`` map。
+ */
+const CHAT_ONLY_SKILL_IDS: ReadonlySet<string> = new Set(["project_guide"]);
+
+function isChatOnlySkill(id: string | null | undefined): boolean {
+  if (!id) return false;
+  return CHAT_ONLY_SKILL_IDS.has(id.trim());
 }
 
 /** 在收到 Patch 前仅有 moduleId 时，占位 dataFile（须含 `/skills/{id}/` 供 extractModuleId 与后续 Patch 对齐） */
@@ -101,6 +137,8 @@ export function DashboardNavigator({
     const name = activeSkillName?.trim();
     if (!name) return;
     if (name === "nanobot_agent") return;
+    // Chat-only skills（如 ``project_guide``）只在左侧 chat 出引导卡，不应该出现在右侧 panel tab。
+    if (isChatOnlySkill(name)) return;
     setModules((prev) => {
       if (prev.has(name)) return prev;
       const next = new Map(prev);
@@ -156,6 +194,8 @@ export function DashboardNavigator({
     const name = activeSkillName?.trim();
     if (!name) return;
     if (name === "nanobot_agent") return;
+    // Chat-only skills 不抢右侧大盘焦点。
+    if (isChatOnlySkill(name)) return;
     if (userOverrideRef.current) return;
     const knownByOverview = overviewModules.some((item) => item.moduleId === name);
     if (!modules.has(name) && !knownByOverview) return;
@@ -184,6 +224,8 @@ export function DashboardNavigator({
     if (!syntheticPath) return;
     const moduleId = extractModuleId(syntheticPath);
     if (!moduleId) return;
+    // 防御性兜底：chat-only skill 不应该有 dashboard patch / bootstrap，但若上游误发也不要登记。
+    if (isChatOnlySkill(moduleId)) return;
 
     setModules((prev) => {
       const next = new Map(prev);
@@ -202,6 +244,7 @@ export function DashboardNavigator({
       let changed = false;
       const next = new Map(prev);
       for (const id of activeModuleIds) {
+        if (isChatOnlySkill(id)) continue;
         if (!next.has(id)) {
           next.set(id, {
             syntheticPath: placeholderSyntheticPath(id),
@@ -214,7 +257,7 @@ export function DashboardNavigator({
     });
 
     const prev = prevActiveRef.current;
-    const added = [...activeModuleIds].filter((id) => !prev.has(id));
+    const added = [...activeModuleIds].filter((id) => !prev.has(id) && !isChatOnlySkill(id));
     prevActiveRef.current = new Set(activeModuleIds);
 
     if (added.length > 0 && !userOverrideRef.current) {
@@ -226,11 +269,15 @@ export function DashboardNavigator({
   const moduleEntries: ModuleEntry[] = useMemo(() => {
     const merged = new Map<string, ModuleEntry>();
     for (const item of overviewModules) {
+      if (isChatOnlySkill(item.moduleId)) continue;
       const dynamic = modules.get(item.moduleId);
+      // Overview 主导名：``item.label`` 来自 ``CANONICAL_SIX``（中文），动态注册的 ``dynamic.label``
+      // 可能因为 ``moduleLabel(id)`` 的 fallback 退化成英文（"Job Management"）。这里**优先**取
+      // overview 的中文 label，只有当 overview 里没有时才用 dynamic 的 fallback。
       merged.set(item.moduleId, {
         moduleId: item.moduleId,
         syntheticPath: dynamic?.syntheticPath ?? item.syntheticPath,
-        label: dynamic?.label ?? item.label,
+        label: item.label || dynamic?.label || moduleLabel(item.moduleId),
         description: item.description,
         isPlaceholder: item.isPlaceholder,
         progressPct: item.progressPct,
@@ -241,6 +288,7 @@ export function DashboardNavigator({
     }
     for (const [moduleId, row] of modules.entries()) {
       if (merged.has(moduleId)) continue;
+      if (isChatOnlySkill(moduleId)) continue;
       merged.set(moduleId, {
         moduleId,
         syntheticPath: row.syntheticPath,

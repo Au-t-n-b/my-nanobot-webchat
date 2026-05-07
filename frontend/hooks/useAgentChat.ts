@@ -7,7 +7,17 @@ import {
   LEGACY_CHAT,
   maybeMigrateChatFromLegacy,
   maybeMigrateLegacyChatCardBlob,
+  type TrashedSessionV1,
+  readTrashedSessions,
+  recordClearedThreadToTrash,
+  removeTrashedSession,
+  parseTrashedMessages,
 } from "@/lib/chatLocalPersistence";
+import {
+  clearOfflineOutboxForScope,
+  enqueueOfflineUserSend,
+  readOfflineOutbox,
+} from "@/lib/offlineOutbox";
 import { applyTaskStatusSnapshot } from "@/lib/projectOverviewStore";
 import { getWorkbenchChatStorageScope } from "@/lib/workbenchStorageScope";
 import { WORKBENCH_SCOPE_CHANGED_EVENT } from "@/lib/workbenchStorageKeys";
@@ -15,10 +25,13 @@ import { parseSduiDocument } from "@/lib/sdui";
 import type { SduiNode, SduiPatch, SduiUploadedFileRecord, SkillUiBootstrapEvent } from "@/lib/sdui";
 
 export type { SkillUiBootstrapEvent };
+export type { TrashedSessionV1 } from "@/lib/chatLocalPersistence";
 
 const MESSAGES_CAP = 50;
 const MESSAGES_MAX_BYTES = 1.8 * 1024 * 1024;
 const STREAM_IDLE_TIMEOUT_MS = 90_000;   // 90 s — SSE proxy may buffer; heartbeat fires every 10 s
+/** 状态条等用户可见提示中的产品名（对外品牌：交付claw） */
+const STATUS_BRAND_LABEL = "交付claw";
 
 export type ChatCardAttachment = {
   cardId: string;
@@ -79,6 +92,14 @@ export type TaskStatusPayload = {
     status: "pending" | "running" | "completed" | "failed" | "skipped";
     steps: Array<{ id: string; name: string; done: boolean }>;
   }>;
+};
+
+/** SSE ``SkillAgentTaskResult`` — 预览洞察等子任务结构化回包（不落 SDUI 树） */
+export type SkillAgentTaskResultEvent = {
+  taskId: string;
+  ok: boolean;
+  report: Record<string, unknown> | null;
+  error: string | null;
 };
 
 export type SkillUiDataPatchEvent = {
@@ -328,8 +349,16 @@ function aguiRequestPath(path: string): string {
   return path.startsWith("/") ? path : `/${path}`;
 }
 
+function readTrashedListFromStorage(): TrashedSessionV1[] {
+  if (typeof window === "undefined") return [];
+  const ls = getLocalStorage();
+  if (!ls) return [];
+  return readTrashedSessions(ls, getWorkbenchChatStorageScope());
+}
+
 export function useAgentChat() {
   const [scopeEpoch, setScopeEpoch] = useState(0);
+  const [trashedSessions, setTrashedSessions] = useState<TrashedSessionV1[]>(() => readTrashedListFromStorage());
   const [threadId, setThreadId] = useState("");
   const [messages, setMessages] = useState<AgentMessage[]>([]);
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
@@ -362,6 +391,15 @@ export function useAgentChat() {
   } | null>(null);
   /** Latest messages for sendMessage body — avoids putting `messages` in sendMessage deps (streaming updates would recreate the callback every token and can amplify nested re-renders). */
   const messagesRef = useRef<AgentMessage[]>([]);
+  const skillAgentTaskResultListenersRef = useRef(new Set<(p: SkillAgentTaskResultEvent) => void>());
+
+  const subscribeSkillAgentTaskResult = useCallback((fn: (p: SkillAgentTaskResultEvent) => void) => {
+    const s = skillAgentTaskResultListenersRef.current;
+    s.add(fn);
+    return () => {
+      s.delete(fn);
+    };
+  }, []);
 
   useEffect(() => {
     runStatusRef.current = runStatus;
@@ -381,6 +419,10 @@ export function useAgentChat() {
       window.removeEventListener("storage", bump);
     };
   }, []);
+
+  useEffect(() => {
+    setTrashedSessions(readTrashedListFromStorage());
+  }, [scopeEpoch]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -491,6 +533,16 @@ export function useAgentChat() {
         }
       } else {
         clearChatUndoRef.current = null;
+      }
+      if (opts?.saveUndoSnapshot && typeof window !== "undefined" && threadId) {
+        const ls = getLocalStorage();
+        if (ls) {
+          const scope = getWorkbenchChatStorageScope();
+          const summ = loadSessionSummaries(scope);
+          const t = summ.find((s) => s.id === threadId)?.title ?? "会话";
+          recordClearedThreadToTrash(ls, scope, { sessionId: threadId, title: t, messages: messagesRef.current as unknown[] });
+          setTrashedSessions(readTrashedListFromStorage());
+        }
       }
       if (typeof window !== "undefined" && threadId) {
         const scope = getWorkbenchChatStorageScope();
@@ -696,6 +748,53 @@ export function useAgentChat() {
     setSkillUiPatchQueue([]);
   }, []);
 
+  const dismissTrashed = useCallback((entry: TrashedSessionV1) => {
+    if (typeof window === "undefined") return;
+    const ls = getLocalStorage();
+    if (!ls) return;
+    const scope = getWorkbenchChatStorageScope();
+    removeTrashedSession(ls, scope, entry.sessionId, entry.trashedAt);
+    setTrashedSessions(readTrashedListFromStorage());
+  }, []);
+
+  const restoreFromTrash = useCallback(
+    (entry: TrashedSessionV1) => {
+      if (typeof window === "undefined") return;
+      const scope = getWorkbenchChatStorageScope();
+      const ls = getLocalStorage();
+      if (!ls) return;
+      const safe = sanitizeMessages(parseTrashedMessages(entry) as AgentMessage[]);
+      const messageMap = loadMessageMap(scope);
+      messageMap[entry.sessionId] = safe;
+      saveMessageMap(messageMap, scope);
+      if (entry.sessionId !== threadId) {
+        abortRef.current?.abort();
+        setActiveModuleIds(new Set());
+        const keys = getScopedChatKeys(scope);
+        safeSetItem(ls, keys.currentThread, entry.sessionId);
+        setThreadId(entry.sessionId);
+        setStepLogs([]);
+        setError(null);
+        setPendingTool(null);
+        setPendingChoices(null);
+        setIsLoading(false);
+        setRunStatus("idle");
+        setEffectiveModel(null);
+        setSkillUiPatchQueue([]);
+      }
+      setMessages(safe);
+      const summ = loadSessionSummaries(scope);
+      const prevS = summ.find((s) => s.id === entry.sessionId);
+      const nextS = upsertSessionSummary(summ, deriveSessionSummary(entry.sessionId, safe, prevS));
+      saveSessionSummaries(nextS, scope);
+      setSessions(nextS);
+      setStatusMessage("已从回收站恢复");
+      removeTrashedSession(ls, scope, entry.sessionId, entry.trashedAt);
+      setTrashedSessions(readTrashedListFromStorage());
+    },
+    [threadId],
+  );
+
   const approveTool = useCallback(
     async (approved: boolean) => {
       if (!pendingTool) return;
@@ -738,14 +837,21 @@ export function useAgentChat() {
     async (
       text: string,
       modelName?: string,
-      options?: { showInTranscript?: boolean, showCompletionMessage?: boolean },
-    ) => {
+      options?: {
+        showInTranscript?: boolean;
+        /** 与 `showInTranscript: false` 联用：不展示 user 气泡，但展示 assistant 流式/气泡（如冷启引导） */
+        showAssistantInTranscript?: boolean;
+        showCompletionMessage?: boolean;
+      },
+    ): Promise<boolean> => {
       const trimmed = text.trim();
-      const showInTranscript = options?.showInTranscript !== false;
+      const showUserInTranscript = options?.showInTranscript !== false;
+      const showAssistantInTranscript =
+        showUserInTranscript || options?.showAssistantInTranscript === true;
       // Skill HITL 回传可能在「主对话 SSE 尚未结束」时发出；此时 isLoading 仍为 true。
       // 若在此处短路，用户点击「完成上传并继续」会被静默丢弃，技能永远不 resume。
       let bypassLoadingGuard = false;
-      if (!showInTranscript && trimmed) {
+      if (!showUserInTranscript && trimmed) {
         try {
           const j = JSON.parse(trimmed) as { type?: unknown; verb?: unknown };
           const verb = typeof j.verb === "string" ? j.verb.trim() : "";
@@ -753,7 +859,10 @@ export function useAgentChat() {
             j &&
             typeof j === "object" &&
             j.type === "chat_card_intent" &&
-            (verb === "skill_runtime_result" || verb === "skill_runtime_resume")
+            (verb === "skill_runtime_result" ||
+              verb === "skill_runtime_resume" ||
+              verb === "skill_runtime_event" ||
+              verb === "skill_runtime_start")
           ) {
             bypassLoadingGuard = true;
           }
@@ -761,8 +870,20 @@ export function useAgentChat() {
           // 非 JSON：保持默认（仍受 isLoading 约束）
         }
       }
-      if (!trimmed || !threadId || (isLoading && !bypassLoadingGuard)) return;
+      if (!trimmed || !threadId || (isLoading && !bypassLoadingGuard)) return false;
       const showCompletionMessage = options?.showCompletionMessage === true;
+
+      if (typeof navigator !== "undefined" && !navigator.onLine) {
+        if (showUserInTranscript) {
+          const sc = getWorkbenchChatStorageScope();
+          enqueueOfflineUserSend(sc, { text: trimmed, model: (modelName ?? "") || "", at: Date.now() });
+        }
+        setError(null);
+        setIsLoading(false);
+        setRunStatus("idle");
+        setStatusMessage("离线 · 恢复后自动重试");
+        return false;
+      }
 
       abortRef.current?.abort();
       const ac = new AbortController();
@@ -773,10 +894,10 @@ export function useAgentChat() {
       setPendingChoices(null);
       setIsLoading(true);
       setRunStatus("running");
-      setStatusMessage("Nanobot 正在生成回复");
+      setStatusMessage(`${STATUS_BRAND_LABEL} 正在生成回复`);
 
-      const userId = showInTranscript ? newId() : "";
-      const asstId = showInTranscript ? newId() : "";
+      const userId = showUserInTranscript ? newId() : "";
+      const asstId = showAssistantInTranscript ? newId() : "";
 
       const bodyMessages = [
         ...messagesRef.current
@@ -785,19 +906,29 @@ export function useAgentChat() {
         { role: "user" as const, content: trimmed },
       ];
 
-      if (showInTranscript) {
+      if (showUserInTranscript) {
         setMessages((prev) => [
           ...prev,
           { id: userId, role: "user", content: trimmed },
           { id: asstId, role: "assistant", content: "" },
         ]);
+      } else if (showAssistantInTranscript) {
+        setMessages((prev) => [...prev, { id: asstId, role: "assistant", content: "" }]);
       }
 
       const runId = newId();
 
       const rollbackNewTurn = () => {
-        if (!showInTranscript) return;
-        setMessages((prev) => prev.filter((m) => m.id !== asstId && m.id !== userId));
+        if (!showUserInTranscript && !showAssistantInTranscript) return;
+        setMessages((prev) => {
+          if (showUserInTranscript) {
+            return prev.filter((m) => m.id !== asstId && m.id !== userId);
+          }
+          if (asstId) {
+            return prev.filter((m) => m.id !== asstId);
+          }
+          return prev;
+        });
       };
       let streamError = false;
       let sawRunFinished = false;
@@ -823,7 +954,7 @@ export function useAgentChat() {
           setRunStatus("error");
           setStatusMessage("当前会话已有运行中的请求");
           rollbackNewTurn();
-          return;
+          return false;
         }
 
         if (!res.ok) {
@@ -843,7 +974,7 @@ export function useAgentChat() {
           setRunStatus("error");
           setStatusMessage("请求发送失败");
           rollbackNewTurn();
-          return;
+          return false;
         }
 
         const reader = res.body?.getReader();
@@ -852,7 +983,7 @@ export function useAgentChat() {
           setRunStatus("error");
           setStatusMessage("未收到可读响应流");
           rollbackNewTurn();
-          return;
+          return false;
         }
 
       const decoder = new TextDecoder();
@@ -866,7 +997,7 @@ export function useAgentChat() {
               setEffectiveModel(data.model);
             }
           } else if (event === "TextMessageContent" && typeof data.delta === "string") {
-            if (!showInTranscript) return;
+            if (!showAssistantInTranscript) return;
             const d = data.delta;
             setMessages((prev) =>
               prev.map((m) => (m.id === asstId ? { ...m, content: m.content + d } : m)),
@@ -900,10 +1031,9 @@ export function useAgentChat() {
           } else if (event === "RunFinished") {
             sawRunFinished = true;
             const finishMsg = typeof data.message === "string" ? data.message.trim() : "";
-            // 仅「正常对话轮」把 RunFinished.message 写入消息流。sendSilentMessage（卡片 / HITL 回传）
-            // 使用 showInTranscript:false，不得再追加完成语，否则会与卡片状态打架（如「本轮执行完成」幽灵气泡）。
+            // 仅当助手消息在 transcript 时写入 RunFinished.message。全静默（HITL）勿追加完成语，防幽灵气泡。
             const allowSilentCompletionMessage = !showCompletionMessage || !/^已进入下一步[:：]/.test(finishMsg);
-            if (showInTranscript && finishMsg && allowSilentCompletionMessage) {
+            if (showAssistantInTranscript && finishMsg && allowSilentCompletionMessage) {
               setMessages((prev) =>
                 prev.map((m) =>
                   m.id === asstId
@@ -913,7 +1043,7 @@ export function useAgentChat() {
               );
             }
             // Persist tool-inferred file paths into the assistant message
-            if (showInTranscript && toolArtifactPaths.length > 0) {
+            if (showAssistantInTranscript && toolArtifactPaths.length > 0) {
               setMessages((prev) =>
                 prev.map((m) =>
                   m.id === asstId
@@ -934,7 +1064,7 @@ export function useAgentChat() {
                   value: typeof (x as any)?.value === "string" ? String((x as any).value).trim() : "",
                 }))
                 .filter((x) => x.label && x.value);
-              if (showInTranscript && list.length > 0) {
+              if (showAssistantInTranscript && list.length > 0) {
                 const tid = typeof data.threadId === "string" ? data.threadId : threadId;
                 const rid = typeof data.runId === "string" ? data.runId : newId();
                 setMessages((prev) => [...prev, buildPresentChoicesChatCard({ threadId: tid || threadId, runId: rid, choices: list })]);
@@ -963,7 +1093,7 @@ export function useAgentChat() {
           } else if (event === "Heartbeat") {
             // Backend keepalive — update status bar so the user knows the
             // agent is alive; do NOT add a step log entry (would be noisy).
-            const msg = typeof data.message === "string" ? data.message : "Agent 正在处理中…";
+            const msg = typeof data.message === "string" ? data.message : `${STATUS_BRAND_LABEL} 正在处理中…`;
             setStatusMessage(msg);
           } else if (event === "ModuleSessionFocus") {
             const evtTid = String(data.threadId ?? "").trim();
@@ -987,6 +1117,27 @@ export function useAgentChat() {
               const snapshot = data as unknown as TaskStatusPayload;
               applyTaskStatusSnapshot(snapshot);
               setTaskStatusEvent(snapshot);
+            });
+          } else if (event === "SkillAgentTaskResult") {
+            const evtThread = typeof data.threadId === "string" ? data.threadId.trim() : "";
+            if (evtThread && evtThread !== threadId) return;
+            const taskId = typeof data.taskId === "string" ? data.taskId.trim() : "";
+            const payload: SkillAgentTaskResultEvent = {
+              taskId,
+              ok: data.ok === true,
+              report: data.report !== null && typeof data.report === "object" ? (data.report as Record<string, unknown>) : null,
+              error: typeof data.error === "string" && data.error.trim() ? data.error.trim() : null,
+            };
+            const listeners = skillAgentTaskResultListenersRef.current;
+            if (!listeners.size) return;
+            startTransition(() => {
+              listeners.forEach((fn) => {
+                try {
+                  fn(payload);
+                } catch {
+                  // ignore subscriber errors
+                }
+              });
             });
           } else if (event === "SkillUiBootstrap") {
             const syntheticPathRaw = typeof data.syntheticPath === "string" ? data.syntheticPath.trim() : "";
@@ -1178,12 +1329,13 @@ export function useAgentChat() {
             // ignore reader cancellation errors
           }
         }
+        return !streamError;
       } catch (e) {
         if ((e as Error).name === "AbortError") {
           // User-initiated cancel — keep partial assistant content, do not treat as error.
           setRunStatus("idle");
           setStatusMessage("已停止生成");
-          return;
+          return false;
         }
         streamError = true;
         console.error(
@@ -1196,6 +1348,7 @@ export function useAgentChat() {
         setRunStatus("error");
         setStatusMessage("本轮执行被中断");
         rollbackNewTurn();
+        return false;
       } finally {
         if (
           !sawRunFinished &&
@@ -1224,6 +1377,85 @@ export function useAgentChat() {
     [sendChatRequest],
   );
 
+  const triggerRunSkill = useCallback(
+    async (skillName: string, modelName?: string) => {
+      const skill = String(skillName ?? "").trim();
+      if (!skill) return false;
+      if (isLoading || runStatusRef.current === "running" || runStatusRef.current === "awaitingApproval") {
+        setRunStatus("error");
+        setStatusMessage("当前任务执行中");
+        return false;
+      }
+
+      // Step 1: push an assistant skeleton bubble (content empty). We keep it assistant-only to avoid polluting the user transcript.
+      // Step 2: show status capsule + step log.
+      setStepLogs((prev) => [...prev, { id: newId(), stepName: "thinking", text: `🚀 运行 [${skill}] 技能...` }]);
+      setRunStatus("running");
+      setStatusMessage(`🚀 运行 [${skill}] 技能...`);
+
+      // Step 3: send a special intent-like command without touching sendChatRequest protocol.
+      // The backend can choose to parse this; if not supported, it will be treated as plain text.
+      const payloadText = `/run-skill ${skill}`;
+
+      const ok = await sendChatRequest(payloadText, modelName, {
+        showInTranscript: false,
+        showAssistantInTranscript: true,
+        showCompletionMessage: false,
+      });
+
+      if (!ok) {
+        // sendChatRequest already set runStatus/statusMessage on error paths; keep a consistent fallback for silent failures.
+        if (runStatusRef.current !== "error") {
+          setRunStatus("error");
+          setStatusMessage("run-skill 触发失败");
+        }
+      }
+      return ok;
+    },
+    [isLoading, sendChatRequest],
+  );
+
+  const sendChatForDrainRef = useRef(sendChatRequest);
+  sendChatForDrainRef.current = sendChatRequest;
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !threadId) return;
+    const runDrain = () => {
+      if (!navigator.onLine) return;
+      const scope = getWorkbenchChatStorageScope();
+      void (async () => {
+        const q = await readOfflineOutbox(scope);
+        if (q.length === 0) return;
+        for (const it of q) {
+          if (typeof navigator !== "undefined" && !navigator.onLine) break;
+          try {
+            await sendChatForDrainRef.current(it.text, it.model || undefined, { showInTranscript: true });
+          } catch {
+            break;
+          }
+        }
+        if (typeof navigator === "undefined" || navigator.onLine) {
+          await clearOfflineOutboxForScope(scope);
+        }
+        setStatusMessage("离线消息已重试发送");
+      })();
+    };
+    const onOff = () => {
+      setStatusMessage("离线 · 恢复后自动重试");
+    };
+    window.addEventListener("online", runDrain);
+    window.addEventListener("offline", onOff);
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      onOff();
+    } else {
+      runDrain();
+    }
+    return () => {
+      window.removeEventListener("online", runDrain);
+      window.removeEventListener("offline", onOff);
+    };
+  }, [scopeEpoch, threadId]);
+
   return {
     threadId,
     sessions,
@@ -1235,6 +1467,8 @@ export function useAgentChat() {
     pendingChoices,
     runStatus,
     statusMessage,
+    /** 设置状态行文案（如模型切换后提示「下一轮生效」） */
+    setStatusMessage,
     effectiveModel,
     skillUiPatchQueue,
     /** 兼容仅关心「最后一条」的组件（如路由 syntheticPath） */
@@ -1243,8 +1477,13 @@ export function useAgentChat() {
     /** 最近一次 TaskStatusUpdate；混合子任务模块 id 形如 `hybrid:{skillName}`（见 hybridSubtaskHintFromTaskStatus） */
     taskStatusEvent,
     activeModuleIds,
+    /** 订阅 ``SkillAgentTaskResult`` SSE（预览洞察等）；返回取消订阅函数 */
+    subscribeSkillAgentTaskResult,
     sendMessage,
     sendSilentMessage,
+    /** 与 sendSilentMessage 相同请求体，但返回 `true` 表示流式轮次正常结束；冷启动/需判成功时用 */
+    sendChatRequest,
+    triggerRunSkill,
     stopGenerating,
     approveTool,
     clearPendingChoices,
@@ -1256,5 +1495,8 @@ export function useAgentChat() {
     deleteSession,
     createSession,
     switchSession,
+    trashedSessions,
+    restoreFromTrash,
+    dismissTrashed,
   };
 }

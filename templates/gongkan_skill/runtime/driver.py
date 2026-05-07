@@ -269,6 +269,109 @@ def _emit_summary(
     )
 
 
+def _emit_phase_handoff(
+    *,
+    thread_id: str,
+    skill_run_id: str,
+    from_module: str,
+    to_module: str | None,
+) -> None:
+    """Wake up ``project_guide`` when this phase's tasks are 100% done.
+
+    Schema mirrors ``phase_rules.make_phase_guide_handoff_event`` (we don't
+    import it because the platform installs only ``runtime/`` of the active
+    skill into the subprocess sys.path; copying the small envelope is cheaper
+    than introducing a hard dependency from the phase drivers to project_guide).
+
+    The platform's ``skill_resume_runner`` sees ``event=skill_runtime_start``
+    in our stdout and re-enters its driver loop with this payload's
+    ``transition`` / ``transition_id`` flattened into ``request.result``,
+    which is exactly what ``templates/project_guide/runtime/driver.py`` reads.
+    """
+    transition_id = f"{from_module}->{to_module or '∅'}@{_now_ms()}"
+    _print_event(
+        {
+            "event": "skill_runtime_start",
+            "threadId": thread_id,
+            "skillRunId": skill_run_id,
+            "timestamp": _now_ms(),
+            "payload": {
+                "skillName": "project_guide",
+                "action": "guide_next_phase",
+                "transition": {
+                    "from_module": from_module,
+                    "to_module": to_module,
+                },
+                "transition_id": transition_id,
+            },
+        }
+    )
+
+
+def _emit_task_progress(
+    *, thread_id: str, skill_name: str, run_id: str, done_count: int, total: int = 4
+) -> None:
+    """Push the smart-survey phase progress so the platform can persist it to
+    ``task_progress.json`` and broadcast a ``TaskStatusUpdate`` SSE.
+
+    Convention (mirrors ``jmfz`` driver):
+
+    * ``moduleId`` / ``moduleName`` MUST equal the canonical IDs used in
+      ``task_progress.json`` and ``templates/project_guide/data/phases.json``;
+      otherwise ``merge_task_progress_sync_to_disk`` will skip-without-merging
+      because the module won't be found on disk.
+    * ``tasks`` length MUST equal the on-disk task count for ``smart_survey``
+      (currently 4); the platform merges by index, preserving the Chinese task
+      names already on disk. We still send English ``name`` slugs + Chinese
+      ``displayName`` for diagnostic readability.
+    * Callers should only ever advance ``done_count`` forward (1 → 2 → 3 → 4),
+      because the merge overwrites flags by index — emitting ``done_count=0``
+      mid-run would clobber a previously-completed task.
+    """
+    _print_event(
+        {
+            "event": "task_progress.sync",
+            "threadId": thread_id,
+            "skillName": skill_name,
+            "skillRunId": run_id,
+            "timestamp": _now_ms(),
+            "payload": {
+                "schemaVersion": 1,
+                "updatedAt": _now_ms(),
+                "modules": [
+                    {
+                        "moduleId": "smart_survey",
+                        "moduleName": "智慧工勘",
+                        "updatedAt": _now_ms(),
+                        "tasks": [
+                            {
+                                "name": "scene_filter",
+                                "displayName": "场景筛选与底表过滤",
+                                "completed": done_count >= 1,
+                            },
+                            {
+                                "name": "survey_summary",
+                                "displayName": "勘测数据汇总",
+                                "completed": done_count >= 2,
+                            },
+                            {
+                                "name": "report_gen",
+                                "displayName": "报告生成",
+                                "completed": done_count >= 3,
+                            },
+                            {
+                                "name": "approval_close",
+                                "displayName": "审批与分发闭环",
+                                "completed": done_count >= 4,
+                            },
+                        ],
+                    }
+                ],
+            },
+        }
+    )
+
+
 def _clamp_pct(n: Any, *, default: int = 0) -> int:
     try:
         v = int(float(n))
@@ -814,6 +917,9 @@ def _zhgk_step1(ctx: _ZhgkCtx) -> _StepOut:
         card_id="zhgk:ack:step1:done",
         context="Step1 搞定啦！场景筛选已完成，接下来我会继续帮您跑后续步骤~",
     )
+    _emit_task_progress(
+        thread_id=ctx.thread_id, skill_name=ctx.skill_name, run_id=ctx.run_id, done_count=1
+    )
     return "ok"
 
 
@@ -1024,6 +1130,9 @@ def _zhgk_step2(ctx: _ZhgkCtx, step2_action: str) -> _StepOut:
         card_id="zhgk:ack:step2:done",
         context="勘测数据汇总完成！待办清单已更新，准备进入报告生成阶段~",
     )
+    _emit_task_progress(
+        thread_id=ctx.thread_id, skill_name=ctx.skill_name, run_id=ctx.run_id, done_count=2
+    )
     return "ok"
 
 
@@ -1147,6 +1256,9 @@ def _zhgk_step3(ctx: _ZhgkCtx) -> _StepOut:
         ctx,
         card_id="zhgk:ack:step3:done",
         context="评估、风险与工勘报告都准备好啦，下面帮您走审批邮件这一步~",
+    )
+    _emit_task_progress(
+        thread_id=ctx.thread_id, skill_name=ctx.skill_name, run_id=ctx.run_id, done_count=3
     )
     return "ok"
 
@@ -1466,6 +1578,15 @@ def main() -> int:
                 survey=100,
                 quality=98,
                 risk=8,
+            )
+            _emit_task_progress(
+                thread_id=thread_id, skill_name=skill_name, run_id=run_id, done_count=4
+            )
+            _emit_phase_handoff(
+                thread_id=thread_id,
+                skill_run_id=run_id,
+                from_module="smart_survey",
+                to_module="modeling_simulation_workbench",
             )
             _print_event(
                 {

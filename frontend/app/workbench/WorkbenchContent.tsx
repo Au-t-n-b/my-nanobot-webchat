@@ -2,7 +2,21 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { FileText, Focus, Menu, PanelRightClose, PanelRightOpen, Plus, Settings, Sidebar as SidebarIcon, Trash2, X, Zap } from "lucide-react";
+import {
+  Command,
+  FileText,
+  Focus,
+  LayoutPanelLeft,
+  Menu,
+  Minimize2,
+  PanelRight,
+  Plus,
+  Settings,
+  SlidersHorizontal,
+  UserRound,
+  X,
+  Zap,
+} from "lucide-react";
 import { ChatArea } from "@/components/ChatArea";
 import { ErrorToast } from "@/components/ErrorToast";
 import { PreviewPanel } from "@/components/preview";
@@ -10,19 +24,35 @@ import { RemoteAssetDetailPanel } from "@/components/RemoteAssetDetailPanel";
 import { RemoteAssetUploadPanel } from "@/components/RemoteAssetUploadPanel";
 import { SearchOverlay } from "@/components/SearchOverlay";
 import { SystemShellModal } from "@/components/SystemShellModal";
-import { CommandPalette, type CommandPaletteItem } from "@/components/CommandPalette";
+import { CommandPalette } from "@/components/CommandPalette";
 import { Sidebar } from "@/components/Sidebar";
 import { ModelSelector } from "@/components/ModelSelector";
 import { ThemeToggle } from "@/components/ThemeToggle";
-import { useAgentChat, type ChoiceItem } from "@/hooks/useAgentChat";
+import { SidebarPersonalInfo, type PersonalInfoMenuAction } from "@/components/SidebarPersonalInfo";
+import { useAgentChat } from "@/hooks/useAgentChat";
+import type { FileInsightReport } from "@/components/preview/previewTypes";
+import { coerceFileInsightReport } from "@/lib/fileInsightReport";
+import { buildSkillAgentTaskExecuteEnvelope } from "@/lib/skillHybridProtocol";
 import type { SduiUploadedFileRecord } from "@/lib/sdui";
 import { hybridSubtaskHintFromTaskStatus } from "@/lib/skillHybridProtocol";
+import {
+  buildProjectGuideColdStartIntent,
+  isProjectGuideColdStartSettled,
+  projectGuideColdStartStorageKey,
+  PROJECT_GUIDE_COLD_START_DONE_BAD,
+  PROJECT_GUIDE_COLD_START_OK,
+} from "@/lib/projectGuideColdStart";
+import { getAuthUser } from "@/lib/authStore";
 import { useTheme } from "@/hooks/useTheme";
 import { DashboardNavigator } from "@/components/DashboardNavigator";
 import { ControlCenterPanel } from "@/components/ControlCenterPanel";
+import { ModuleStepper, ModuleStepperCompact } from "@/components/dashboard/ModuleStepper";
+import { useWorkbenchStepperView } from "@/hooks/useWorkbenchStepperView";
 import {
   hydrateProjectOverview,
   resetProjectOverviewSessionState,
+  selectProjectOverviewModules,
+  useProjectOverviewStore,
 } from "@/lib/projectOverviewStore";
 import {
   isBaseLayerDashboardSkillUi,
@@ -33,21 +63,13 @@ import {
   hasWorkspaceAccess,
   patchGlobalProjectContext,
 } from "@/lib/globalProjectContext";
-import {
-  createLocalProjectWithMeta,
-  deleteLocalProject,
-  getSelectedLocalProjectId,
-  listLocalProjects,
-  NANOBOT_LOCAL_PROJECTS_CHANGED,
-  setSelectedLocalProjectId,
-  type LocalProject,
-} from "@/lib/localProjects";
-import { workspacePayloadToLocalProjectMeta } from "@/lib/mapWorkspaceProjectPayload";
+import { authFetch } from "@/lib/authFetch";
+import { clearAuthSession } from "@/lib/authStore";
+// NOTE: localProjects (localStorage-backed project entities) are deprecated in favor of /api/projects registry.
 import type { WorkspaceProjectCreatePayload } from "@/lib/workspaceProjectCreate";
-import { LocalProjectNavDropdown } from "@/components/workbench/LocalProjectNavDropdown";
+import { ProjectNavDropdown } from "@/components/workbench/ProjectNavDropdown";
 import { WorkbenchTopNavSlot } from "@/components/workbench/shell/WorkbenchTopNavSlot";
 import { NewWorkspaceProjectModal } from "@/components/workbench/NewWorkspaceProjectModal";
-import { CenteredConfirmModal } from "@/components/CenteredModal";
 import {
   CHAT_COLUMN_MIN_PX,
   getChatColumnMaxPx,
@@ -58,6 +80,46 @@ import {
 
 type SystemModal = null | "controlCenter" | "remoteAssetDetail" | "remoteUpload";
 type ControlCenterTab = "config" | "settings";
+type ControlCenterSettingsPane = "systemSettings" | "profile" | "members";
+
+type RegistryProjectProfile = {
+  projectCode: string;
+  scenario: string;
+  scale: string | null;
+  startDate: string | null;
+  siteReadyDate: string | null;
+  deliveryTags: string[];
+};
+
+type RegistryProjectRow = {
+  projectId: string;
+  name: string;
+  ownerUserId?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  status?: string;
+  profile?: Partial<RegistryProjectProfile> | null;
+};
+
+const SELECTED_PROJECT_ID_KEY = "nanobot_selected_registry_project_v1";
+
+function readSelectedRegistryProjectId(): string {
+  if (typeof window === "undefined") return "";
+  try {
+    return (window.localStorage.getItem(SELECTED_PROJECT_ID_KEY) || "").trim();
+  } catch {
+    return "";
+  }
+}
+
+function writeSelectedRegistryProjectId(projectId: string): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(SELECTED_PROJECT_ID_KEY, projectId);
+  } catch {
+    /* ignore */
+  }
+}
 
 function previewTabLabel(path: string): string {
   if (path.startsWith("browser://")) return "浏览器";
@@ -65,9 +127,125 @@ function previewTabLabel(path: string): string {
   return base.length > 36 ? `${base.slice(0, 34)}…` : base;
 }
 
+/** 底部「提供商+模型」行窄于此宽度时，模型下拉的「模型」文字标签隐藏 */
+const INPUT_MODEL_COMPACT_PX = 600;
+
 const headerIconButtonClass =
   "inline-flex h-9 w-9 items-center justify-center rounded-xl border transition-colors " +
   "border-[var(--border-subtle)] bg-[var(--surface-1)] ui-text-secondary hover:bg-[var(--surface-3)] hover:ui-text-primary";
+
+const workbenchMenuItemClass =
+  "ui-motion flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm ui-text-primary transition-colors duration-[220ms] ease-out hover:bg-[var(--surface-3)]";
+
+type WorkbenchToolsMenuItemsProps = {
+  onPick: (action: () => void) => void;
+  onToggleNav: () => void;
+  onOpenCommandPalette: () => void;
+  onToggleZen: () => void;
+  onOpenConfig: () => void;
+  onOpenAppSettings: () => void;
+  onOpenProfile: () => void;
+  onClearSession: () => void;
+  onTogglePreview: () => void;
+  previewOpen: boolean;
+  zenMode: boolean;
+  navExpanded: boolean;
+};
+
+function WorkbenchToolsMenuItems({
+  onPick,
+  onToggleNav,
+  onOpenCommandPalette,
+  onToggleZen,
+  onOpenConfig,
+  onOpenAppSettings,
+  onOpenProfile,
+  onClearSession,
+  onTogglePreview,
+  previewOpen,
+  zenMode,
+  navExpanded,
+}: WorkbenchToolsMenuItemsProps) {
+  return (
+    <div
+      className={
+        "w-64 max-h-[min(100vh,28rem)] overflow-y-auto rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-elevated)] p-1.5 text-sm text-[var(--text-primary)] " +
+        "shadow-xl shadow-black/15 ring-1 ring-black/[0.06] " +
+        "dark:border-white/10 dark:bg-[color-mix(in_oklab,var(--surface-elevated)_72%,transparent)] dark:shadow-2xl dark:shadow-black/60 dark:ring-1 dark:ring-white/10 " +
+        "supports-[backdrop-filter]:backdrop-blur-md supports-[backdrop-filter]:dark:backdrop-blur-xl"
+      }
+      role="menu"
+    >
+      <div className="px-2 py-1 text-[10px] font-semibold tracking-wide text-slate-500">工作台与视图</div>
+      <button type="button" role="menuitem" className={workbenchMenuItemClass} onClick={() => onPick(onToggleNav)}>
+        <LayoutPanelLeft
+          size={15}
+          className={navExpanded ? "shrink-0 text-emerald-400/90" : "shrink-0 ui-text-muted"}
+          strokeWidth={2.25}
+          aria-hidden
+        />
+        <span>侧栏：{navExpanded ? "已展开" : "已收起"}（点按切换）</span>
+      </button>
+      <button type="button" role="menuitem" className={workbenchMenuItemClass} onClick={() => onPick(onOpenCommandPalette)}>
+        <Command size={15} className="shrink-0 ui-text-muted" strokeWidth={2.25} aria-hidden />
+        <span>命令面板（Ctrl/⌘+K）</span>
+      </button>
+      <button type="button" role="menuitem" className={workbenchMenuItemClass} onClick={() => onPick(onToggleZen)}>
+        <Focus
+          size={15}
+          className={zenMode ? "shrink-0 text-[var(--accent)]" : "shrink-0 ui-text-muted"}
+          strokeWidth={2.25}
+          aria-hidden
+        />
+        <span>{zenMode ? "退出专注模式" : "进入专注模式"}</span>
+      </button>
+      <button
+        type="button"
+        role="menuitem"
+        className={workbenchMenuItemClass}
+        onClick={() => onPick(() => onTogglePreview())}
+      >
+        <PanelRight
+          size={15}
+          className={previewOpen ? "shrink-0 text-sky-400/90" : "shrink-0 ui-text-muted"}
+          strokeWidth={2.25}
+          aria-hidden
+        />
+        <span>{previewOpen ? "收起右侧预览" : "打开右侧预览"}</span>
+      </button>
+      <button type="button" role="menuitem" className={workbenchMenuItemClass} onClick={() => onPick(onOpenProfile)}>
+        <UserRound size={15} className="shrink-0 ui-text-muted" strokeWidth={2.25} aria-hidden />
+        <span>账号与成员</span>
+      </button>
+      <div className="my-1.5 h-px bg-[var(--border-subtle)]" />
+      <div className="px-2 py-1 text-[10px] font-semibold tracking-wide text-slate-500">系统</div>
+      <button type="button" role="menuitem" className={workbenchMenuItemClass} onClick={() => onPick(onOpenConfig)}>
+        <span className="w-[15px] shrink-0 text-center text-sm" aria-hidden>
+          ◎
+        </span>
+        <span>控制中心</span>
+      </button>
+      <button type="button" role="menuitem" className={workbenchMenuItemClass} onClick={() => onPick(onOpenAppSettings)}>
+        <Settings size={15} className="shrink-0 ui-text-muted" strokeWidth={2.25} aria-hidden />
+        <span>应用设置</span>
+      </button>
+      <div className="mt-2 rounded-lg border border-[var(--border-subtle)] border-dashed px-2 py-1.5">
+        <p className="mb-1 text-[10px] font-medium ui-text-muted">主题</p>
+        <ThemeToggle vertical />
+      </div>
+      <div className="my-2.5 h-px bg-[color-mix(in_oklab,var(--border-subtle)_85%,transparent)]" />
+      <p className="px-2 pb-1 text-[10px] font-medium uppercase tracking-wider text-red-300">危险操作</p>
+      <button
+        type="button"
+        role="menuitem"
+        className="w-full rounded-lg bg-red-500/10 px-2.5 py-2.5 text-left text-sm font-medium text-red-400 ring-1 ring-red-500/25 transition-colors hover:bg-red-500/20"
+        onClick={() => onPick(onClearSession)}
+      >
+        清空当前会话
+      </button>
+    </div>
+  );
+}
 
 /** HITL SkillUiChatCard 的 SDUI 节点上挂有 skillName/moduleId，但对应消息的 content 往往为空，需在节点树上推断大盘模块。 */
 function extractSkillHintFromSduiNode(node: unknown): string | null {
@@ -106,6 +284,7 @@ export default function WorkbenchContent() {
     pendingChoices,
     runStatus,
     statusMessage,
+    setStatusMessage,
     effectiveModel,
     skillUiPatchQueue,
     skillUiBootstrapEvent,
@@ -113,9 +292,10 @@ export default function WorkbenchContent() {
     activeModuleIds,
     sendMessage,
     sendSilentMessage,
+    sendChatRequest,
+    triggerRunSkill,
     stopGenerating,
     approveTool,
-    clearPendingChoices,
     clearChat,
     undoClearChat,
     deleteMessage,
@@ -124,14 +304,46 @@ export default function WorkbenchContent() {
     switchSession,
     lockPresentChoicesCard,
     lockFilePickerCard,
+    subscribeSkillAgentTaskResult,
+    trashedSessions,
+    restoreFromTrash,
+    dismissTrashed,
   } = useAgentChat();
   const { setTheme } = useTheme();
+  const overviewModules = useProjectOverviewStore(selectProjectOverviewModules);
+  const moduleStepperModules = useMemo(
+    () => overviewModules.filter((m) => m.showWorkbenchModuleStepper),
+    [overviewModules],
+  );
+  const activeModuleId = useProjectOverviewStore((snapshot) => snapshot.activeModuleId);
+  const { view: stepperView, setView: setStepperView } = useWorkbenchStepperView();
+  const { overviewStageLabel, overviewModuleProgressText } = useMemo(() => {
+    const mods = overviewModules;
+    if (mods.length === 0) {
+      return { overviewStageLabel: null as string | null, overviewModuleProgressText: null as string | null };
+    }
+    const done = mods.filter((m) => m.status === "completed").length;
+    const progress = `${done}/${mods.length}`;
+    const am = activeModuleId
+      ? mods.find((m) => m.moduleId === activeModuleId)
+      : mods.find((m) => m.status === "running") ?? mods.find((m) => m.status !== "completed");
+    const pick = am ?? mods[0];
+    let s = String(pick?.label ?? "").trim();
+    s = s.replace(/[（(][^）)]*[)）]/g, "");
+    s = s.replace(/大盘/g, "").replace(/模块/g, "");
+    s = s.replace(/\s+/g, " ").trim();
+    return {
+      overviewStageLabel: s || pick?.moduleId || null,
+      overviewModuleProgressText: progress,
+    };
+  }, [overviewModules, activeModuleId]);
   const [inputPrefill, setInputPrefill] = useState("");
   const [previewTabs, setPreviewTabs] = useState<Array<{ id: string; path: string; label: string }>>([]);
   /** 右栏当前激活 Tab：具体 previewTab.id(path) */
   const [activeRightTabId, setActiveRightTabId] = useState<string | null>(null);
   const [systemModal, setSystemModal] = useState<SystemModal>(null);
   const [controlCenterTab, setControlCenterTab] = useState<ControlCenterTab>("config");
+  const [controlCenterSettingsPane, setControlCenterSettingsPane] = useState<ControlCenterSettingsPane>("systemSettings");
   const [activeSkillName, setActiveSkillName] = useState<string | null>(null);
   const [selectedOrgAssetId, setSelectedOrgAssetId] = useState<string | null>(null);
   const [sidebarRefreshNonce, setSidebarRefreshNonce] = useState(0);
@@ -147,9 +359,13 @@ export default function WorkbenchContent() {
   const chatWidthRef = useRef(chatWidth);
   const [previewWidth, setPreviewWidth] = useState(32);
   const [previewAnimating, setPreviewAnimating] = useState(false);
-  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
-  const commandPaletteOpenRef = useRef(false);
+  /** 应用内全屏：右侧预览区覆盖大部分视口，忽略拖拽宽度与 RIGHT_PANEL_MAX */
+  const [previewImmersive, setPreviewImmersive] = useState(false);
   const [zenMode, setZenMode] = useState(false);
+  const [workbenchToolsOpen, setWorkbenchToolsOpen] = useState(false);
+  const workbenchToolsMenuRailRef = useRef<HTMLDivElement | null>(null);
+  const workbenchToolsMenuChatRef = useRef<HTMLDivElement | null>(null);
+  const workbenchToolsMenuMobileRef = useRef<HTMLDivElement | null>(null);
   const [clearUndoToast, setClearUndoToast] = useState(false);
   const CHAT_MIN = CHAT_COLUMN_MIN_PX;
 
@@ -158,30 +374,131 @@ export default function WorkbenchContent() {
   }, [chatWidth]);
   const PREVIEW_OPEN_DEFAULT = 460;
   /** 预览抽屉开合时长（略带回弹感的 cubic-bezier，接近弹簧阻尼） */
-  const PREVIEW_ANIM_MS = 340;
+  const PREVIEW_ANIM_MS = 260;
   const DASHBOARD_MIN = 400;
   const [selectedModel, setSelectedModel] = useState<string>("glm-4");
   const [modelOptions, setModelOptions] = useState<string[]>([]);
   const [selectedProvider, setSelectedProvider] = useState<string>("");
   const [agentProfiles, setAgentProfiles] = useState<Array<{ name: string; provider: string; model: string; models: string[] }>>([]);
   const lastInputRef = useRef("");
+  /** 防止 React Strict Mode 或重挂载对同一会话双发 project_guide 冷启动 */
+  const projectGuideColdStartInFlightRef = useRef(false);
+  const sendChatRequestRef = useRef(sendChatRequest);
+  const isLoadingRef = useRef(isLoading);
+  sendChatRequestRef.current = sendChatRequest;
+  isLoadingRef.current = isLoading;
   const draggingRef = useRef<null | "chat" | "preview">(null);
   const dragStartX = useRef(0);
   const dragStartWidth = useRef(0);
-  const headerRef = useRef<HTMLDivElement>(null);
-  const [headerWidth, setHeaderWidth] = useState(9999);
+  const inputBarRef = useRef<HTMLDivElement | null>(null);
+  const [inputBarWidth, setInputBarWidth] = useState(9999);
 
-  const [localProjects, setLocalProjects] = useState<LocalProject[]>([]);
-  const [selectedProjectId, setSelectedProjectIdState] = useState("");
+  const [projects, setProjects] = useState<RegistryProjectRow[]>([]);
+  const [projectsLoading, setProjectsLoading] = useState(false);
+  const [projectsError, setProjectsError] = useState<string | null>(null);
+  const [selectedProjectId, setSelectedProjectId] = useState<string>(() => readSelectedRegistryProjectId());
   const [newProjectModalOpen, setNewProjectModalOpen] = useState(false);
-  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
-  const [deleteBusy, setDeleteBusy] = useState(false);
+  // Project delete is intentionally disabled in this iteration (see product reasoning).
+
+  // keep eslint happy; reserved for inline loading/error UI later
+  void projectsLoading;
+  void projectsError;
 
   const apiBase = process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8765";
   const [runtimeMode, setRuntimeMode] = useState<"configured" | "unconfigured" | "fake" | null>(null);
 
   const isAgentRunning =
     isLoading || runStatus === "running" || runStatus === "awaitingApproval";
+
+  useEffect(() => {
+    projectGuideColdStartInFlightRef.current = false;
+  }, [threadId]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const tid = (threadId || "").trim();
+    if (!tid) return;
+    const key = projectGuideColdStartStorageKey(tid);
+    if (isProjectGuideColdStartSettled(window.sessionStorage.getItem(key))) return;
+    if (projectGuideColdStartInFlightRef.current) return;
+    let cancelled = false;
+    let activeTimer: number | null = null;
+    const arm = (fn: () => void, ms: number) => {
+      if (activeTimer != null) window.clearTimeout(activeTimer);
+      activeTimer = window.setTimeout(fn, ms) as number;
+    };
+    const MAX_LOADING_WAIT = 50;
+
+    const sendOnce = () => {
+      if (cancelled) return;
+      if (isProjectGuideColdStartSettled(window.sessionStorage.getItem(key))) return;
+      if (projectGuideColdStartInFlightRef.current) return;
+      const tidNow = (threadId || "").trim();
+      if (tidNow !== tid) return;
+      projectGuideColdStartInFlightRef.current = true;
+      const authed = getAuthUser();
+      const intentText = buildProjectGuideColdStartIntent({
+        threadId: tid,
+        userId: authed?.userId,
+        workId: authed?.workId,
+      });
+      // Skill-First fast-path：showInTranscript=false 让 user 气泡不显示；
+      // GuidanceCard 由 driver 通过 chat.guidance 单独 emit，不需要 assistant 气泡。
+      void sendChatRequestRef
+        .current(intentText, selectedModel, {
+          showInTranscript: false,
+          showAssistantInTranscript: false,
+          showCompletionMessage: false,
+        })
+        .then((ok) => {
+          projectGuideColdStartInFlightRef.current = false;
+          if (cancelled) return;
+          try {
+            window.sessionStorage.setItem(key, ok ? PROJECT_GUIDE_COLD_START_OK : PROJECT_GUIDE_COLD_START_DONE_BAD);
+          } catch {
+            /* ignore */
+          }
+        })
+        .catch(() => {
+          projectGuideColdStartInFlightRef.current = false;
+          if (cancelled) return;
+          try {
+            window.sessionStorage.setItem(key, PROJECT_GUIDE_COLD_START_DONE_BAD);
+          } catch {
+            /* ignore */
+          }
+        });
+    };
+
+    let waitCount = 0;
+    const schedule = () => {
+      if (cancelled) return;
+      if (isProjectGuideColdStartSettled(window.sessionStorage.getItem(key))) return;
+      if (isLoadingRef.current) {
+        waitCount += 1;
+        if (waitCount < MAX_LOADING_WAIT) {
+          arm(schedule, 100);
+        } else {
+          try {
+            window.sessionStorage.setItem(key, PROJECT_GUIDE_COLD_START_DONE_BAD);
+          } catch {
+            /* 放弃，避免 isLoading/回调引用抖动导致反复冷启动、界面狂闪 */
+          }
+        }
+        return;
+      }
+      sendOnce();
+    };
+
+    arm(() => {
+      queueMicrotask(schedule);
+    }, 0);
+
+    return () => {
+      cancelled = true;
+      if (activeTimer != null) window.clearTimeout(activeTimer);
+    };
+  }, [threadId, selectedModel]);
 
   const hybridSubtaskHint = useMemo(
     () => hybridSubtaskHintFromTaskStatus(taskStatusEvent),
@@ -239,73 +556,94 @@ export default function WorkbenchContent() {
     void loadModelFromConfig();
   }, [loadModelFromConfig]);
 
-  const reloadProjectsFromStorage = useCallback(() => {
-    const list = listLocalProjects();
-    let sel = getSelectedLocalProjectId() ?? "";
-    let repaired = false;
-    if (sel && !list.some((p) => p.id === sel)) {
-      sel = list[0]?.id ?? "";
-      if (sel) {
-        setSelectedLocalProjectId(sel);
-        repaired = true;
-      }
-    }
-    setLocalProjects(list);
-    setSelectedProjectIdState(sel);
-    if (repaired && sel) {
-      const p = list.find((x) => x.id === sel);
-      if (p) patchGlobalProjectContext({ project: p });
+  const loadProjects = useCallback(async () => {
+    setProjectsLoading(true);
+    setProjectsError(null);
+    try {
+      const r = await authFetch("/api/projects", { cache: "no-store" });
+      const j = (await r.json().catch(() => ({}))) as { projects?: RegistryProjectRow[]; detail?: string };
+      if (!r.ok) throw new Error(j.detail || `HTTP ${r.status}`);
+      const list = Array.isArray(j.projects) ? j.projects : [];
+      setProjects(list);
+      setSelectedProjectId((cur) => {
+        const next = cur && list.some((p) => p?.projectId === cur) ? cur : (list[0]?.projectId ?? "");
+        if (next && next !== cur) writeSelectedRegistryProjectId(next);
+        return next;
+      });
+    } catch (e) {
+      setProjectsError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setProjectsLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    reloadProjectsFromStorage();
-    const onChange = () => reloadProjectsFromStorage();
-    window.addEventListener(NANOBOT_LOCAL_PROJECTS_CHANGED, onChange);
-    return () => window.removeEventListener(NANOBOT_LOCAL_PROJECTS_CHANGED, onChange);
-  }, [reloadProjectsFromStorage]);
+    void loadProjects();
+  }, [loadProjects]);
 
-  const patchProjectContext = useCallback((p: LocalProject) => {
-    patchGlobalProjectContext({ project: p });
+  const patchProjectContext = useCallback((p: RegistryProjectRow) => {
+    const prof = p.profile && typeof p.profile === "object" ? (p.profile as Partial<RegistryProjectProfile>) : {};
+    patchGlobalProjectContext({
+      project: {
+        id: String(p.projectId || "").trim(),
+        name: String(p.name || "").trim(),
+        code: String(prof.projectCode || "").trim(),
+        scenario: String(prof.scenario || "").trim(),
+        scale: String(prof.scale || "").trim(),
+        bidCode: "",
+        deliveryFeatures: Array.isArray(prof.deliveryTags) ? prof.deliveryTags.join("、") : "",
+        language: "",
+        projectGroup: "",
+        stakeholders: "",
+        createdAt: Date.now(),
+      },
+    });
   }, []);
 
   const handlePickProject = useCallback(
     (id: string) => {
-      setSelectedLocalProjectId(id);
-      setSelectedProjectIdState(id);
-      const p = listLocalProjects().find((x) => x.id === id);
+      setSelectedProjectId(id);
+      writeSelectedRegistryProjectId(id);
+      const p = projects.find((x) => x?.projectId === id);
       if (p) patchProjectContext(p);
     },
-    [patchProjectContext],
+    [patchProjectContext, projects],
   );
 
   const handleCreateProject = useCallback(
     async (payload: WorkspaceProjectCreatePayload) => {
-      const meta = workspacePayloadToLocalProjectMeta(payload);
-      const p = createLocalProjectWithMeta(meta);
-      setLocalProjects(listLocalProjects());
-      setSelectedProjectIdState(p.id);
-      patchProjectContext(p);
+      const m = payload.workspaceMeta;
+      const body = {
+        name: String(payload.name || "").trim(),
+        profile: {
+          projectCode: String(m.projectCode || "").trim(),
+          scenario: String(m.scenario || "").trim(),
+          scale: String(m.scale || "").trim() || null,
+          startDate: m.startDate ? String(m.startDate) : null,
+          siteReadyDate: m.datacenterReadyDate ? String(m.datacenterReadyDate) : null,
+          deliveryTags: Array.isArray(m.deliveryFeatures) ? m.deliveryFeatures : [],
+        },
+      };
+      const r = await authFetch("/api/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const j = (await r.json().catch(() => ({}))) as { project?: RegistryProjectRow; detail?: string };
+      if (!r.ok) throw new Error(j.detail || `HTTP ${r.status}`);
+      const proj = j.project;
+      if (proj?.projectId) {
+        const pid = String(proj.projectId);
+        writeSelectedRegistryProjectId(pid);
+        setSelectedProjectId(pid);
+        patchProjectContext(proj);
+      }
+      await loadProjects();
     },
-    [patchProjectContext],
+    [loadProjects, patchProjectContext],
   );
 
-  const confirmDeleteProject = useCallback(() => {
-    if (!deleteTargetId) return;
-    setDeleteBusy(true);
-    try {
-      const { projects, selectedId } = deleteLocalProject(deleteTargetId);
-      setLocalProjects(projects);
-      setSelectedProjectIdState(selectedId ?? "");
-      if (selectedId) {
-        const p = projects.find((x) => x.id === selectedId);
-        if (p) patchProjectContext(p);
-      }
-    } finally {
-      setDeleteBusy(false);
-      setDeleteTargetId(null);
-    }
-  }, [deleteTargetId, patchProjectContext]);
+  // 删除项目：本迭代刻意不支持（避免级联删除与脏数据）。
 
   /** 门禁由 workbench/page 负责；此处防止运行中门禁被撤销时仍停留 */
   useEffect(() => {
@@ -322,6 +660,25 @@ export default function WorkbenchContent() {
     resetProjectOverviewSessionState();
     void hydrateProjectOverview();
   }, [threadId]);
+
+  /** 手工改 task_progress.json 存盘 / Skill 落盘后，以服务端快照为准拉齐流程进度；隐藏标签时暂停。 */
+  useEffect(() => {
+    const tick = () => {
+      if (typeof document !== "undefined" && document.hidden) return;
+      void hydrateProjectOverview(true, { taskStatusMode: "replace" });
+    };
+    const id = window.setInterval(tick, 4000);
+    const onVis = () => {
+      if (typeof document !== "undefined" && !document.hidden) {
+        void hydrateProjectOverview(true, { taskStatusMode: "replace" });
+      }
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      window.clearInterval(id);
+      document.removeEventListener("visibilitychange", onVis);
+    };
+  }, []);
 
   const refreshRuntimeMode = useCallback(async () => {
     const base = apiBase.replace(/\/$/, "");
@@ -447,13 +804,16 @@ export default function WorkbenchContent() {
     setSystemModal(null);
   }, []);
 
-  const openControlCenter = useCallback((tab: ControlCenterTab = "config") => {
+  const openControlCenter = useCallback((opts?: { tab?: ControlCenterTab; settingsPane?: ControlCenterSettingsPane }) => {
+    const tab = opts?.tab ?? "config";
+    const pane = opts?.settingsPane ?? "systemSettings";
     setControlCenterTab(tab);
+    if (tab === "settings") setControlCenterSettingsPane(pane);
     setSystemModal("controlCenter");
   }, []);
 
   const openSettings = useCallback(() => {
-    openControlCenter("settings");
+    openControlCenter({ tab: "settings", settingsPane: "systemSettings" });
   }, [openControlCenter]);
 
   const openRemoteAssetDetail = useCallback((assetId: string) => {
@@ -543,6 +903,80 @@ export default function WorkbenchContent() {
     skillNameInferredFromMessages ||
     moduleIdInferredFromMessages;
 
+  const onPreviewInsightRequest = useCallback(
+    async (filePath: string): Promise<FileInsightReport> => {
+      const p = (filePath || "").trim();
+      if (!p) throw new Error("empty_path");
+      if (!threadId) throw new Error("no_thread");
+      const taskId = `preview-insight-${
+        typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+          ? crypto.randomUUID()
+          : `${Date.now()}-${Math.random().toString(16).slice(2)}`
+      }`;
+      const goal =
+        `仅分析工作区内相对路径 \`${p}\`：` +
+        "使用允许的工具 read_file_head / read_file_tail / read_hex_dump / list_dir 读取有限片段，" +
+        "输出严格符合 FileInsightReport 的 JSON（字段 file_type_guess, summary, risk_level, extracted_snippets, next_action_suggestion）。不得编造未读到的内容。";
+
+      return await new Promise<FileInsightReport>((resolve, reject) => {
+        let settled = false;
+        const timer = window.setTimeout(() => {
+          if (settled) return;
+          settled = true;
+          unsubscribe();
+          reject(new Error("洞察请求超时"));
+        }, 120_000);
+
+        const unsubscribe = subscribeSkillAgentTaskResult((evt) => {
+          if (evt.taskId !== taskId) return;
+          if (settled) return;
+          settled = true;
+          window.clearTimeout(timer);
+          unsubscribe();
+          if (evt.ok && evt.report) {
+            const coerced = coerceFileInsightReport(evt.report);
+            if (!coerced) {
+              reject(new Error("invalid_report_shape"));
+              return;
+            }
+            resolve(coerced);
+          } else {
+            reject(new Error(evt.error || "insight_failed"));
+          }
+        });
+
+        const envelope = buildSkillAgentTaskExecuteEnvelope({
+          threadId,
+          skillName: (dashboardActiveSkillName || "nanobot_preview").trim() || "nanobot_preview",
+          skillRunId: `run-preview-insight-${threadId}`,
+          payload: {
+            taskId,
+            stepId: "preview.file_insight",
+            goal,
+            resultDelivery: "sse",
+            maxIterations: 8,
+            resultSchema: { type: "FileInsightReport" },
+          },
+        });
+
+        const intent = {
+          type: "chat_card_intent" as const,
+          verb: "skill_runtime_event" as const,
+          payload: envelope,
+        };
+
+        void sendSilentMessage(JSON.stringify(intent), selectedModel).catch((e) => {
+          if (settled) return;
+          settled = true;
+          window.clearTimeout(timer);
+          unsubscribe();
+          reject(e instanceof Error ? e : new Error(String(e)));
+        });
+      });
+    },
+    [threadId, subscribeSkillAgentTaskResult, sendSilentMessage, selectedModel, dashboardActiveSkillName],
+  );
+
   const handleFillInput = useCallback((text: string) => {
     setInputPrefill(text);
     setInputFocusSignal((n) => n + 1);
@@ -554,14 +988,6 @@ export default function WorkbenchContent() {
     setToastDismissed(false);
     void sendMessage(v, selectedModel);
   }, [selectedModel, sendMessage]);
-
-  const handlePendingChoiceSelect = useCallback(
-    (choice: ChoiceItem) => {
-      clearPendingChoices();
-      void sendMessage(choice.value, selectedModel);
-    },
-    [clearPendingChoices, sendMessage, selectedModel],
-  );
 
   const handleChatCardSendText = useCallback(
     (text: string, opts?: { cardId?: string; submittedValue?: string }) => {
@@ -641,20 +1067,17 @@ export default function WorkbenchContent() {
     return () => window.removeEventListener("resize", clamp);
   }, [CHAT_MIN]);
 
-  // Track header width for compact mode.
-  // IMPORTANT: only update state when the compact threshold (760 px) is crossed,
-  // NOT on every pixel change, to avoid a ResizeObserver → setState → re-render
-  // → DOM shrink → ResizeObserver → ... infinite loop.
-  const prevCompactRef = useRef(false);
+  // 底部输入区（模型条+输入框）宽度，用于 ModelSelector 紧凑态；仅在越过阈值时 setState 防抖。
+  const prevInputBarCompactRef = useRef(false);
   useEffect(() => {
-    const el = headerRef.current;
+    const el = inputBarRef.current;
     if (!el) return;
     const ro = new ResizeObserver((entries) => {
       const w = entries[0]?.contentRect.width ?? 9999;
-      const nextCompact = w < 760;
-      if (nextCompact !== prevCompactRef.current) {
-        prevCompactRef.current = nextCompact;
-        setHeaderWidth(w);
+      const nextCompact = w < INPUT_MODEL_COMPACT_PX;
+      if (nextCompact !== prevInputBarCompactRef.current) {
+        prevInputBarCompactRef.current = nextCompact;
+        setInputBarWidth(w);
       }
     });
     ro.observe(el);
@@ -662,6 +1085,7 @@ export default function WorkbenchContent() {
   }, []);
 
   const closePreview = useCallback(() => {
+    setPreviewImmersive(false);
     setPreviewAnimating(true);
     setPreviewWidth(32);
     setTimeout(() => {
@@ -671,14 +1095,12 @@ export default function WorkbenchContent() {
     }, PREVIEW_ANIM_MS);
   }, []);
 
-  const openCommandPalette = useCallback(() => {
-    commandPaletteOpenRef.current = true;
-    setCommandPaletteOpen(true);
+  const togglePreviewImmersive = useCallback(() => {
+    setPreviewImmersive((v) => !v);
   }, []);
 
-  const closeCommandPalette = useCallback(() => {
-    commandPaletteOpenRef.current = false;
-    setCommandPaletteOpen(false);
+  const openCommandPalette = useCallback(() => {
+    window.dispatchEvent(new Event("nanobot:command-palette:open"));
   }, []);
 
   const toggleZenMode = useCallback(() => {
@@ -689,20 +1111,73 @@ export default function WorkbenchContent() {
     });
   }, [closePreview]);
 
+  // Phase 3: CommandPalette actions (self-managed palette triggers workbench via events).
+  useEffect(() => {
+    const onClearChat = () => {
+      clearChat({ saveUndoSnapshot: true });
+    };
+    const onClearSession = () => {
+      const ok = window.confirm("确认清空当前会话？此操作不可撤销。");
+      if (!ok) return;
+      clearChat({ saveUndoSnapshot: true });
+    };
+    const onOpenProjectSwitcher = () => {
+      // Best-effort: show overview column and scroll into dashboard; project dropdown lives there.
+      setDashboardNavigatorView("overview");
+      setZenMode(false);
+      setNavExpanded(true);
+      queueMicrotask(() => {
+        document.querySelector(".dashboard-container")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+    };
+    const onToggleZen = () => toggleZenMode();
+    const onToggleDashboard = () => {
+      console.log("[CommandPalette] toggle dashboard placeholder (no dedicated state yet)");
+    };
+    const onOpenControlCenter = () => openControlCenter({ tab: "config" });
+    const onSetTheme = (e: Event) => {
+      const ev = e as CustomEvent;
+      const v = String(ev.detail ?? "").trim();
+      if (v === "dark" || v === "light" || v === "soft") setTheme(v as "dark" | "light" | "soft");
+    };
+    const onTriggerRunSkill = (e: Event) => {
+      const ev = e as CustomEvent;
+      const skill = String((ev.detail as { skill?: unknown } | undefined)?.skill ?? "").trim();
+      void triggerRunSkill(skill || "cold_start_analysis", selectedModel);
+    };
+
+    window.addEventListener("nanobot:workbench:clear-chat", onClearChat as EventListener);
+    window.addEventListener("nanobot:workbench:clear-session", onClearSession as EventListener);
+    window.addEventListener("nanobot:workbench:open-project-switcher", onOpenProjectSwitcher as EventListener);
+    window.addEventListener("nanobot:workbench:toggle-zen", onToggleZen as EventListener);
+    window.addEventListener("nanobot:workbench:toggle-dashboard", onToggleDashboard as EventListener);
+    window.addEventListener("nanobot:workbench:open-control-center", onOpenControlCenter as EventListener);
+    window.addEventListener("nanobot:workbench:set-theme", onSetTheme as EventListener);
+    window.addEventListener("nanobot:workbench:trigger-run-skill", onTriggerRunSkill as EventListener);
+    return () => {
+      window.removeEventListener("nanobot:workbench:clear-chat", onClearChat as EventListener);
+      window.removeEventListener("nanobot:workbench:clear-session", onClearSession as EventListener);
+      window.removeEventListener("nanobot:workbench:open-project-switcher", onOpenProjectSwitcher as EventListener);
+      window.removeEventListener("nanobot:workbench:toggle-zen", onToggleZen as EventListener);
+      window.removeEventListener("nanobot:workbench:toggle-dashboard", onToggleDashboard as EventListener);
+      window.removeEventListener("nanobot:workbench:open-control-center", onOpenControlCenter as EventListener);
+      window.removeEventListener("nanobot:workbench:set-theme", onSetTheme as EventListener);
+      window.removeEventListener("nanobot:workbench:trigger-run-skill", onTriggerRunSkill as EventListener);
+    };
+  }, [clearChat, openControlCenter, selectedModel, setTheme, toggleZenMode, triggerRunSkill]);
+
+  const openProfileHome = useCallback(() => {
+    openControlCenter({ tab: "settings", settingsPane: "profile" });
+  }, [openControlCenter]);
+
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
-        e.preventDefault();
-        openCommandPalette();
-        return;
-      }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "f") {
         e.preventDefault();
         setSearchOpen(true);
         return;
       }
       if (e.key === "Escape") {
-        if (commandPaletteOpenRef.current) return;
         if (systemModal) {
           e.preventDefault();
           closeSystemModal();
@@ -713,26 +1188,66 @@ export default function WorkbenchContent() {
           setZenMode(false);
           return;
         }
+        if (previewImmersive && previewWidth > 32) {
+          e.preventDefault();
+          setPreviewImmersive(false);
+          return;
+        }
         setSearchOpen(false);
         setSearchQuery("");
       }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [systemModal, zenMode, closeSystemModal, openCommandPalette]);
+  }, [systemModal, zenMode, closeSystemModal, previewImmersive, previewWidth]);
 
   const activePreviewTabPath = useMemo(() => {
     if (!activeRightTabId) return null;
     return previewTabs.find((t) => t.id === activeRightTabId)?.path ?? null;
   }, [activeRightTabId, previewTabs]);
 
+  const toggleArtifactPreview = useCallback(
+    (path: string) => {
+      const normalized = normalizeSyntheticSkillUiPath(path);
+      if (activePreviewTabPath && normalized === activePreviewTabPath && previewWidth > 32) {
+        closePreview();
+        return;
+      }
+      wakePreview(normalized);
+    },
+    [activePreviewTabPath, closePreview, previewWidth, wakePreview],
+  );
+
   const handleLogout = useCallback(() => {
+    clearAuthSession();
     clearGlobalProjectContext();
     router.replace("/");
   }, [router]);
 
+  const handlePersonalInfoMenu = useCallback(
+    (action: PersonalInfoMenuAction) => {
+      switch (action) {
+        case "profile_home":
+          openControlCenter({ tab: "settings", settingsPane: "profile" });
+          break;
+        case "settings":
+          openControlCenter({ tab: "settings", settingsPane: "systemSettings" });
+          break;
+        case "member_management":
+          openControlCenter({ tab: "settings", settingsPane: "members" });
+          break;
+        case "logout":
+          handleLogout();
+          break;
+        default:
+          break;
+      }
+    },
+    [handleLogout, openControlCenter],
+  );
+
   const openConfig = useCallback(() => {
-    openControlCenter("config");
+    openControlCenter({ tab: "config" });
   }, [openControlCenter]);
 
   const artifacts = useMemo(() => {
@@ -761,11 +1276,16 @@ export default function WorkbenchContent() {
 
   const openArtifactsHub = useCallback(() => {
     if (artifacts.length > 0) {
-      wakePreview(artifacts[0]);
+      const first = artifacts[0];
+      if (previewWidth > 32 && activePreviewTabPath === first) {
+        closePreview();
+      } else {
+        wakePreview(first);
+      }
     } else {
       setNavExpanded(true);
     }
-  }, [artifacts, wakePreview]);
+  }, [artifacts, wakePreview, previewWidth, activePreviewTabPath, closePreview]);
 
   const openSkillsHub = useCallback(() => {
     setNavExpanded(true);
@@ -793,134 +1313,12 @@ export default function WorkbenchContent() {
     refreshNonce: sidebarRefreshNonce,
     onOpenArtifactsHub: openArtifactsHub,
     onOpenSkillsHub: openSkillsHub,
+    trashedSessions,
+    onRestoreTrashed: restoreFromTrash,
+    onDismissTrashed: dismissTrashed,
   };
 
-  const paletteCommands = useMemo<CommandPaletteItem[]>(() => {
-    return [
-      {
-        id: "new-session",
-        label: "新建会话",
-        hint: "空白对话线程",
-        keywords: ["session", "新对话"],
-        run: () => {
-          closeCommandPalette();
-          createSession();
-        },
-      },
-      {
-        id: "zen-toggle",
-        label: zenMode ? "退出专注模式" : "进入专注模式",
-        hint: "隐藏侧栏与大盘，仅保留会话区",
-        keywords: ["zen", "专注", "全屏"],
-        run: () => {
-          closeCommandPalette();
-          toggleZenMode();
-        },
-      },
-      {
-        id: "expand-nav",
-        label: "展开左侧导航",
-        keywords: ["sidebar", "侧栏", "会话", "技能"],
-        run: () => {
-          closeCommandPalette();
-          setNavExpanded(true);
-        },
-      },
-      {
-        id: "show-dashboard",
-        label: "显示大盘与工作台",
-        keywords: ["dashboard", "大盘", "sdui", "模块"],
-        run: () => {
-          closeCommandPalette();
-          setZenMode(false);
-          setNavExpanded(true);
-        },
-      },
-      {
-        id: "open-preview",
-        label: "打开右侧预览抽屉",
-        keywords: ["preview", "预览", "产物"],
-        run: () => {
-          closeCommandPalette();
-          expandPreviewPanel();
-        },
-      },
-      {
-        id: "artifacts-hub",
-        label: "打开产物预览",
-        keywords: ["artifacts", "产物", "文件"],
-        run: () => {
-          closeCommandPalette();
-          openArtifactsHub();
-        },
-      },
-      {
-        id: "skills-hub",
-        label: "展开技能侧栏",
-        keywords: ["skills", "技能"],
-        run: () => {
-          closeCommandPalette();
-          openSkillsHub();
-        },
-      },
-      {
-        id: "search-messages",
-        label: "搜索消息",
-        hint: "同 Ctrl/⌘+F",
-        keywords: ["search", "查找"],
-        run: () => {
-          closeCommandPalette();
-          setSearchOpen(true);
-        },
-      },
-      {
-        id: "control-center",
-        label: "打开控制中心",
-        keywords: ["config", "设置", "api"],
-        run: () => {
-          closeCommandPalette();
-          openControlCenter("config");
-        },
-      },
-      {
-        id: "theme-dark",
-        label: "切换为深色主题",
-        keywords: ["dark", "夜间"],
-        run: () => {
-          closeCommandPalette();
-          setTheme("dark");
-        },
-      },
-      {
-        id: "theme-light",
-        label: "切换为浅色主题",
-        keywords: ["light", "白日"],
-        run: () => {
-          closeCommandPalette();
-          setTheme("light");
-        },
-      },
-      {
-        id: "theme-soft",
-        label: "切换为护眼主题",
-        keywords: ["soft", "护眼"],
-        run: () => {
-          closeCommandPalette();
-          setTheme("soft");
-        },
-      },
-    ];
-  }, [
-    zenMode,
-    createSession,
-    toggleZenMode,
-    expandPreviewPanel,
-    openArtifactsHub,
-    openSkillsHub,
-    openControlCenter,
-    closeCommandPalette,
-    setTheme,
-  ]);
+  // Phase 3: CommandPalette is now self-managed (Cmd/Ctrl+K) and uses console.log placeholder actions.
 
   useEffect(() => {
     if (!clearUndoToast) return;
@@ -928,8 +1326,100 @@ export default function WorkbenchContent() {
     return () => window.clearTimeout(t);
   }, [clearUndoToast]);
 
+  useEffect(() => {
+    if (!workbenchToolsOpen) return;
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (workbenchToolsMenuRailRef.current?.contains(t)) return;
+      if (workbenchToolsMenuChatRef.current?.contains(t)) return;
+      if (workbenchToolsMenuMobileRef.current?.contains(t)) return;
+      setWorkbenchToolsOpen(false);
+    };
+    document.addEventListener("mousedown", onDown, true);
+    return () => document.removeEventListener("mousedown", onDown, true);
+  }, [workbenchToolsOpen]);
+
+  const showChatWorkbenchTools = navExpanded || zenMode;
+  const closeWorkbenchToolsAnd = useCallback((fn: () => void) => {
+    setWorkbenchToolsOpen(false);
+    fn();
+  }, []);
+
+  const handleViewPendingTool = useCallback(() => {
+    document.getElementById("nanobot-pending-tool")?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, []);
+
+  const handleRetryAfterError = useCallback(() => {
+    const lastUser = [...messages]
+      .reverse()
+      .find((m) => m.role === "user" && (m.content?.trim() ?? "").length > 0);
+    if (lastUser?.content?.trim()) {
+      void sendMessage(lastUser.content, selectedModel);
+    }
+  }, [messages, sendMessage, selectedModel]);
+
+  const handleCopyError = useCallback(() => {
+    void navigator.clipboard.writeText(statusMessage);
+  }, [statusMessage]);
+
+  const handleRequestSwitchModel = useCallback(() => {
+    setInputFocusSignal((s) => s + 1);
+  }, []);
+
+  const workbenchModelControls = useMemo(
+    () => (
+      <>
+        {providerOptions.length > 0 && (
+          <label className="inline-flex min-w-0 max-w-full flex-1 items-center gap-1.5 text-xs ui-text-secondary sm:flex-initial">
+            <select
+              value={selectedProvider}
+              onChange={(e) => void applyProviderProfile(e.target.value)}
+              className="w-40 min-w-0 shrink-0 cursor-pointer rounded-md border-0 bg-transparent py-1 pl-1.5 pr-6 text-xs text-[var(--text-primary)] outline-none ring-0"
+              aria-label="选择提供商"
+            >
+              {providerOptions.map((p) => (
+                <option key={p} value={p}>
+                  {p}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        <ModelSelector
+          value={selectedModel}
+          onChange={(m) => {
+            setSelectedModel(m);
+            setStatusMessage(`已切换到 ${m} · 下一轮生效`);
+            void fetch(configUrl, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ agents: { defaults: { provider: selectedProvider || undefined, model: m } } }),
+            }).catch(() => {});
+          }}
+          models={modelOptions}
+          compact={inputBarWidth < INPUT_MODEL_COMPACT_PX}
+          variant="ghost"
+        />
+      </>
+    ),
+    [
+      providerOptions,
+      selectedProvider,
+      applyProviderProfile,
+      selectedModel,
+      setSelectedModel,
+      setStatusMessage,
+      modelOptions,
+      configUrl,
+      inputBarWidth,
+    ],
+  );
+
   return (
-    <main className="h-dvh overflow-hidden p-4" style={{ background: "var(--surface-0)", color: "var(--text-primary)" }}>
+    <main
+      className="flex h-dvh min-h-0 flex-col overflow-hidden p-4"
+      style={{ background: "var(--surface-0)", color: "var(--text-primary)" }}
+    >
       {runtimeMode === "unconfigured" ? (
         <div className="mb-3 rounded-xl border border-[color-mix(in_oklab,var(--warning)_35%,transparent)] bg-[color-mix(in_oklab,var(--warning)_10%,var(--surface-1))] px-4 py-3 text-xs text-[var(--text-primary)]">
           <span className="font-medium">当前处于未初始化配置模式：</span>
@@ -955,8 +1445,9 @@ export default function WorkbenchContent() {
       {systemModal === "controlCenter" && (
         <SystemShellModal onClose={closeSystemModal} title="控制中心">
           <ControlCenterPanel
-            key={controlCenterTab}
+            key={`${controlCenterTab}:${controlCenterSettingsPane}`}
             initialTab={controlCenterTab}
+            initialSettingsPane={controlCenterSettingsPane}
             onClose={closeSystemModal}
             onOpenRemoteUpload={openRemoteAssetUpload}
             onSaved={() => {
@@ -986,37 +1477,12 @@ export default function WorkbenchContent() {
         </SystemShellModal>
       )}
 
-      <CommandPalette open={commandPaletteOpen} onClose={closeCommandPalette} commands={paletteCommands} />
+      <CommandPalette />
 
       <NewWorkspaceProjectModal
         open={newProjectModalOpen}
         onDismiss={() => setNewProjectModalOpen(false)}
         onCreate={handleCreateProject}
-      />
-
-      <CenteredConfirmModal
-        open={Boolean(deleteTargetId)}
-        title="删除项目"
-        variant="danger"
-        confirmText="删除"
-        loading={deleteBusy}
-        description={
-          deleteTargetId ? (
-            <span>
-              确定删除项目「
-              <span className="font-semibold ui-text-primary">
-                {localProjects.find((p) => p.id === deleteTargetId)?.name ?? deleteTargetId}
-              </span>
-              」？此操作不可恢复。
-            </span>
-          ) : null
-        }
-        onCancel={() => {
-          if (!deleteBusy) setDeleteTargetId(null);
-        }}
-        onConfirm={() => {
-          confirmDeleteProject();
-        }}
       />
 
       {clearUndoToast ? (
@@ -1044,6 +1510,36 @@ export default function WorkbenchContent() {
         </div>
       ) : null}
 
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-b-2xl ui-elevation-1">
+        {moduleStepperModules.length > 0 && stepperView === "docked" ? (
+          <div className="relative z-10 w-full min-w-0 shrink-0 border-b border-[var(--border-subtle)] bg-[var(--paper-card)] animate-in slide-in-from-top-2 duration-200">
+            <button
+              type="button"
+              onClick={() => setStepperView("compact")}
+              className="nav-icon-btn absolute right-2 top-2 z-20 p-1.5"
+              title="收起到胶囊"
+              aria-label="收起到胶囊"
+            >
+              <Minimize2 size={16} strokeWidth={2.25} aria-hidden />
+            </button>
+            <ModuleStepper
+              modules={moduleStepperModules}
+              activeModuleId={activeModuleId}
+              onSelectModule={undefined}
+              className="px-1 pb-2.5 pt-2 pr-12"
+            />
+          </div>
+        ) : null}
+        {moduleStepperModules.length > 0 && stepperView === "compact" ? (
+          <div className="z-10 flex w-full min-w-0 shrink-0 items-center justify-end px-3 pt-2">
+            <ModuleStepperCompact
+              modules={moduleStepperModules}
+              activeModuleId={activeModuleId}
+              onDock={() => setStepperView("docked")}
+            />
+          </div>
+        ) : null}
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
       {/* Mobile hamburger */}
       <button
         type="button"
@@ -1064,7 +1560,7 @@ export default function WorkbenchContent() {
         />
       )}
       {sidebarOpen && (
-        <div className="md:hidden fixed inset-y-0 left-0 z-40 w-[21rem] p-2 bg-zinc-100 dark:bg-[#121214] rounded-r-2xl shadow-xl border-r border-zinc-200/90 dark:border-white/5">
+        <div className="md:hidden fixed inset-y-0 left-0 z-40 w-[21rem] p-2 bg-[var(--canvas-rail)] rounded-r-2xl shadow-xl border-r border-[var(--border-subtle)]">
           <button
             type="button"
             onClick={() => setSidebarOpen(false)}
@@ -1075,6 +1571,7 @@ export default function WorkbenchContent() {
           </button>
           <Sidebar
             {...sidebarProps}
+            embedded
             onSelectSession={(id) => {
               setSidebarOpen(false);
               switchSession(id);
@@ -1084,8 +1581,10 @@ export default function WorkbenchContent() {
       )}
 
       {/* Desktop layout: navigation + chat + overview, preview uses overlay drawer */}
-      <div className="hidden md:block h-full min-h-0 overflow-x-auto">
-        <div className={`flex h-full min-h-0 gap-0 ${zenMode ? "min-w-0" : "min-w-max"}`}>
+      <div className="hidden md:block h-full min-h-0 overflow-x-auto bg-[var(--paper-card)]">
+        <div
+          className={`flex h-full min-h-0 bg-[var(--paper-card)] p-2 gap-2 lg:p-3 lg:gap-3 ${zenMode ? "min-w-0" : "min-w-max"}`}
+        >
 
           {/* Col 1: Nav strip (collapsed 44px) or full Sidebar */}
           {!zenMode &&
@@ -1112,9 +1611,40 @@ export default function WorkbenchContent() {
                 <button type="button" onClick={createSession} title="新建会话" className="nav-icon-btn">
                   <Plus size={18} />
                 </button>
-                <button type="button" onClick={openSettings} title="设置" className="nav-icon-btn" aria-label="设置">
-                  <Settings size={18} />
-                </button>
+                <div className="relative" ref={workbenchToolsMenuRailRef}>
+                  <button
+                    type="button"
+                    onClick={() => setWorkbenchToolsOpen((o) => !o)}
+                    title="工作台与快捷设置"
+                    className={`nav-icon-btn${workbenchToolsOpen && !showChatWorkbenchTools ? " ring-1 ring-[color-mix(in_oklab,var(--accent)_45%,transparent)]" : ""}`}
+                    aria-label="工作台与快捷设置"
+                    aria-expanded={workbenchToolsOpen && !showChatWorkbenchTools}
+                    aria-haspopup="menu"
+                  >
+                    <SlidersHorizontal size={18} strokeWidth={2} />
+                  </button>
+                  {workbenchToolsOpen && !showChatWorkbenchTools ? (
+                    <div className="absolute left-full top-0 z-[100] ml-1.5">
+                      <WorkbenchToolsMenuItems
+                        onPick={closeWorkbenchToolsAnd}
+                        onToggleNav={toggleDesktopSidebar}
+                        onOpenCommandPalette={openCommandPalette}
+                        onToggleZen={toggleZenMode}
+                        onOpenConfig={openConfig}
+                        onOpenAppSettings={openSettings}
+                        onOpenProfile={openProfileHome}
+                        onClearSession={() => {
+                          clearChat({ saveUndoSnapshot: true });
+                          setClearUndoToast(true);
+                        }}
+                        onTogglePreview={togglePreviewPanel}
+                        previewOpen={previewWidth > 32}
+                        zenMode={zenMode}
+                        navExpanded={navExpanded}
+                      />
+                    </div>
+                  ) : null}
+                </div>
                 <div className="relative">
                   <button
                     type="button"
@@ -1144,6 +1674,15 @@ export default function WorkbenchContent() {
                   <Zap size={18} />
                 </button>
                 <div className="mt-auto" />
+                <button
+                  type="button"
+                  onClick={() => openControlCenter({ tab: "settings", settingsPane: "profile" })}
+                  title="账号与资料"
+                  className="nav-icon-btn"
+                  aria-label="账号与资料"
+                >
+                  <UserRound size={18} />
+                </button>
               </div>
             ))}
 
@@ -1151,112 +1690,52 @@ export default function WorkbenchContent() {
           <div
             className={
               zenMode
-                ? "flex-1 min-w-0 min-h-0 flex flex-col bg-[var(--paper-chat)] rounded-2xl shadow-[var(--shadow-card)] ring-1 ring-black/[0.05] dark:ring-white/10 overflow-hidden"
-                : "shrink-0 min-h-0 flex flex-col bg-[var(--paper-chat)] rounded-2xl shadow-[var(--shadow-card)] ring-1 ring-black/[0.05] dark:ring-white/10 overflow-hidden"
+                ? "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-2xl border border-[var(--border-subtle)] bg-[var(--paper-chat)] shadow-[var(--shadow-panel)]"
+                : "flex min-h-0 min-w-0 shrink-0 flex-col overflow-hidden rounded-2xl border border-[var(--border-subtle)] bg-[var(--paper-chat)] shadow-[var(--shadow-panel)] dark:border-0 dark:shadow-[inset_1px_0_0_rgba(255,255,255,0.05),inset_-1px_0_0_rgba(255,255,255,0.05),inset_0_1px_0_rgba(255,255,255,0.03)]"
             }
             style={zenMode ? { minWidth: CHAT_MIN } : { width: chatWidth, minWidth: CHAT_MIN }}
           >
-            <div ref={headerRef} className="mb-2 flex shrink-0 items-center gap-2 px-2 pt-2 min-w-0">
-              <div className="flex items-center gap-1.5 shrink-0">
-                <button
-                  type="button"
-                  onClick={toggleDesktopSidebar}
-                  aria-label={navExpanded ? "收起左侧栏" : "打开左侧栏"}
-                  title={navExpanded ? "收起左侧栏" : "打开左侧栏"}
-                  className={headerIconButtonClass}
-                >
-                  <SidebarIcon size={17} />
-                </button>
-                <button
-                  type="button"
-                  onClick={openCommandPalette}
-                  aria-label="命令面板"
-                  title="命令面板（Ctrl+K 或 ⌘+K）"
-                  className={headerIconButtonClass}
-                >
-                  <span className="text-[10px] font-semibold tabular-nums opacity-80">⌘K</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={toggleZenMode}
-                  aria-label={zenMode ? "退出专注模式" : "专注模式"}
-                  title={zenMode ? "退出专注模式（Esc）" : "专注模式：隐藏侧栏与大盘"}
-                  className={`${headerIconButtonClass}${zenMode ? " ring-1 ring-[color-mix(in_oklab,var(--accent)_45%,transparent)]" : ""}`}
-                >
-                  <Focus size={17} className={zenMode ? "text-[var(--accent)]" : undefined} />
-                </button>
-              </div>
-              <div className="flex min-w-0 flex-1 items-center justify-end gap-2">
-                <div
-                  className={
-                    "flex min-w-0 max-w-full flex-wrap items-center justify-end gap-1.5 shrink rounded-2xl border px-1.5 py-1 shadow-sm " +
-                    "border-black/[0.07] bg-white/55 backdrop-blur-md dark:border-white/10 dark:bg-white/[0.05]"
-                  }
-                >
-                  {providerOptions.length > 0 && (
-                    <label className="inline-flex items-center gap-1.5 text-xs ui-text-secondary">
-                      <select
-                        value={selectedProvider}
-                        onChange={(e) => void applyProviderProfile(e.target.value)}
-                        className="rounded-lg border px-2 py-1 text-xs bg-white/70 dark:bg-black/25"
-                        style={{
-                          borderColor: "color-mix(in oklab, var(--border-subtle) 80%, transparent)",
-                          color: "var(--text-primary)",
-                        }}
-                        aria-label="选择提供商"
-                      >
-                        {providerOptions.map((p) => (
-                          <option key={p} value={p}>{p}</option>
-                        ))}
-                      </select>
-                    </label>
-                  )}
-                  <ModelSelector
-                    value={selectedModel}
-                    onChange={(m) => {
-                      setSelectedModel(m);
-                      void fetch(configUrl, {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ agents: { defaults: { provider: selectedProvider || undefined, model: m } } }),
-                      }).catch(() => {});
-                    }}
-                    models={modelOptions}
-                    compact={headerWidth < 760}
-                    selectClassName="border-[color-mix(in_oklab,var(--border-subtle)_80%,transparent)] bg-white/70 dark:bg-black/25"
-                  />
-                  <button type="button" onClick={openConfig} aria-label="控制中心" title="控制中心"
-                    className={headerIconButtonClass}>
-                    <Settings size={17} />
-                  </button>
+            {showChatWorkbenchTools ? (
+              <div className="flex min-w-0 shrink-0 items-center gap-2 border-b border-white/5 bg-[var(--paper-chat)] px-2 pb-1.5 pt-2">
+                <div className="relative shrink-0" ref={workbenchToolsMenuChatRef}>
                   <button
                     type="button"
-                    onClick={() => {
-                      clearChat({ saveUndoSnapshot: true });
-                      setClearUndoToast(true);
-                    }}
-                    aria-label="清空当前会话"
-                    title="清空当前会话（可在底部通知中撤销）"
-                    className={`${headerIconButtonClass} hover:text-red-500`}
+                    onClick={() => setWorkbenchToolsOpen((o) => !o)}
+                    aria-label="工作台与快捷设置"
+                    title="工作台与快捷设置"
+                    className={headerIconButtonClass}
+                    aria-expanded={workbenchToolsOpen}
+                    aria-haspopup="menu"
                   >
-                    <Trash2 size={17} />
+                    <SlidersHorizontal size={17} strokeWidth={2} />
                   </button>
-                  <div className="rounded-xl border border-[color-mix(in_oklab,var(--border-subtle)_70%,transparent)] bg-white/40 px-1 py-0.5 transition-colors hover:bg-white/70 dark:border-white/10 dark:bg-black/20 dark:hover:bg-black/35">
-                    <ThemeToggle />
-                  </div>
+                  {workbenchToolsOpen ? (
+                    <div className="absolute left-0 top-full z-[100] mt-1.5">
+                      <WorkbenchToolsMenuItems
+                        onPick={closeWorkbenchToolsAnd}
+                        onToggleNav={toggleDesktopSidebar}
+                        onOpenCommandPalette={openCommandPalette}
+                        onToggleZen={toggleZenMode}
+                        onOpenConfig={openConfig}
+                        onOpenAppSettings={openSettings}
+                        onOpenProfile={openProfileHome}
+                        onClearSession={() => {
+                          clearChat({ saveUndoSnapshot: true });
+                          setClearUndoToast(true);
+                        }}
+                        onTogglePreview={togglePreviewPanel}
+                        previewOpen={previewWidth > 32}
+                        zenMode={zenMode}
+                        navExpanded={navExpanded}
+                      />
+                    </div>
+                  ) : null}
                 </div>
-                <button
-                  type="button"
-                  onClick={togglePreviewPanel}
-                  aria-label={previewWidth > 32 ? "收起右侧预览栏" : "打开右侧预览栏"}
-                  title={previewWidth > 32 ? "收起右侧预览栏" : "打开右侧预览栏"}
-                  className={headerIconButtonClass}
-                >
-                  {previewWidth > 32 ? <PanelRightClose size={17} /> : <PanelRightOpen size={17} />}
-                </button>
+                <div className="min-w-0 flex-1" aria-hidden />
+                <SidebarPersonalInfo variant="nav" onMenuAction={handlePersonalInfoMenu} />
               </div>
-            </div>
-            <div className="flex-1 min-h-0">
+            ) : null}
+            <div className="min-h-0 min-w-0 flex-1">
               <ChatArea
                 messages={messages}
                 stepLogs={stepLogs}
@@ -1270,6 +1749,8 @@ export default function WorkbenchContent() {
                 onStop={stopGenerating}
                 onApproveTool={(approved) => { void approveTool(approved); }}
                 onFileLinkClick={wakePreview}
+                activePreviewPath={activePreviewTabPath}
+                onTogglePreviewPath={toggleArtifactPreview}
                 onDeleteMessage={deleteMessage}
                 searchQuery={searchQuery}
                 disabled={isLoading || !threadId}
@@ -1280,6 +1761,12 @@ export default function WorkbenchContent() {
                 chatCardOnSendText={handleChatCardSendText}
                 chatCardOnLockFilePicker={handleChatCardLockFilePicker}
                 hybridSubtaskHint={hybridSubtaskHint}
+                modelControls={workbenchModelControls}
+                inputBarRef={inputBarRef}
+                onStepLogViewPendingTool={handleViewPendingTool}
+                onStepLogRetryError={handleRetryAfterError}
+                onStepLogCopyError={handleCopyError}
+                onStepLogRequestSwitchModel={handleRequestSwitchModel}
               />
             </div>
           </div>
@@ -1300,22 +1787,32 @@ export default function WorkbenchContent() {
 
               {/* Col 3: 工作区项目（仅总览） + 大盘 */}
               <div
-                className="min-h-0 flex-1 flex flex-col min-w-0 rounded-2xl bg-[var(--surface-0)] overflow-hidden dashboard-container"
+                className="dashboard-container flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-2xl border-l border-white/5 bg-[var(--paper-card)] shadow-[var(--shadow-card)]"
                 style={{ containerType: "inline-size", containerName: "dashboard", minWidth: DASHBOARD_MIN } as React.CSSProperties}
               >
                 {dashboardNavigatorView === "overview" ? (
-                  <div className="shrink-0 flex justify-center border-b border-[var(--border-subtle)] bg-[var(--surface-0)] px-3 py-2.5">
-                    <LocalProjectNavDropdown
-                      projects={localProjects}
+                  <div className="shrink-0 flex justify-center border-b border-[var(--border-subtle)] bg-[var(--surface-0)] px-3 pt-4 pb-2.5">
+                    <ProjectNavDropdown
+                      projects={projects
+                        .filter((p) => p && typeof p === "object")
+                        .map((p) => ({ projectId: String(p.projectId || ""), name: String(p.name || "").trim() }))
+                        .filter((p) => p.projectId && p.name)}
                       selectedId={selectedProjectId}
                       onSelect={handlePickProject}
                       onOpenNew={() => setNewProjectModalOpen(true)}
-                      onRequestDelete={(id) => setDeleteTargetId(id)}
                       compact={false}
+                      currentStageLabel={overviewStageLabel}
+                      moduleProgressText={overviewModuleProgressText}
                     />
                   </div>
                 ) : null}
-                <div className="min-h-0 flex-1 overflow-hidden">
+                <div
+                  className={
+                    dashboardNavigatorView === "module"
+                      ? "min-h-0 flex-1 overflow-hidden pt-4"
+                      : "min-h-0 flex-1 overflow-hidden"
+                  }
+                >
                   <DashboardNavigator
                     threadId={threadId}
                     activeModuleIds={activeModuleIds}
@@ -1341,32 +1838,56 @@ export default function WorkbenchContent() {
 
       {previewWidth > 32 && (
         <>
-          <button
-            type="button"
-            className="hidden md:block fixed inset-0 z-30 bg-black/42 backdrop-blur-[2px]"
-            aria-label="关闭预览遮罩"
-            onClick={closePreview}
-          />
+          {previewImmersive ? (
+            <button
+              type="button"
+              className="hidden md:block fixed inset-0 z-[45] bg-black/50 backdrop-blur-sm"
+              aria-label="退出全屏预览"
+              onClick={() => setPreviewImmersive(false)}
+            />
+          ) : (
+            <button
+              type="button"
+              className="hidden md:block fixed inset-0 z-30 bg-black/42 backdrop-blur-[2px]"
+              aria-label="关闭预览遮罩"
+              onClick={closePreview}
+            />
+          )}
           <div
-            className="hidden md:flex fixed right-3 top-3 bottom-3 z-40 min-h-0 overflow-hidden rounded-[1.4rem] border border-white/10 bg-[var(--canvas-rail)] p-2 shadow-2xl"
-            style={{
-              width: Math.max(400, previewWidth),
-              maxWidth: RIGHT_PANEL_MAX,
-              transition: previewAnimating
-                ? `width ${PREVIEW_ANIM_MS}ms cubic-bezier(0.34, 1.18, 0.64, 1), opacity ${Math.round(PREVIEW_ANIM_MS * 0.75)}ms ease-out`
-                : "none",
-            }}
+            className={
+              previewImmersive
+                ? "ui-motion hidden md:flex flex-col fixed inset-3 z-50 min-h-0 min-w-0 overflow-hidden rounded-[1.4rem] border border-[var(--border-subtle)] bg-[var(--canvas-rail)] p-2 shadow-2xl"
+                : "ui-motion hidden md:flex flex-row fixed right-3 top-3 bottom-3 z-40 min-h-0 overflow-hidden rounded-[1.4rem] border border-[var(--border-subtle)] bg-[var(--canvas-rail)] p-2 shadow-2xl"
+            }
+            style={
+              previewImmersive
+                ? undefined
+                : {
+                    width: Math.max(400, previewWidth),
+                    maxWidth: RIGHT_PANEL_MAX,
+                    transition: previewAnimating
+                      ? `width ${PREVIEW_ANIM_MS}ms cubic-bezier(0.34, 1.18, 0.64, 1), opacity ${Math.round(PREVIEW_ANIM_MS * 0.75)}ms ease-out`
+                      : "none",
+                  }
+            }
           >
-            <div
-              className="mr-2 flex w-3 shrink-0 cursor-col-resize items-center justify-center group"
-              onMouseDown={(e) => startDrag("preview", e)}
-              title="拖拽调整预览宽度"
-            >
-              <div className="h-14 w-0.5 rounded-full transition-colors group-hover:bg-[var(--accent)]" style={{ background: "var(--border-subtle)" }} />
-            </div>
-            <div className="min-h-0 flex-1 overflow-hidden">
+            {!previewImmersive && (
+              <div
+                className="mr-2 flex w-3 shrink-0 cursor-col-resize items-center justify-center group"
+                onMouseDown={(e) => startDrag("preview", e)}
+                title="拖拽调整预览宽度"
+              >
+                <div
+                  className="h-14 w-0.5 rounded-full transition-colors group-hover:bg-[var(--accent)]"
+                  style={{ background: "var(--border-subtle)" }}
+                />
+              </div>
+            )}
+            <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
               <PreviewPanel
                 onClose={closePreview}
+                previewImmersive={previewImmersive}
+                onToggleImmersive={togglePreviewImmersive}
                 previewTabs={previewTabs}
                 activeTabId={activeRightTabId}
                 onSelectTab={setActiveRightTabId}
@@ -1374,6 +1895,7 @@ export default function WorkbenchContent() {
                 onOpenPath={openFilePreview}
                 activeSkillName={dashboardActiveSkillName}
                 onFillInput={handleFillInput}
+                onPreviewInsightRequest={onPreviewInsightRequest}
               />
             </div>
           </div>
@@ -1381,18 +1903,61 @@ export default function WorkbenchContent() {
       )}
 
       {/* Mobile layout — single Paper column */}
-      <div className="md:hidden h-full min-h-0 flex flex-col rounded-2xl overflow-hidden bg-[var(--paper-chat)] shadow-[var(--shadow-card)] ring-1 ring-black/[0.05] dark:ring-white/10">
+      <div className="md:hidden h-full min-h-0 flex flex-col rounded-2xl overflow-hidden bg-[var(--paper-chat)] ui-elevation-2">
         <div className="shrink-0 border-b border-[var(--border-subtle)] px-2 py-2">
-          <WorkbenchTopNavSlot className="min-w-0">
-            <LocalProjectNavDropdown
-              projects={localProjects}
-              selectedId={selectedProjectId}
-              onSelect={handlePickProject}
-              onOpenNew={() => setNewProjectModalOpen(true)}
-              onRequestDelete={(id) => setDeleteTargetId(id)}
-              compact
-            />
-          </WorkbenchTopNavSlot>
+          <div className="flex min-w-0 items-center gap-2">
+            <div className="relative shrink-0" ref={workbenchToolsMenuMobileRef}>
+              <button
+                type="button"
+                onClick={() => setWorkbenchToolsOpen((o) => !o)}
+                aria-label="工作台与快捷设置"
+                title="工作台与快捷设置"
+                className={headerIconButtonClass}
+                aria-expanded={workbenchToolsOpen}
+                aria-haspopup="menu"
+              >
+                <SlidersHorizontal size={17} strokeWidth={2} />
+              </button>
+              {workbenchToolsOpen ? (
+                <div className="absolute left-0 top-full z-[100] mt-1.5 max-w-[calc(100vw-2rem)]">
+                  <WorkbenchToolsMenuItems
+                    onPick={closeWorkbenchToolsAnd}
+                    onToggleNav={toggleDesktopSidebar}
+                    onOpenCommandPalette={openCommandPalette}
+                    onToggleZen={toggleZenMode}
+                    onOpenConfig={openConfig}
+                    onOpenAppSettings={openSettings}
+                    onOpenProfile={openProfileHome}
+                    onClearSession={() => {
+                      clearChat({ saveUndoSnapshot: true });
+                      setClearUndoToast(true);
+                    }}
+                    onTogglePreview={togglePreviewPanel}
+                    previewOpen={previewWidth > 32}
+                    zenMode={zenMode}
+                    navExpanded={navExpanded}
+                  />
+                </div>
+              ) : null}
+            </div>
+            <div className="min-w-0 flex-1">
+              <WorkbenchTopNavSlot className="min-w-0">
+                <ProjectNavDropdown
+                  projects={projects
+                    .filter((p) => p && typeof p === "object")
+                    .map((p) => ({ projectId: String(p.projectId || ""), name: String(p.name || "").trim() }))
+                    .filter((p) => p.projectId && p.name)}
+                  selectedId={selectedProjectId}
+                  onSelect={handlePickProject}
+                  onOpenNew={() => setNewProjectModalOpen(true)}
+                  compact
+                  currentStageLabel={overviewStageLabel}
+                  moduleProgressText={overviewModuleProgressText}
+                />
+              </WorkbenchTopNavSlot>
+            </div>
+            <SidebarPersonalInfo variant="nav" onMenuAction={handlePersonalInfoMenu} />
+          </div>
         </div>
         <ChatArea
           messages={messages}
@@ -1406,7 +1971,9 @@ export default function WorkbenchContent() {
           onSend={handleSend}
           onStop={stopGenerating}
           onApproveTool={(approved) => { void approveTool(approved); }}
-          onFileLinkClick={openFilePreview}
+          onFileLinkClick={wakePreview}
+          activePreviewPath={activePreviewTabPath}
+          onTogglePreviewPath={toggleArtifactPreview}
           onDeleteMessage={deleteMessage}
           searchQuery={searchQuery}
           disabled={isLoading || !threadId}
@@ -1417,7 +1984,15 @@ export default function WorkbenchContent() {
           chatCardOnSendText={handleChatCardSendText}
           chatCardOnLockFilePicker={handleChatCardLockFilePicker}
           hybridSubtaskHint={hybridSubtaskHint}
+          modelControls={workbenchModelControls}
+          inputBarRef={inputBarRef}
+          onStepLogViewPendingTool={handleViewPendingTool}
+          onStepLogRetryError={handleRetryAfterError}
+          onStepLogCopyError={handleCopyError}
+          onStepLogRequestSwitchModel={handleRequestSwitchModel}
         />
+      </div>
+        </div>
       </div>
     </main>
   );

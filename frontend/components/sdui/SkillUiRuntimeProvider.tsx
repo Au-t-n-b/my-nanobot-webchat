@@ -189,6 +189,8 @@ export type SkillUiRuntimeContextValue = {
   postToAgentSilently?: (text: string) => void | Promise<void>;
   /** 将上传卡片锁定态写回聊天历史（用于刷新回放） */
   lockFilePickerCard?: (cardId: string, uploads: SduiUploadedFileRecord[]) => void;
+  /** 可选：将多行文本输入卡片锁定态写回聊天历史（用于刷新回放） */
+  lockHitlTextInputCard?: (cardId: string, text: string) => void;
   /**
    * Optional: send plain text back to the main chat input (non-skill context).
    * Used by present_choices inlined as ChoiceCard in the message stream.
@@ -211,6 +213,7 @@ type Props = {
   postToAgentRaw: (text: string) => void | Promise<void>;
   postToAgentSilentlyRaw?: (text: string) => void | Promise<void>;
   lockFilePickerCardRaw?: (cardId: string, uploads: SduiUploadedFileRecord[]) => void;
+  lockHitlTextInputCardRaw?: (cardId: string, text: string) => void;
   onSendTextRaw?: (text: string, opts?: { cardId?: string; submittedValue?: string }) => void;
   onOpenPreview?: (path: string) => void;
   syncStateRaw?: (args: { key: string; value: unknown; behavior?: "debounce" | "immediate" }) => void;
@@ -223,6 +226,7 @@ export function SkillUiRuntimeProvider({
   postToAgentRaw,
   postToAgentSilentlyRaw,
   lockFilePickerCardRaw,
+  lockHitlTextInputCardRaw,
   onSendTextRaw,
   onOpenPreview,
   syncStateRaw,
@@ -330,6 +334,7 @@ export function SkillUiRuntimeProvider({
       postToAgent,
       postToAgentSilently,
       lockFilePickerCard: lockFilePickerCardRaw,
+      lockHitlTextInputCard: lockHitlTextInputCardRaw,
       onSendText: onSendTextRaw,
       getInputValue,
       setInputValue,
@@ -348,6 +353,7 @@ export function SkillUiRuntimeProvider({
       postToAgent,
       postToAgentSilently,
       lockFilePickerCardRaw,
+      lockHitlTextInputCardRaw,
       onSendTextRaw,
       getInputValue,
       setInputValue,

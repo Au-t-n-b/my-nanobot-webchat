@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { CheckCircle2 } from "lucide-react";
 import { useSkillUiRuntime } from "@/components/sdui/SkillUiRuntimeProvider";
 import type { SduiChoiceOption } from "@/lib/sdui";
 import { formatLegacyModuleActionBlockedMessage, useLegacyModuleActionAllowed } from "@/lib/legacyModuleGate";
@@ -122,7 +121,6 @@ export function SduiChoiceCard({
     }
   };
 
-  const finalSelectedValue = selected === OTHER_VALUE ? otherText.trim() : (selected ?? "");
   const confirmDisabled = confirmed || !selected || (selected === OTHER_VALUE && !otherText.trim());
 
   return (

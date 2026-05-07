@@ -219,10 +219,18 @@ def _module_registry_item_from_config(raw: dict[str, Any]) -> dict[str, object]:
         or str(cfg.get("description") or "").strip()
     )
     task_names = task_progress.get("tasks")
+    capabilities = cfg.get("capabilities") if isinstance(cfg.get("capabilities"), dict) else {}
+    raw_show_stepper = capabilities.get("showWorkbenchModuleStepper")
+    # 作业管理默认不占用工作台顶栏「流程进度」；显式写 true 可恢复
+    if raw_show_stepper is None and module_id.replace("-", "_") == "job_management":
+        show_workbench_module_stepper = False
+    else:
+        show_workbench_module_stepper = True if raw_show_stepper is None else bool(raw_show_stepper)
     return {
         "moduleId": module_id,
         "label": label,
         "description": description,
+        "showWorkbenchModuleStepper": show_workbench_module_stepper,
         "taskProgress": {
             "moduleId": str(task_progress.get("moduleId") or module_id).strip() or module_id,
             "moduleName": str(task_progress.get("moduleName") or label).strip() or label,

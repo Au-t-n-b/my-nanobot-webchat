@@ -34,7 +34,7 @@ export function CodeRenderer(
           onClick={copy}
           aria-label="复制代码"
           title="一键复制"
-          className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-white/80 hover:text-white bg-zinc-700/80 hover:bg-zinc-600/90 backdrop-blur-sm transition-colors"
+          className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-white/80 hover:text-white bg-[var(--surface-3)]/80 hover:bg-[var(--surface-3)] backdrop-blur-sm ui-motion-fast"
         >
           {copied ? <Check size={10} className="text-green-400" /> : <Copy size={10} />}
           {copied ? "已复制" : "复制"}
@@ -43,7 +43,7 @@ export function CodeRenderer(
           type="button"
           aria-label="运行（暂未实现）"
           title="运行（暂未实现）"
-          className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-white/50 bg-zinc-700/60 backdrop-blur-sm cursor-not-allowed"
+          className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-white/50 bg-[var(--surface-3)]/60 backdrop-blur-sm cursor-not-allowed"
           disabled
         >
           <Play size={10} />
@@ -74,7 +74,7 @@ export function CodeRenderer(
           {props.code}
         </pre>
       ) : (
-        <div className="[&_pre]:!m-0 [&_pre]:!rounded-none [&_pre]:!text-xs [&_.linenumber]:!text-zinc-500 [&_.linenumber]:!min-w-[2.5em] overflow-x-auto">
+        <div className="[&_pre]:!m-0 [&_pre]:!rounded-none [&_pre]:!text-xs [&_.linenumber]:!text-[var(--text-muted)] [&_.linenumber]:!min-w-[2.5em] overflow-x-auto">
           <SyntaxHighlighter
             language={effectiveLang}
             style={vscDarkPlus}

@@ -5,8 +5,9 @@ from __future__ import annotations
 from typing import Any
 
 REQUIRED_MODULE_FIELDS: tuple[str, ...] = ("moduleId", "flow", "docId", "dataFile")
+# stepper-main 可选：是否使用 SDUI Stepper 由 Skill 在 dashboard.json 中自行决定
 REQUIRED_DASHBOARD_NODE_IDS: frozenset[str] = frozenset(
-    {"stepper-main", "summary-text", "artifacts", "uploaded-files"}
+    {"summary-text", "artifacts", "uploaded-files"}
 )
 
 

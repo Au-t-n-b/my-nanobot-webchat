@@ -591,6 +591,13 @@ async def test_emit_task_progress_sync_normalizes_and_emits_status(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _set_nanobot_home(monkeypatch, local_tmp_dir)
+    # Isolate task_progress.json to the per-test tmp dir; otherwise the new
+    # disk-merge step inside ``_emit_task_progress_sync`` would touch the real
+    # ``~/.nanobot/workspace/task_progress.json``.
+    monkeypatch.setenv(
+        "NANOBOT_TASK_PROGRESS_FILE",
+        str(local_tmp_dir / "task_progress.json"),
+    )
     captured: list[dict] = []
 
     async def capture(payload: dict) -> None:
@@ -627,6 +634,80 @@ async def test_emit_task_progress_sync_normalizes_and_emits_status(
     assert captured[0]["overall"] == {"doneCount": 0, "totalCount": 1}
     assert captured[0]["summary"]["activeCount"] == 1
     assert captured[0]["modules"][0]["name"] == "智慧工勘"
+
+
+@pytest.mark.asyncio
+async def test_emit_task_progress_sync_persists_to_disk(
+    local_tmp_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """End-to-end: a ``task_progress.sync`` envelope where ``moduleId`` matches an
+    existing on-disk module **must** flip ``completed`` flags before the SSE flies.
+
+    Pins down the new bridge invariant that the right-side panel UI and a refreshed
+    page (which re-reads ``task_progress.json``) stay in sync after a skill emits
+    progress through the runtime bridge.
+    """
+    _set_nanobot_home(monkeypatch, local_tmp_dir)
+    progress_path = local_tmp_dir / "task_progress.json"
+    monkeypatch.setenv("NANOBOT_TASK_PROGRESS_FILE", str(progress_path))
+
+    # Seed disk with the platform default schema (6 phases × Chinese task names).
+    from nanobot.web.task_progress import default_task_progress_file_payload
+
+    progress_path.write_text(
+        json.dumps(default_task_progress_file_payload(), ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+    captured: list[dict] = []
+
+    async def capture(payload: dict) -> None:
+        captured.append(payload)
+
+    monkeypatch.setattr("nanobot.agent.loop.emit_task_status_event", capture)
+
+    from nanobot.web.skill_runtime_bridge import emit_skill_runtime_event
+
+    # Driver-shape payload: ``modules`` (not ``progress``), English-slug task names,
+    # but the ``moduleId`` matches the on-disk default — so index-based merge applies.
+    result = await emit_skill_runtime_event(
+        envelope={
+            "event": "task_progress.sync",
+            "payload": {
+                "schemaVersion": 1,
+                "modules": [
+                    {
+                        "moduleId": "smart_survey",
+                        "moduleName": "Survey",
+                        "tasks": [
+                            {"name": "scene", "completed": True},
+                            {"name": "collect", "completed": True},
+                            {"name": "report", "completed": False},
+                            {"name": "approve", "completed": False},
+                        ],
+                    }
+                ],
+                "overall": {"doneCount": 2, "totalCount": 4},
+            },
+        },
+        thread_id="t-runtime",
+        docman=None,
+    )
+
+    assert result["ok"] is True
+    # Disk persisted: chinese names preserved, completion flipped by index.
+    persisted = json.loads(progress_path.read_text(encoding="utf-8"))
+    survey = next(p for p in persisted["progress"] if p["moduleId"] == "smart_survey")
+    assert [t["completed"] for t in survey["tasks"]] == [True, True, False, False]
+    assert [t["name"] for t in survey["tasks"]] == [
+        "场景筛选与底表过滤",
+        "勘测数据汇总",
+        "报告生成",
+        "审批与分发闭环",
+    ]
+    # SSE still fires (UI live update path unchanged).
+    assert len(captured) == 1
 
 
 @pytest.mark.asyncio
@@ -728,6 +809,57 @@ async def test_dispatch_skill_runtime_start_invokes_resume_runner_once() -> None
     assert re.search(r":[0-9a-f]{12}$", resumed[0]["request_id"], re.IGNORECASE)
     assert resumed[0]["action"] == "zhgk_step1_scene_filter"
     assert resumed[0]["status"] == "ok"
+
+
+@pytest.mark.asyncio
+async def test_dispatch_skill_runtime_start_skips_panel_for_non_panel_skill() -> None:
+    """``project_guide`` 仅经聊天 ``chat.guidance`` 出引导卡，**不应**抢右侧 DashboardNavigator
+    的 focus，也不应触发其 ``dashboard.json`` bootstrap，否则会在右侧出现一个空壳 module
+    tab（白屏）。回归测试覆盖该 bug 修复（见 ``_NON_PANEL_SKILL_NAMES``）。"""
+    from nanobot.web.skill_runtime_bridge import dispatch_skill_runtime_intent
+
+    resumed: list[dict] = []
+    focused: list[dict] = []
+
+    async def fake_resume(**kwargs):
+        resumed.append(kwargs)
+        return {"ok": True}
+
+    async def fake_focus(payload: dict) -> None:
+        focused.append(dict(payload))
+
+    import nanobot.agent.loop as agent_loop
+
+    token = agent_loop._MODULE_SESSION_FOCUS_EMITTER.set(fake_focus)  # type: ignore[attr-defined]
+    try:
+        intent = {
+            "type": "chat_card_intent",
+            "verb": "skill_runtime_start",
+            "payload": {
+                "type": "skill_runtime_start",
+                "threadId": "t-runtime",
+                "skillName": "project_guide",
+                "requestId": "req-cold:t-runtime",
+                "action": "cold_start",
+            },
+        }
+        handled, msg = await dispatch_skill_runtime_intent(
+            intent,
+            thread_id="t-runtime",
+            docman=None,
+            pending_hitl_store=None,
+            resume_runner=fake_resume,
+        )
+    finally:
+        agent_loop._MODULE_SESSION_FOCUS_EMITTER.reset(token)  # type: ignore[attr-defined]
+
+    assert handled is True
+    assert msg == ""
+    # driver 仍然要被启动；只是右侧 panel 不切。
+    assert len(resumed) == 1
+    assert resumed[0]["skill_name"] == "project_guide"
+    # 关键断言：没切右侧 panel，没注册新 module tab。
+    assert focused == []
 
 
 @pytest.mark.asyncio

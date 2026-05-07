@@ -1,4 +1,4 @@
-import { Light as SyntaxHighlighter } from "react-syntax-highlighter";
+import { PrismLight as SyntaxHighlighter } from "react-syntax-highlighter";
 import bash from "react-syntax-highlighter/dist/esm/languages/prism/bash";
 import css from "react-syntax-highlighter/dist/esm/languages/prism/css";
 import javascript from "react-syntax-highlighter/dist/esm/languages/prism/javascript";

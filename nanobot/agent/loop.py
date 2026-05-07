@@ -89,6 +89,13 @@ _TASK_STATUS_EMITTER: ContextVar[TaskStatusEmitter | None] = ContextVar(
     default=None,
 )
 
+# SSE SkillAgentTaskResult: ephemeral structured result for preview insight / hybrid RPC.
+SkillAgentTaskResultEmitter = Callable[[dict[str, Any]], Awaitable[None]]
+_SKILL_AGENT_TASK_RESULT_EMITTER: ContextVar[SkillAgentTaskResultEmitter | None] = ContextVar(
+    "nanobot_skill_agent_task_result_emitter",
+    default=None,
+)
+
 
 def get_current_thread_id() -> str | None:
     """Thread id for the active /api/chat request (None outside web chat)."""
@@ -137,6 +144,18 @@ async def emit_task_status_event(payload: dict[str, Any]) -> None:
         await cb(payload)
     except Exception:
         logger.exception("task_status_emit_failed")
+
+
+async def emit_skill_agent_task_result_event(payload: dict[str, Any]) -> None:
+    """Emit SkillAgentTaskResult SSE (structured subtask result; not SDUI state)."""
+    cb = _SKILL_AGENT_TASK_RESULT_EMITTER.get()
+    if cb is None:
+        logger.debug("skill_agent_task_result_emit_skipped | reason=no_sse_emitter")
+        return
+    try:
+        await cb(payload)
+    except Exception:
+        logger.exception("skill_agent_task_result_emit_failed")
 
 
 async def emit_skill_ui_bootstrap_event(payload: dict[str, Any]) -> None:
@@ -427,6 +446,14 @@ class AgentLoop:
 
     def reset_task_status_emitter(self, token: Token) -> None:
         _TASK_STATUS_EMITTER.reset(token)
+
+    def set_skill_agent_task_result_emitter(
+        self, callback: SkillAgentTaskResultEmitter | None
+    ) -> Token:
+        return _SKILL_AGENT_TASK_RESULT_EMITTER.set(callback)
+
+    def reset_skill_agent_task_result_emitter(self, token: Token) -> None:
+        _SKILL_AGENT_TASK_RESULT_EMITTER.reset(token)
 
     def _register_default_tools(self) -> None:
         """Register the default set of tools."""

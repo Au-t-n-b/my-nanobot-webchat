@@ -47,7 +47,7 @@ export function semanticSoftBadgeClass(color?: SduiSemanticColor): string {
     case "accent":
       return "bg-blue-50 text-blue-700 ring-1 ring-inset ring-blue-600/10 dark:bg-blue-500/10 dark:text-blue-300 dark:ring-blue-500/20";
     case "subtle":
-      return "bg-slate-100/90 text-slate-600 ring-1 ring-inset ring-slate-500/10 dark:bg-white/5 dark:text-zinc-300 dark:ring-white/10";
+      return "bg-slate-100/90 text-slate-600 ring-1 ring-inset ring-slate-500/10 dark:bg-white/5 dark:text-[var(--text-secondary)] dark:ring-white/10";
     default:
       return "";
   }

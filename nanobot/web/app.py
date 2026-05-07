@@ -19,6 +19,7 @@ from nanobot.web.keys import (
 )
 from nanobot.web.remote_center import RemoteCenterClient, RemoteCenterSessionStore
 from nanobot.web.routes import cors_middleware, setup_routes
+from nanobot.web.local_auth_middleware import local_auth_middleware
 from nanobot.web.run_registry import ApprovalRegistry, RunRegistry
 from nanobot.web.pending_hitl_store import PendingHitlStore
 from nanobot.web.skill_resume_runner import make_skill_first_resume_runner
@@ -51,7 +52,7 @@ def create_app(
     enable_skill_first_resume_runner: bool = True,
 ) -> web.Application:
     """Build AGUI app. ``agent_loop=None`` serves fake SSE (tests / ``--fake``)."""
-    app = web.Application(middlewares=[cors_middleware])
+    app = web.Application(middlewares=[cors_middleware, local_auth_middleware])
     app[AGENT_LOOP_KEY] = agent_loop
     app[CONFIG_KEY] = config
     app[RUN_REGISTRY_KEY] = run_registry or RunRegistry()

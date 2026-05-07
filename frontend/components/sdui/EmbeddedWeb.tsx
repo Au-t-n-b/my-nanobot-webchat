@@ -174,7 +174,7 @@ export function EmbeddedWeb({
 
   return (
     <div
-      className={["relative w-full overflow-hidden rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-1)]", className ?? ""].join(" ")}
+      className={["relative w-full overflow-hidden rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-0)]", className ?? ""].join(" ")}
       style={{ minHeight: minH }}
     >
       {!loaded ? (
@@ -183,9 +183,9 @@ export function EmbeddedWeb({
           aria-busy="true"
           aria-label="加载嵌入页面"
         >
-          <div className="h-4 w-1/3 max-w-xs rounded-md bg-zinc-700/40 dark:bg-white/10" />
-          <div className="flex-1 min-h-[200px] rounded-lg bg-zinc-800/30 dark:bg-white/[0.06]" />
-          <div className="h-3 w-2/3 rounded-md bg-zinc-700/30 dark:bg-white/[0.07]" />
+          <div className="h-4 w-1/3 max-w-xs rounded-md bg-[var(--surface-3)]/40 dark:bg-white/10" />
+          <div className="flex-1 min-h-[200px] rounded-lg bg-[var(--surface-2)]/30 dark:bg-white/[0.06]" />
+          <div className="h-3 w-2/3 rounded-md bg-[var(--surface-3)]/30 dark:bg-white/[0.07]" />
         </div>
       ) : null}
       <iframe
@@ -193,7 +193,12 @@ export function EmbeddedWeb({
         title={embedId}
         src={src}
         className="h-full w-full min-h-[200px] rounded-xl bg-[var(--surface-0)]"
-        style={{ minHeight: minH }}
+        // ``colorScheme`` 必须显式设给 iframe：iframe 是独立 document，不会自动继承父级
+        // ``[data-theme="dark"]`` 上声明的 ``color-scheme: dark``；当 iframe 内部 ``html/body``
+        // 是 transparent（如 job_workbench.html / gantt_editor.html）时，浏览器会用 user agent
+        // 默认 light 底色填充，从而出现「右侧大块白屏」。声明 ``dark light`` 后浏览器优先使用 dark
+        // 调色板，与父级 ``--surface-0`` 一致。
+        style={{ minHeight: minH, colorScheme: "dark light", backgroundColor: "var(--surface-0)" }}
         onLoad={onLoad}
         {...(embedSandbox
           ? { sandbox: "allow-scripts allow-same-origin allow-forms allow-popups allow-presentation" as const }

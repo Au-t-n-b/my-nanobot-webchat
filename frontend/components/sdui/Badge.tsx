@@ -13,7 +13,7 @@ type Props = {
 
 const toneClass: Record<NonNullable<Props["tone"]>, string> = {
   default:
-    "bg-slate-100/90 text-slate-600 ring-1 ring-inset ring-slate-500/10 dark:bg-white/5 dark:text-zinc-300 dark:ring-white/10",
+    "bg-slate-100/90 text-slate-600 ring-1 ring-inset ring-slate-500/10 dark:bg-white/5 dark:text-[var(--text-secondary)] dark:ring-white/10",
   success:
     "bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-600/10 dark:bg-emerald-500/10 dark:text-emerald-400 dark:ring-emerald-500/20",
   warning:

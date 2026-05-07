@@ -16,7 +16,10 @@ from pathlib import Path
 
 from nanobot.web.mission_control import MissionControlManager
 from nanobot.web.skill_ui_patch import build_skill_ui_data_patch_payload
-from nanobot.web.task_progress import normalize_task_progress_payload
+from nanobot.web.task_progress import (
+    merge_task_progress_sync_to_disk,
+    normalize_task_progress_payload,
+)
 from nanobot.web.skills import get_skill_dir
 
 # Must match ``resumeAction`` / stored action for agent ``request_user_upload`` HITL.
@@ -46,6 +49,7 @@ SUPPORTED_SKILL_RUNTIME_EVENTS = {
     "dashboard.bootstrap",
     "dashboard.patch",
     "hitl.file_request",
+    "hitl.text_request",
     "hitl.choice_request",
     "hitl.confirm_request",
     "artifact.publish",
@@ -53,6 +57,15 @@ SUPPORTED_SKILL_RUNTIME_EVENTS = {
     "skill.agent_task_execute",
     "skill.epilogue",
 }
+
+
+# 「引导/元」类 skill：仅经聊天卡（chat.guidance）输出，不应被切到右侧 DashboardNavigator
+# 也不应触发其 dashboard.json bootstrap。否则会出现：``skill_runtime_start(project_guide)`` 把
+# 右侧抽屉 focus 到一个空壳 module tab，呈现"白屏"。
+#
+# TODO(future): 改为读 ``module.json`` 的 ``surface`` 字段（``"chat"`` vs ``"panel"``），
+# 把名单语义化、可扩展；当前先用枚举名单快速止血。
+_NON_PANEL_SKILL_NAMES: frozenset[str] = frozenset({"project_guide"})
 
 
 def _payload_from_envelope(envelope: dict[str, Any]) -> tuple[str, dict[str, Any]]:
@@ -107,6 +120,11 @@ def _try_load_skill_dashboard_bootstrap(skill_name: str) -> dict[str, Any] | Non
         return None
     if not isinstance(document, dict):
         return None
+
+    from nanobot.web.sdui_stepper_trim import is_job_management_module_id, strip_sdui_stepper_nodes
+
+    if is_job_management_module_id(name):
+        document = strip_sdui_stepper_nodes(document)
 
     data_file = module_data_file or f"skills/{name}/data/dashboard.json"
     doc_id = (
@@ -173,6 +191,55 @@ async def _emit_file_request(
     return {
         "ok": True,
         "event": "hitl.file_request",
+        "summary": title,
+        "cardId": handle.card_id,
+        "docId": handle.doc_id,
+    }
+
+
+async def _emit_text_request(
+    *,
+    mc: MissionControlManager,
+    payload: dict[str, Any],
+    envelope: dict[str, Any] | None = None,
+    pending_hitl_store: Any = None,
+) -> dict[str, Any]:
+    title = str(payload.get("title") or "").strip() or "请填写"
+    label = str(payload.get("label") or "").strip() or None
+    placeholder = str(payload.get("placeholder") or "").strip() or None
+    submit_label = str(payload.get("submitLabel") or "").strip() or None
+    default_value = str(payload.get("defaultValue") or "").strip() or None
+    help_text = str(payload.get("helpText") or payload.get("description") or "").strip() or None
+    purpose = str(payload.get("purpose") or "").strip() or "text"
+    hitl_rid = str(payload.get("requestId") or "").strip() or None
+    final_skill_name = str(payload.get("skillName") or (envelope or {}).get("skillName") or "").strip() or None
+    if pending_hitl_store is not None and envelope is not None:
+        await pending_hitl_store.create_pending_request(envelope)
+    rows = payload.get("rows")
+    try:
+        rows_int = int(rows) if rows is not None else None
+    except (TypeError, ValueError):
+        rows_int = None
+    handle = await mc.ask_for_text_input(
+        purpose=purpose,
+        title=title,
+        label=label,
+        placeholder=placeholder,
+        rows=rows_int,
+        default_value=default_value,
+        submit_label=submit_label,
+        help_text=help_text,
+        card_id=str(payload.get("cardId") or "").strip() or None,
+        hitl_request_id=hitl_rid,
+        module_id=str(payload.get("moduleId") or "").strip() or None,
+        next_action=str(payload.get("resumeAction") or "").strip() or None,
+        skill_name=final_skill_name,
+        state_namespace=str(payload.get("stateNamespace") or "").strip() or None,
+        step_id=str(payload.get("stepId") or "").strip() or None,
+    )
+    return {
+        "ok": True,
+        "event": "hitl.text_request",
         "summary": title,
         "cardId": handle.card_id,
         "docId": handle.doc_id,
@@ -253,6 +320,10 @@ async def _emit_dashboard_patch(payload: dict[str, Any]) -> dict[str, Any]:
     doc_id = str(payload.get("docId") or "").strip() or "dashboard:runtime"
     raw_ops = payload.get("ops")
     ops = [dict(item) for item in raw_ops if isinstance(item, dict)] if isinstance(raw_ops, list) else []
+    from nanobot.web.sdui_stepper_trim import filter_dashboard_patch_ops_drop_stepper, is_job_management_synthetic_path
+
+    if is_job_management_synthetic_path(synthetic_path):
+        ops = filter_dashboard_patch_ops_drop_stepper(ops)
     patch_payload = await build_skill_ui_data_patch_payload(
         synthetic_path=synthetic_path,
         doc_id=doc_id,
@@ -276,6 +347,10 @@ async def _emit_dashboard_bootstrap(payload: dict[str, Any]) -> dict[str, Any]:
     doc_id = str(payload.get("docId") or "").strip() or "dashboard:runtime"
     document = payload.get("document")
     from nanobot.agent.loop import emit_skill_ui_bootstrap_event
+    from nanobot.web.sdui_stepper_trim import is_job_management_synthetic_path, strip_sdui_stepper_nodes
+
+    if isinstance(document, dict) and is_job_management_synthetic_path(synthetic_path):
+        document = strip_sdui_stepper_nodes(document)
 
     await emit_skill_ui_bootstrap_event(
         {
@@ -325,6 +400,31 @@ async def _emit_artifact_publish(
 
 
 async def _emit_task_progress_sync(payload: dict[str, Any]) -> dict[str, Any]:
+    # 1) Best-effort persist: merge ``moduleId``-keyed task completions into the
+    #    on-disk ``task_progress.json`` so a subsequent UI refresh sees the same
+    #    state the SSE just pushed. Disk write is non-fatal: any I/O / schema
+    #    mismatch only yields a structured ``skipped`` warning; the SSE still flies.
+    #
+    #    NOTE: ``_set_project_progress_and_emit`` already writes its own slice and
+    #    emits ``TaskStatusUpdate`` directly — it does *not* go through this seam,
+    #    so persisting here will not cause double-writes for that path.
+    try:
+        persist_report = merge_task_progress_sync_to_disk(payload)
+        if persist_report.get("skipped"):
+            logger.info(
+                "task_progress.sync persist | merged={} skipped={}",
+                persist_report.get("merged_module_ids"),
+                persist_report.get("skipped"),
+            )
+        elif persist_report.get("wrote_disk"):
+            logger.debug(
+                "task_progress.sync persist ok | merged={}",
+                persist_report.get("merged_module_ids"),
+            )
+    except Exception:
+        # Persist must never block the SSE emit.
+        logger.exception("task_progress.sync persist failed (non-fatal)")
+
     normalized = normalize_task_progress_payload(dict(payload))
     from nanobot.agent.loop import emit_task_status_event
 
@@ -405,13 +505,20 @@ async def _emit_skill_agent_task_execute(
     if not goal:
         return {"ok": False, "event": "skill.agent_task_execute", "error": "missing_goal"}
 
-    raw_allowed = payload.get("allowedTools")
-    if isinstance(raw_allowed, list) and raw_allowed:
-        allowed_tools = [str(x).strip() for x in raw_allowed if str(x).strip()]
+    result_delivery = str(payload.get("resultDelivery") or "dashboard").strip().lower()
+    use_sse = result_delivery == "sse"
+
+    if use_sse:
+        # Preview insight / ephemeral JSON: never delegate read_file (unbounded risk).
+        allowed_tools = ["read_file_head", "read_file_tail", "read_hex_dump", "list_dir"]
     else:
-        allowed_tools = ["read_file", "list_dir"]
-    if not allowed_tools:
-        allowed_tools = ["read_file", "list_dir"]
+        raw_allowed = payload.get("allowedTools")
+        if isinstance(raw_allowed, list) and raw_allowed:
+            allowed_tools = [str(x).strip() for x in raw_allowed if str(x).strip()]
+        else:
+            allowed_tools = ["read_file", "list_dir"]
+        if not allowed_tools:
+            allowed_tools = ["read_file", "list_dir"]
 
     try:
         max_iterations = int(payload.get("maxIterations") or 8)
@@ -455,6 +562,7 @@ async def _emit_skill_agent_task_execute(
         goal=goal,
         allowed_tools=allowed_tools,
         max_iterations=max_iterations,
+        output_mode="file_insight_json" if use_sse else "summary_zh",
     )
     ok = bool(hybrid.get("ok"))
     final_label = "子任务完成" if ok else f"失败: {str(hybrid.get('error') or '')}"[:120]
@@ -470,6 +578,39 @@ async def _emit_skill_agent_task_execute(
     text = str(hybrid.get("text") or "").strip()
     if not text:
         text = str(hybrid.get("error") or ("子任务失败" if not ok else "")).strip()
+
+    if use_sse:
+        from nanobot.agent.loop import emit_skill_agent_task_result_event
+
+        report = hybrid.get("report")
+        err = str(hybrid.get("error") or "").strip() or None
+        sse_ok = bool(ok) and isinstance(report, dict)
+        if not sse_ok and not err:
+            err = "missing_or_invalid_report"
+        try:
+            await emit_skill_agent_task_result_event(
+                {
+                    "threadId": thread_id,
+                    "taskId": task_id,
+                    "ok": sse_ok,
+                    "report": report if isinstance(report, dict) else None,
+                    "error": err,
+                }
+            )
+        except Exception as e:
+            logger.warning("skill.agent_task_execute sse result emit failed | thread_id={} | {}", thread_id, e)
+        summary = ""
+        if isinstance(report, dict):
+            summary = str(report.get("summary") or "")[:200]
+        if not summary:
+            summary = (text or final_label)[:200]
+        return {
+            "ok": True,
+            "event": "skill.agent_task_execute",
+            "taskId": task_id,
+            "subtaskOk": sse_ok,
+            "summary": summary,
+        }
 
     if synthetic_path and text:
         try:
@@ -583,6 +724,15 @@ async def emit_skill_runtime_event(
         # ``PendingHitlStore.consume_result`` would raise thread_id mismatch on upload.
         enriched["threadId"] = thread_id
         return await _emit_file_request(
+            mc=mc,
+            payload=payload,
+            envelope=enriched,
+            pending_hitl_store=pending_hitl_store,
+        )
+    if event == "hitl.text_request":
+        enriched = dict(envelope)
+        enriched["threadId"] = thread_id
+        return await _emit_text_request(
             mc=mc,
             payload=payload,
             envelope=enriched,
@@ -904,23 +1054,32 @@ async def dispatch_skill_runtime_intent(
         if resume_runner is None:
             return True, "skill_runtime_start：resume_runner 未配置"
 
-        # Switch right-side panel to this module (DashboardNavigator follows ModuleSessionFocus).
-        try:
-            from nanobot.agent.loop import emit_module_session_focus_event
-
-            await emit_module_session_focus_event({"threadId": thread_id, "moduleId": skill_name, "status": "running"})
-        except Exception:
-            pass
-
-        bootstrap = _try_load_skill_dashboard_bootstrap(skill_name)
-        if bootstrap is not None:
+        is_panel_skill = skill_name not in _NON_PANEL_SKILL_NAMES
+        if is_panel_skill:
+            # Switch right-side panel to this module (DashboardNavigator follows ModuleSessionFocus).
             try:
-                from nanobot.agent.loop import emit_skill_ui_bootstrap_event
+                from nanobot.agent.loop import emit_module_session_focus_event
 
-                await emit_skill_ui_bootstrap_event(bootstrap)
+                await emit_module_session_focus_event(
+                    {"threadId": thread_id, "moduleId": skill_name, "status": "running"}
+                )
             except Exception:
-                # Best-effort: do not block skill execution on UI bootstrap.
                 pass
+
+            bootstrap = _try_load_skill_dashboard_bootstrap(skill_name)
+            if bootstrap is not None:
+                try:
+                    from nanobot.agent.loop import emit_skill_ui_bootstrap_event
+
+                    await emit_skill_ui_bootstrap_event(bootstrap)
+                except Exception:
+                    # Best-effort: do not block skill execution on UI bootstrap.
+                    pass
+        else:
+            logger.debug(
+                "skill_runtime_start: skipping module focus + dashboard bootstrap | skill_name={} (non-panel)",
+                skill_name,
+            )
 
         try:
             out = await resume_runner(

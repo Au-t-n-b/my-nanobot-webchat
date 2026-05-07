@@ -97,19 +97,6 @@ def _emit_task_progress(*, thread_id: str, skill_name: str, run_id: str, done: i
     )
 
 
-def _stepper_status(done: int, active: int) -> list[dict[str, Any]]:
-    out = []
-    for i, title in enumerate(["上传资料（HITL）", "选择策略（HITL）", "确认执行（HITL）", "工作台编辑（Web）", "发布产物"], start=1):
-        if i <= done:
-            st = "done"
-        elif i == active:
-            st = "running"
-        else:
-            st = "waiting"
-        out.append({"id": f"s{i}", "title": title, "status": st})
-    return out
-
-
 def _emit_patch(*, thread_id: str, skill_name: str, run_id: str, synthetic_path: str, doc_id: str, ops: list[dict[str, Any]]) -> None:
     _print_event(
         {
@@ -141,20 +128,8 @@ def _emit_summary(*, thread_id: str, skill_name: str, run_id: str, synthetic_pat
 
 
 def _emit_stepper(*, thread_id: str, skill_name: str, run_id: str, synthetic_path: str, doc_id: str, done: int, active: int) -> None:
-    _emit_patch(
-        thread_id=thread_id,
-        skill_name=skill_name,
-        run_id=run_id,
-        synthetic_path=synthetic_path,
-        doc_id=doc_id,
-        ops=[
-            {
-                "op": "merge",
-                "target": {"by": "id", "nodeId": "stepper-main"},
-                "value": {"type": "Stepper", "orientation": "horizontal", "steps": _stepper_status(done, active)},
-            }
-        ],
-    )
+    """曾向 id=stepper-main 发 patch；大盘已去掉 SDUI Stepper，此处不再更新。"""
+    return
 
 
 def _default_ui_state() -> dict[str, Any]:

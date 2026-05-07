@@ -1,13 +1,17 @@
 "use client";
 
 import { useMemo } from "react";
-import { FileSearch, X as XIcon } from "lucide-react";
+import { FileSearch, Maximize2, Minimize2, X as XIcon } from "lucide-react";
+import type { FileInsightReport } from "./previewTypes";
 import { PreviewFileViewer } from "./PreviewFileViewer";
 
 export type PreviewTabItem = { id: string; path: string; label: string };
 
 type Props = {
   onClose: () => void;
+  /** 应用内全屏（沉浸式） */
+  previewImmersive?: boolean;
+  onToggleImmersive?: () => void;
   /** 预览类 Tab（文件 / browser），与中栏模块大盘互不抢焦点 */
   previewTabs: PreviewTabItem[];
   activeTabId: string | null;
@@ -16,12 +20,15 @@ type Props = {
   onOpenPath: (path: string) => void;
   activeSkillName?: string | null;
   onFillInput?: (text: string) => void;
+  onPreviewInsightRequest?: (path: string) => Promise<FileInsightReport>;
 };
 
 // ─── PreviewPanel (exported) ─────────────────────────────────────────────────
 
 export function PreviewPanel({
   onClose,
+  previewImmersive = false,
+  onToggleImmersive,
   previewTabs,
   activeTabId,
   onSelectTab,
@@ -29,6 +36,7 @@ export function PreviewPanel({
   onOpenPath,
   activeSkillName,
   onFillInput,
+  onPreviewInsightRequest,
 }: Props) {
   const tabs = useMemo(() => {
     const out: Array<{ id: string; label: string; path: string; kind: "preview" }> = [];
@@ -54,14 +62,27 @@ export function PreviewPanel({
         <span className="text-[11px] font-semibold uppercase tracking-wider ui-text-secondary">
           预览 <span className="font-normal normal-case tracking-normal ui-text-muted">Preview</span>
         </span>
-        <button
-          type="button"
-          onClick={onClose}
-          className="rounded-md p-1 ui-text-muted hover:text-[var(--text-primary)] hover:bg-[var(--surface-3)] transition-colors"
-          aria-label="关闭预览栏"
-        >
-          <XIcon size={14} />
-        </button>
+        <div className="flex items-center gap-0.5 shrink-0">
+          {onToggleImmersive ? (
+            <button
+              type="button"
+              onClick={onToggleImmersive}
+              className="rounded-md p-1 ui-text-muted hover:text-[var(--text-primary)] hover:bg-[var(--surface-3)] transition-colors"
+              title={previewImmersive ? "退出全屏" : "全屏预览"}
+              aria-label={previewImmersive ? "退出全屏预览" : "全屏预览"}
+            >
+              {previewImmersive ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+            </button>
+          ) : null}
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-md p-1 ui-text-muted hover:text-[var(--text-primary)] hover:bg-[var(--surface-3)] transition-colors"
+            aria-label="关闭预览栏"
+          >
+            <XIcon size={14} />
+          </button>
+        </div>
       </div>
 
       {showPathRow && null}
@@ -121,6 +142,7 @@ export function PreviewPanel({
               activeSkillName={activeSkillName}
               onFillInput={onFillInput}
               onClosePanel={onClose}
+              onPreviewInsightRequest={onPreviewInsightRequest}
             />
           ) : (
             <div className="flex h-full items-center justify-center">

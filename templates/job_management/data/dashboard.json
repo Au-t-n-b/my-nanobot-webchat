@@ -36,19 +36,6 @@
         ]
       },
       {
-        "type": "Stepper",
-        "id": "stepper-main",
-        "orientation": "horizontal",
-        "steps": [
-          { "id": "s1", "title": "上传资料（HITL）", "status": "waiting" },
-          { "id": "s2", "title": "选择策略（HITL）", "status": "waiting" },
-          { "id": "s3", "title": "确认执行（HITL）", "status": "waiting" },
-          { "id": "s4", "title": "工作台编辑（Web）", "status": "waiting" },
-          { "id": "s5", "title": "发布产物", "status": "waiting" }
-        ]
-      },
-
-      {
         "type": "EmbeddedWeb",
         "id": "jm-workbench-web",
         "src": "/api/file?path=workspace/skills/job_management/ui/job_workbench.html",

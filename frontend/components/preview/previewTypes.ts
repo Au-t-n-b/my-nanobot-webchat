@@ -2,6 +2,11 @@ import type { PreviewKind } from "@/lib/previewKind";
 
 export type PreviewFetchMode = "none" | "text" | "arrayBuffer";
 
+export type PreviewFileMeta = {
+  /** 字节数；由壳层从 Content-Length / HEAD 合并，非 resolvePreview 同步字段 */
+  sizeBytes?: number;
+};
+
 export type PreviewResolution = {
   /** 原始输入路径（workspace 相对路径 / browser:// / skill-ui:// 等） */
   path: string;
@@ -15,6 +20,17 @@ export type PreviewResolution = {
    * - arrayBuffer: 需要 `fetch(url).arrayBuffer()`
    */
   fetch: PreviewFetchMode;
+  meta?: PreviewFileMeta;
+};
+
+export type FileInsightRiskLevel = "safe" | "warning" | "danger";
+
+export type FileInsightReport = {
+  file_type_guess: string;
+  summary: string;
+  risk_level: FileInsightRiskLevel;
+  extracted_snippets: string[];
+  next_action_suggestion: string;
 };
 
 export type PreviewContent = string | ArrayBuffer;

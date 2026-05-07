@@ -5,6 +5,8 @@
 
 import type { TaskStatusPayload } from "@/hooks/useAgentChat";
 
+export type SkillAgentTaskResultDelivery = "dashboard" | "sse";
+
 /** driver → stdout → bridge 的 `payload` 最小类型（前端构建/阅读用） */
 export type SkillAgentTaskExecutePayload = {
   taskId: string;
@@ -15,8 +17,11 @@ export type SkillAgentTaskExecutePayload = {
   allowedTools?: string[];
   maxIterations?: number;
   resultSchema?: { type: string; [key: string]: unknown };
-  syntheticPath: string;
-  docId: string;
+  /** 默认 dashboard；预览洞察等临时 JSON 必须用 sse（与后端一致） */
+  resultDelivery?: SkillAgentTaskResultDelivery;
+  /** dashboard 投递时必填；sse 模式下省略 */
+  syntheticPath?: string;
+  docId?: string;
   summaryNodeId?: string;
 };
 

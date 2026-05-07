@@ -204,3 +204,89 @@ async def test_hybrid_agent_subtask_always_restricts_to_workspace(monkeypatch: p
     )
     assert captured.get("restrict_to_workspace") is True
     assert captured.get("workspace") == Path("/tmp/nanobot-hybrid-sandbox-test")
+
+
+@pytest.mark.asyncio
+async def test_skill_agent_task_execute_sse_emits_result_no_dashboard_patch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    task_payloads: list[dict[str, Any]] = []
+    patch_payloads: list[dict[str, Any]] = []
+    sse_payloads: list[dict[str, Any]] = []
+
+    async def capture_task_status(payload: dict[str, Any]) -> None:
+        task_payloads.append(payload)
+
+    async def capture_patch(payload: dict[str, Any]) -> None:
+        patch_payloads.append(payload)
+
+    async def capture_sse(payload: dict[str, Any]) -> None:
+        sse_payloads.append(payload)
+
+    monkeypatch.setattr("nanobot.agent.loop.emit_task_status_event", capture_task_status)
+    monkeypatch.setattr("nanobot.agent.loop.emit_skill_ui_data_patch_event", capture_patch)
+    monkeypatch.setattr("nanobot.agent.loop.emit_skill_agent_task_result_event", capture_sse)
+
+    report = {
+        "file_type_guess": "text",
+        "summary": "ok",
+        "risk_level": "safe",
+        "extracted_snippets": [],
+        "next_action_suggestion": "none",
+    }
+
+    async def fake_run_hybrid(**kwargs: Any) -> dict[str, Any]:
+        assert kwargs.get("output_mode") == "file_insight_json"
+        assert kwargs.get("allowed_tools") == [
+            "read_file_head",
+            "read_file_tail",
+            "read_hex_dump",
+            "list_dir",
+        ]
+        return {"ok": True, "text": __import__("json").dumps(report, ensure_ascii=False), "report": report}
+
+    monkeypatch.setattr("nanobot.web.hybrid_agent_subtask.run_hybrid_agent_subtask", fake_run_hybrid)
+
+    class _FakeAgentLoop:
+        provider = object()
+        model = "fake-model"
+        workspace = __import__("pathlib").Path("/tmp")
+        restrict_to_workspace = False
+
+    from nanobot.web.skill_runtime_bridge import emit_skill_runtime_event
+
+    out = await emit_skill_runtime_event(
+        envelope={
+            "event": "skill.agent_task_execute",
+            "skillName": "preview_skill",
+            "payload": {
+                "taskId": "req:insight:1",
+                "stepId": "preview.file_insight",
+                "goal": "分析 workspace/x.bin",
+                "resultDelivery": "sse",
+                "maxIterations": 2,
+            },
+        },
+        thread_id="t-sse",
+        agent_loop=_FakeAgentLoop(),
+    )
+    assert out.get("ok") is True
+    assert out.get("subtaskOk") is True
+    assert not patch_payloads, "SSE path must not emit SkillUiDataPatch"
+    assert len(sse_payloads) == 1
+    assert sse_payloads[0].get("threadId") == "t-sse"
+    assert sse_payloads[0].get("taskId") == "req:insight:1"
+    assert sse_payloads[0].get("ok") is True
+    assert sse_payloads[0].get("report") == report
+
+
+@pytest.mark.asyncio
+async def test_file_insight_report_parse_fenced_json() -> None:
+    from nanobot.web.file_insight_report import parse_file_insight_report_from_llm_text
+
+    raw = """```json
+{"file_type_guess":"pe","summary":"x","risk_level":"warning","extracted_snippets":["a"],"next_action_suggestion":"y"}
+```"""
+    r = parse_file_insight_report_from_llm_text(raw)
+    assert r.file_type_guess == "pe"
+    assert r.extracted_snippets == ["a"]

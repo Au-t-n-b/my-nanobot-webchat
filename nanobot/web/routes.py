@@ -709,21 +709,6 @@ def _try_parse_chat_card_intent(text: str) -> dict[str, Any] | None:
             return obj
         search_from = i + 1
 
-    # Phrase fast-path (current phase only): if the user's text exactly matches a
-    # ``trigger`` / ``alias`` from the current phase's
-    # ``<skills_root>/<phaseSkillDir>/data/guide_tasks.json``, produce the
-    # corresponding ``skill_runtime_start`` envelope. Placeholder rows are skipped
-    # by the resolver. Any I/O / parse error inside the resolver is swallowed and
-    # we fall through to the generic NL heuristic below.
-    try:
-        from nanobot.web.guide_tasks_resolver import match_phrase_to_intent
-
-        phrase_intent = match_phrase_to_intent(t)
-        if isinstance(phrase_intent, dict) and phrase_intent.get("type") == "chat_card_intent":
-            return phrase_intent
-    except Exception:
-        pass
-
     # Fallback fast-path: allow natural language "开启/打开/启动 <moduleId>" to start a module skill.
     # This avoids relying on the LLM to emit the JSON envelope.
     #
@@ -1988,6 +1973,8 @@ async def handle_config_test(request: web.Request) -> web.Response:
     api_key = (body or {}).get("apiKey")
     api_base = (body or {}).get("apiBase")
     model = str((body or {}).get("model") or "").strip() or None
+    provider_proxy = str((body or {}).get("providerProxy") or "").strip() or None
+    ssl_verify_override = (body or {}).get("sslVerify")
     if not provider_name:
         return web.json_response({"detail": "providerName is required"}, status=400, headers=cors)
 
@@ -2016,6 +2003,8 @@ async def handle_config_test(request: web.Request) -> web.Response:
     }
     if model:
         patch["agents"]["defaults"]["model"] = model
+    if isinstance(ssl_verify_override, bool):
+        patch.setdefault("tools", {}).setdefault("web", {})["sslVerify"] = ssl_verify_override
 
     merged_body = _merge_with_original(patch, existing)
 
@@ -2026,6 +2015,101 @@ async def handle_config_test(request: web.Request) -> web.Response:
         cfg = Config.model_validate(merged_body)
     except Exception as exc:
         return web.json_response({"detail": f"invalid config: {exc}"}, status=400, headers=cors)
+
+    if provider_proxy:
+        import time
+
+        import httpx
+
+        from nanobot.providers.registry import find_by_name
+
+        model_for_test = cfg.agents.defaults.model
+        provider_cfg = cfg.get_provider(model_for_test)
+        effective_api_key = provider_cfg.api_key if provider_cfg else ""
+        effective_api_base = ""
+        try:
+            effective_api_base = (cfg.get_api_base(model_for_test) or "").strip()
+        except Exception:
+            effective_api_base = ""
+        if not effective_api_base and provider_cfg and provider_cfg.api_base:
+            effective_api_base = provider_cfg.api_base.strip()
+        if not effective_api_base:
+            spec = find_by_name(provider_name)
+            effective_api_base = (spec.default_api_base if spec else "").strip()
+        if not effective_api_base:
+            return web.json_response(
+                {"ok": False, "detail": "apiBase is required for one-shot proxy test"},
+                status=400,
+                headers=cors,
+            )
+        if not effective_api_key:
+            return web.json_response(
+                {"ok": False, "detail": "apiKey is required for one-shot proxy test"},
+                status=400,
+                headers=cors,
+            )
+
+        ssl_verify = cfg.tools.web.ssl_verify
+        url = f"{effective_api_base.rstrip('/')}/chat/completions"
+        payload = {
+            "model": model_for_test,
+            "messages": [{"role": "user", "content": "ping"}],
+            "max_tokens": 1,
+            "temperature": 0.0,
+        }
+        headers = {
+            "Authorization": f"Bearer {effective_api_key}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        }
+        start = time.perf_counter()
+        try:
+            async with httpx.AsyncClient(
+                proxy=provider_proxy,
+                verify=ssl_verify,
+                timeout=httpx.Timeout(12.0, connect=5.0),
+                follow_redirects=False,
+            ) as client:
+                resp = await client.post(url, json=payload, headers=headers)
+        except httpx.TimeoutException:
+            return web.json_response(
+                {"ok": False, "detail": "timeout after 12s", "mode": "one-shot-proxy"},
+                status=408,
+                headers=cors,
+            )
+        except Exception as exc:
+            return web.json_response(
+                {"ok": False, "detail": str(exc), "mode": "one-shot-proxy"},
+                status=500,
+                headers=cors,
+            )
+
+        elapsed_ms = int((time.perf_counter() - start) * 1000)
+        if resp.status_code >= 400:
+            text = (resp.text or "").strip()
+            return web.json_response(
+                {
+                    "ok": False,
+                    "detail": text[:1000] or f"HTTP {resp.status_code}",
+                    "provider": provider_name,
+                    "model": model_for_test,
+                    "latencyMs": elapsed_ms,
+                    "mode": "one-shot-proxy",
+                },
+                status=resp.status_code,
+                headers=cors,
+            )
+
+        return web.json_response(
+            {
+                "ok": True,
+                "provider": provider_name,
+                "model": model_for_test,
+                "latencyMs": elapsed_ms,
+                "mode": "one-shot-proxy",
+            },
+            headers=cors,
+        )
 
     try:
         from nanobot.providers.factory import make_provider

@@ -850,7 +850,7 @@ export function ConfigPanel({
                   onClick={() => {
                     setForm((prev) => {
                       const nextEnabled = !prev.proxyEnabled;
-                      const proxyExample = "http://工号:密码@proxyhk.huawei.com:8088";
+                      const proxyExample = "http://工号:密码@proxy.huawei.com:8080";
                       const nextProxyUrl =
                         nextEnabled && !prev.proxyUrl.trim()
                           ? proxyExample
@@ -884,12 +884,12 @@ export function ConfigPanel({
                       type="text"
                       value={form.proxyUrl}
                       onChange={(e) => setForm((prev) => ({ ...prev, proxyUrl: e.target.value }))}
-                      placeholder="http://工号:密码@proxyhk.huawei.com:8088"
+                      placeholder="http://工号:密码@proxy.huawei.com:8080"
                       className="rounded-lg px-2.5 py-1.5 text-xs ui-input ui-input-focusable"
                     />
                   </label>
                   <div className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>
-                    示例：<code className="font-mono">http://工号:密码@proxyhk.huawei.com:8088</code>
+                    示例：<code className="font-mono">http://工号:密码@proxy.huawei.com:8080</code>
                   </div>
 
                   <div className="flex items-center justify-between gap-2">

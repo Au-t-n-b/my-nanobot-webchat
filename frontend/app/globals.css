@@ -68,11 +68,11 @@
   --surface-3: #27272a;
   --surface-elevated: #2a2a30;
   /* 极弱线框，避免暗色下边框“发亮” */
-  --border-subtle: rgba(255, 255, 255, 0.1);
+  --border-subtle: rgba(255, 255, 255, 0.12);
   --border-strong: rgba(255, 255, 255, 0.16);
   --text-primary: #e4e4e7;
   --text-secondary: #a1a1aa;
-  --text-muted: #636369;
+  --text-muted: #7a7a82;
   --accent: #f59e0b;
   --accent-soft: rgba(245, 158, 11, 0.15);
   /* ── Discrete interaction tokens (A11y-stable, no background-dependent mixing) ── */
@@ -133,11 +133,11 @@
   --canvas-rail: #f9fafb;
   --paper-chat: #ffffff;
   --paper-card: #ffffff;
-  --border-subtle: #e2e8f0;
+  --border-subtle: #d7dee8;
   --border-strong: #cbd5e1;
   --text-primary: #0f172a;
   --text-secondary: #334155;
-  --text-muted: #5c6570;
+  --text-muted: #66707c;
   --accent: #2563eb;
   --accent-soft: rgba(37, 99, 235, 0.10);
   /* ── Discrete interaction tokens (A11y-stable, no background-dependent mixing) ── */
@@ -188,11 +188,11 @@
   --canvas-rail: #efe8de;
   --paper-chat: #fafaf9;
   --paper-card: #fafaf9;
-  --border-subtle: #e7e5e4;
+  --border-subtle: #dfdcda;
   --border-strong: #d6d3d1;
   --text-primary: #44403c;
   --text-secondary: #78716c;
-  --text-muted: #978f8a;
+  --text-muted: #a19994;
   --accent: #b45309;
   --accent-soft: rgba(180, 83, 9, 0.12);
   /* ── Discrete interaction tokens (A11y-stable, no background-dependent mixing) ── */

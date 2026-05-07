@@ -34,6 +34,11 @@ export type ProjectOverviewModuleView = {
   taskModuleId: string;
   taskModuleName: string;
   status: "idle" | "running" | "completed";
+  /**
+   * 纯前端展示用：不参与任何执行/推进逻辑。
+   * 用于把 completed/running 统一成同一亮度等级（Stepper 视觉高亮）。
+   */
+  uiEmphasis?: "active" | "idle";
   doneCount: number;
   totalCount: number;
   progressPct: number;
@@ -361,6 +366,7 @@ function buildOverviewViewsFromTaskStatus(
     const doneCount = steps.filter((s) => s.done).length;
     const totalCount = steps.length;
     const progressPct = totalCount ? Math.round((doneCount / totalCount) * 100) : 0;
+    const st = viewStatusFromApi(m.status);
     return {
       moduleId,
       label: overviewModuleTabLabel(m, reg),
@@ -373,7 +379,8 @@ function buildOverviewViewsFromTaskStatus(
       showWorkbenchModuleStepper: reg?.showWorkbenchModuleStepper !== false,
       taskModuleId: m.id,
       taskModuleName: m.name,
-      status: viewStatusFromApi(m.status),
+      status: st,
+      uiEmphasis: st === "idle" ? "idle" : "active",
       doneCount,
       totalCount,
       progressPct,
@@ -414,6 +421,7 @@ export function selectProjectOverviewModules(snapshot: ProjectOverviewState): Pr
             taskModuleId: item.taskProgress.moduleId,
             taskModuleName: item.taskProgress.moduleName,
             status: st,
+            uiEmphasis: st === "idle" ? "idle" : "active",
             doneCount,
             totalCount,
             progressPct,

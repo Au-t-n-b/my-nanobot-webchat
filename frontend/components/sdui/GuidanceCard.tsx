@@ -61,7 +61,7 @@ function ActionRow({
         <p
           className={[
             "mt-2 ui-text-label whitespace-pre-line",
-            "line-clamp-1 group-hover/row:line-clamp-none group-focus-within/row:line-clamp-none",
+            "line-clamp-2 group-hover/row:line-clamp-none group-focus-within/row:line-clamp-none",
             disabled ? "ui-text-muted" : "ui-text-secondary",
           ].join(" ")}
         >
@@ -69,7 +69,12 @@ function ActionRow({
         </p>
       ) : null}
       {steps.length > 0 ? (
-        <ol className="mt-2 ml-4 hidden list-decimal space-y-0.5 ui-text-label group-hover/row:block group-focus-within/row:block ui-text-muted">
+        <ol
+          className={[
+            "mt-2 ml-4 list-decimal space-y-0.5 ui-text-label ui-text-muted",
+            "line-clamp-2 group-hover/row:line-clamp-none group-focus-within/row:line-clamp-none",
+          ].join(" ")}
+        >
           {steps.map((s, i) => (
             <li key={i}>{s}</li>
           ))}

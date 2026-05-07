@@ -250,7 +250,13 @@ export function EmbeddedWeb({
         // 是 transparent（如 job_workbench.html / gantt_editor.html）时，浏览器会用 user agent
         // 默认 light 底色填充，从而出现「右侧大块白屏」。声明 ``dark light`` 后浏览器优先使用 dark
         // 调色板，与父级 ``--surface-0`` 一致。
-        style={{ minHeight: minH, colorScheme: "dark light", backgroundColor: "var(--surface-0)" }}
+        style={{
+          minHeight: minH,
+          // 强制 iframe 使用深色调色板，避免 transparent 文档被 UA 以 light canvas 填充成白底
+          colorScheme: "dark",
+          // 兜底：即便主题切到 light，也让嵌入区域保持黑底（与历史工作台一致）
+          backgroundColor: "#09090b",
+        }}
         onLoad={onLoad}
         {...(embedSandbox
           ? { sandbox: "allow-scripts allow-same-origin allow-forms allow-popups allow-presentation" as const }

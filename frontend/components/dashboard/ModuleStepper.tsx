@@ -15,16 +15,51 @@ type Props = {
   className?: string;
 };
 
-function toneOf(m: ProjectOverviewModuleView, activeModuleId?: string | null): StepTone {
-  if (
-    (activeModuleId ?? "") &&
-    canonicalModuleIdForMerge(m.moduleId) === canonicalModuleIdForMerge(activeModuleId ?? "")
-  ) {
-    return "running";
+function railClassForPair(from: StepTone, to: StepTone): string {
+  // 只控制“呈现语义”，不参与任何进度推进逻辑。
+  if (from === "completed" && to === "completed") return "bg-emerald-500/50";
+  if (from === "completed" && to === "running") {
+    return "bg-gradient-to-r from-emerald-500/55 via-[color-mix(in_oklab,var(--success)_45%,var(--accent))] to-[color-mix(in_oklab,var(--accent)_70%,transparent)]";
   }
-  if (m.status === "completed") return "completed";
+  if (from === "running" && to === "idle") {
+    return "bg-gradient-to-r from-[color-mix(in_oklab,var(--accent)_70%,transparent)] to-[var(--border-subtle)]";
+  }
+  if (from === "running" && to === "running") {
+    return "bg-[color-mix(in_oklab,var(--accent)_42%,var(--border-subtle))]";
+  }
+  if (from === "idle" && to === "idle") return "bg-[var(--border-subtle)]";
+  // 其它边界组合：保持语义化但不抢戏
+  if (from === "running" && to === "completed") {
+    return "bg-gradient-to-r from-[color-mix(in_oklab,var(--accent)_70%,transparent)] to-emerald-500/45";
+  }
+  if (from === "idle" && to === "running") {
+    return "bg-gradient-to-r from-[var(--border-subtle)] to-[color-mix(in_oklab,var(--accent)_70%,transparent)]";
+  }
+  if (from === "idle" && to === "completed") {
+    return "bg-gradient-to-r from-[var(--border-subtle)] to-emerald-500/45";
+  }
+  return "bg-[var(--border-subtle)]";
+}
+
+function toneOf(m: ProjectOverviewModuleView): StepTone {
+  /**
+   * 仅影响“呈现语义”，不影响任何后端/推进逻辑：
+   * - tone 只认“客观进度”（status / pct / counts / label），不再被 activeModuleId 劫持。
+   * - 兜底：在 API/registry 合并不稳定时，仍能按“已完成”信号渲染为 completed。
+   */
+  const pct = pctOf(m);
+  const stepLabel = String(m.currentStepLabel ?? "").trim();
+  const doneByCounts = m.totalCount > 0 && m.doneCount >= m.totalCount;
+  const completedBySignal = m.status === "completed" || pct >= 100 || doneByCounts || stepLabel === "已完成";
+  if (completedBySignal) return "completed";
   if (m.status === "running") return "running";
   return "idle";
+}
+
+function visualToneOf(m: ProjectOverviewModuleView, tone: StepTone): StepTone {
+  // 仅展示层：把 completed/running 统一为同等“亮度”，不改变真实 status。
+  if (m.uiEmphasis === "active") return "running";
+  return tone;
 }
 
 function pctOf(m: ProjectOverviewModuleView): number {
@@ -47,29 +82,33 @@ function cleanLabel(raw: string, moduleId: string): string {
 
 const TONE = {
   completed: {
-    dot: "bg-emerald-500",
-    ring: "ring-emerald-500/20",
+    // 统一 completed/running 的“亮度”来源：用同一套柔光阴影强度，避免某一态显得更亮
+    dot: "bg-emerald-500 shadow-[0_0_18px_-6px_rgba(255,255,255,0.26)]",
+    ring: "ring-0",
     /** 克制的连线：完成段也只有 1.5px，不抢戏 */
-    rail: "bg-emerald-500/55",
-    text: "ui-text-secondary",
-    chip: "bg-emerald-500/15 text-emerald-500 border-emerald-500/25",
+    rail: "bg-emerald-500/50",
+    /**
+     * 完成态也需要“亮”，但仍低于 running 的视觉优先级：
+     * - 主标题用 primary（不再 muted）
+     * - 轻微降低饱和度与字重，保持 running 更醒目
+     */
+    text: "text-[var(--text-primary)]/85 font-semibold tracking-tight",
+    chip: "bg-emerald-500/12 text-emerald-500/85 border border-transparent text-[11px]",
   },
   running: {
-    dot: "bg-[var(--accent)]",
-    /** 干净 accent 发光，替代旧 ring-4 厚环 */
-    ring: "ring-[color-mix(in_oklab,var(--accent)_22%,transparent)]",
+    dot: "bg-[var(--accent)] shadow-[0_0_18px_-6px_rgba(255,255,255,0.26)]",
+    ring: "ring-0",
     /** 当前段的连线：accent → border-subtle 渐变，预示未完成 */
-    rail: "bg-gradient-to-r from-[color-mix(in_oklab,var(--accent)_60%,transparent)] to-[var(--border-subtle)]",
-    text: "text-[var(--text-primary)] font-semibold",
+    rail: "bg-gradient-to-r from-[color-mix(in_oklab,var(--accent)_70%,transparent)] to-[var(--border-subtle)]",
+    text: "text-[var(--text-primary)] font-semibold tracking-tight",
     chip: "bg-[var(--accent-bg-soft)] text-[var(--accent)] border-[var(--accent-border)]",
   },
   idle: {
-    dot: "bg-transparent border border-[var(--border-strong)]",
-    ring: "ring-[var(--border-subtle)]",
+    dot: "bg-[var(--surface-3)] border border-[var(--border-strong)]",
+    ring: "ring-0",
     rail: "bg-[var(--border-subtle)]",
     text: "ui-text-secondary",
-    chip:
-      "bg-[color-mix(in_oklab,var(--text-primary)_6%,transparent)] border-[var(--border-subtle)] text-[var(--text-secondary)]",
+    chip: "bg-transparent border-[var(--border-subtle)] text-[var(--text-secondary)]",
   },
 } as const satisfies Record<StepTone, Record<string, string>>;
 
@@ -163,7 +202,12 @@ function ModuleStepperHoverTooltip({
             className="h-full rounded-full transition-[width] duration-1000 ease-out relative overflow-hidden"
             style={{
               width: `${pct}%`,
-              background: tone === "completed" ? "#10b981" : tone === "running" ? "#f59e0b" : "#3f3f46",
+              background:
+                tone === "completed"
+                  ? "var(--success)"
+                  : tone === "running"
+                    ? "var(--accent)"
+                    : "color-mix(in oklab, var(--border-strong) 65%, transparent)",
             }}
           >
             {tone === "running" ? (
@@ -205,17 +249,15 @@ function ModuleStepperHoverTooltip({
 
 const HOVER_CLOSE_MS = 240;
 
-export function ModuleStepper({
-  modules,
-  activeModuleId = null,
-  onSelectModule,
-  className,
-}: Props) {
+export function ModuleStepper(props: Props) {
+  const { modules, onSelectModule, className } = props;
   const clickable = Boolean(onSelectModule);
   const [hover, setHover] = useState<StepperHoverState | null>(null);
   const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null);
   const anchorElRef = useRef<HTMLElement | null>(null);
   const hoverLeaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isHoveringTooltipRef = useRef(false);
+  const rafIdRef = useRef<number | null>(null);
   /** 避免在 SSR/首帧对 document.body 做 Portal，降低 React 19 下 removeChild 竞态 */
   const [mounted, setMounted] = useState(false);
   useEffect(() => {
@@ -236,6 +278,7 @@ export function ModuleStepper({
   }, []);
 
   const scheduleHideHover = useCallback(() => {
+    if (isHoveringTooltipRef.current) return;
     clearHoverCloseTimer();
     hoverLeaveTimerRef.current = setTimeout(() => {
       hoverLeaveTimerRef.current = null;
@@ -256,20 +299,31 @@ export function ModuleStepper({
       setAnchorRect(el.getBoundingClientRect());
     };
     update();
-    const onScroll = () => update();
-    const onResize = () => update();
+    const schedule = () => {
+      if (rafIdRef.current != null) return;
+      rafIdRef.current = window.requestAnimationFrame(() => {
+        rafIdRef.current = null;
+        update();
+      });
+    };
+    const onScroll = () => schedule();
+    const onResize = () => schedule();
     window.addEventListener("scroll", onScroll, true);
     window.addEventListener("resize", onResize);
     return () => {
       window.removeEventListener("scroll", onScroll, true);
       window.removeEventListener("resize", onResize);
+      if (rafIdRef.current != null) {
+        window.cancelAnimationFrame(rafIdRef.current);
+        rafIdRef.current = null;
+      }
     };
   }, [hoverOpen]);
 
   const openHoverFor = useCallback(
     (m: ProjectOverviewModuleView, anchor: HTMLElement) => {
       const label = cleanLabel(m.label, m.moduleId);
-      const tone = toneOf(m, activeModuleId);
+      const tone = toneOf(m);
       const pct = pctOf(m);
       clearHoverCloseTimer();
       anchorElRef.current = anchor;
@@ -286,7 +340,7 @@ export function ModuleStepper({
         isPlaceholder: m.isPlaceholder,
       });
     },
-    [activeModuleId, clearHoverCloseTimer],
+    [clearHoverCloseTimer],
   );
 
   return (
@@ -297,15 +351,13 @@ export function ModuleStepper({
         <div className="relative px-3 py-3 min-w-0">
             <ol className="flex items-start w-full" role="list" aria-label="阶段进展">
             {modules.map((m, idx) => {
-              const tone = toneOf(m, activeModuleId);
+              const tone = toneOf(m);
+              const visualTone = visualToneOf(m, tone);
               /**
                * 仅占位 = 无 module.json 等注册信息，禁止切换大盘；**仍**展示 task 进展浮层，避免「只有已装模块能悬停」
                * @see buildOverviewViewsFromTaskStatus: isPlaceholder: !reg
                */
               const isPlaceholder = Boolean(m.isPlaceholder);
-              const isActive =
-                (activeModuleId ?? "") &&
-                canonicalModuleIdForMerge(m.moduleId) === canonicalModuleIdForMerge(activeModuleId ?? "");
               const label = cleanLabel(m.label, m.moduleId);
 
               return (
@@ -313,6 +365,18 @@ export function ModuleStepper({
                   key={m.taskModuleId || m.moduleId}
                   className="relative flex-1 min-w-0"
                   role="listitem"
+                  /**
+                   * 仅诊断用 data-* 属性（不参与样式/逻辑）：
+                   * 用来在 DevTools 直接看每一项的 tone / visualTone / uiEmphasis / status，
+                   * 以验证“为何两项 completed 视觉不一致”的归属（CSS or 数据）。
+                   */
+                  data-debug-module-id={m.moduleId}
+                  data-debug-task-module-id={m.taskModuleId || ""}
+                  data-debug-status={m.status}
+                  data-debug-emphasis={m.uiEmphasis ?? "(unset)"}
+                  data-debug-tone={tone}
+                  data-debug-visual-tone={visualTone}
+                  data-debug-done={`${m.doneCount}/${m.totalCount}`}
                   onPointerEnter={(e) => {
                     /** 跨格切换：mouseleave 旧格 + mouseenter 新格几乎同帧到达，先取消上一格的关闭计时再开新的 */
                     const li = e.currentTarget;
@@ -328,16 +392,24 @@ export function ModuleStepper({
                   {idx < modules.length - 1 ? (
                     <div
                       className={[
-                        "pointer-events-none absolute top-[24px] left-1/2 w-full h-[1.5px] overflow-hidden rounded-full",
-                        tone === "completed" ? TONE.completed.rail : tone === "running" ? TONE.running.rail : TONE.idle.rail,
+                        "pointer-events-none absolute top-[24px] overflow-hidden rounded-full",
+                        visualTone === "running" ? "h-[2px]" : "h-[1.5px]",
+                        railClassForPair(visualTone, visualToneOf(modules[idx + 1], toneOf(modules[idx + 1]))),
                       ].join(" ")}
-                      style={{ zIndex: 0, transition: "background-color 240ms ease" }}
+                      style={{
+                        zIndex: 0,
+                        transition: "background-color 240ms ease",
+                        // 让连线段只出现在两个圆圈之间：两端各留出圆圈半径（16px）的“安全区”
+                        left: "calc(50% + 16px)",
+                        width: "calc(100% - 32px)",
+                      }}
                       aria-hidden="true"
                     />
                   ) : null}
                     <button
                       type="button"
                       aria-disabled={isPlaceholder}
+                      tabIndex={isPlaceholder ? -1 : 0}
                       onClick={() => {
                         if (isPlaceholder || !clickable) return;
                         onSelectModule?.(m.moduleId);
@@ -349,7 +421,13 @@ export function ModuleStepper({
                       onBlur={() => scheduleHideHover()}
                       className={[
                         "ui-motion group group/step relative z-10 flex w-full min-w-0 min-h-[4.5rem] justify-center border-0 bg-transparent p-0 text-inherit",
-                        isPlaceholder ? "cursor-help opacity-70" : "cursor-default",
+                        /**
+                         * 局部覆盖 globals.css 里 `:is(:disabled, [aria-disabled="true"]) { opacity: 0.45 }`：
+                         * Stepper 项作为“信息步骤”即使无法点击也应保持原亮度，避免 placeholder 模块（如智慧工勘）
+                         * 被整体压暗 45% 与“作业管理/建模仿真”形成不一致的视觉层级。
+                         */
+                        "aria-disabled:opacity-100",
+                        isPlaceholder ? "cursor-help" : "cursor-default",
                         "focus:outline-none focus-visible:ring-0",
                       ].join(" ")}
                       aria-label={label}
@@ -360,10 +438,6 @@ export function ModuleStepper({
                         <div
                           className={[
                             "relative mx-auto flex w-fit max-w-full min-w-0 flex-col items-center gap-1.5 rounded-xl px-2.5 py-1.5",
-                            "group-hover/row:bg-[var(--surface-2)]/55",
-                            isActive
-                              ? "ring-1 ring-[color-mix(in_oklab,var(--accent)_32%,transparent)]"
-                              : "group-focus-within:ring-1 group-focus-within:ring-[color-mix(in_oklab,var(--accent)_32%,transparent)]",
                             "ui-motion",
                           ]
                             .filter(Boolean)
@@ -372,39 +446,69 @@ export function ModuleStepper({
                         >
                         <span className="relative inline-flex h-8 w-8 items-center justify-center">
                           {/* mask background so connector never shows through the circle */}
-                          <span className="absolute inset-0 rounded-full bg-[var(--surface-1)] z-10" aria-hidden="true" />
+                          <span
+                            className="pointer-events-none absolute z-10"
+                            style={{
+                              // 先切断“连线贴圆”的感觉：在圆心高度做一条横向 cutout（留 1~2px 间隔）
+                              top: "50%",
+                              left: "50%",
+                              transform: "translate(-50%, -50%)",
+                              height: 10,
+                              width: 56,
+                              borderRadius: 999,
+                              background:
+                                "linear-gradient(90deg, transparent 0%, var(--paper-card) 18%, var(--paper-card) 82%, transparent 100%)",
+                            }}
+                            aria-hidden="true"
+                          />
+                          <span
+                            className="pointer-events-none absolute rounded-full z-10"
+                            style={{
+                              // 上大下小：隔离 rail 叠色与光晕，同时避免下沿压住阶段文字
+                              top: -10,
+                              left: -10,
+                              right: -10,
+                              bottom: -6,
+                              background:
+                                "radial-gradient(circle, var(--paper-card) 0%, var(--paper-card) 66%, transparent 82%)",
+                            }}
+                            aria-hidden="true"
+                          />
                           {tone === "completed" ? (
                             <span
                               className={[
-                                "relative z-20 inline-flex h-7 w-7 items-center justify-center rounded-full ring-4",
-                                "bg-emerald-500 text-white",
+                                "relative z-20 inline-flex h-7 w-7 items-center justify-center rounded-full",
                                 TONE.completed.ring,
+                                TONE.completed.dot,
                               ].join(" ")}
                               aria-hidden="true"
                             >
-                              <Check size={16} strokeWidth={3} />
+                              <Check size={16} strokeWidth={3} className="text-white" />
                             </span>
                           ) : tone === "running" ? (
                             <span
                               className={[
+                                /**
+                                 * 运行态：保持“黄/Accent”语义，但把亮度来源从“小点”升级为
+                                 * “同尺寸圆底 + 同强度柔光”，以对齐 completed 的视觉存在感。
+                                 */
                                 "relative z-20 inline-flex h-7 w-7 items-center justify-center rounded-full",
-                                "bg-[color-mix(in_oklab,var(--accent)_12%,var(--surface-1))]",
-                                "border-2 border-[var(--accent)] text-[var(--accent)]",
-                                /* 双层 accent 发光：内 8px + 外 18px，一眼锁定"当前在哪一步" */
-                                "shadow-[0_0_0_3px_color-mix(in_oklab,var(--accent)_18%,transparent),0_0_18px_-2px_color-mix(in_oklab,var(--accent)_60%,transparent)]",
+                                "bg-[color-mix(in_oklab,var(--accent)_22%,var(--surface-1))]",
+                                "ring-1 ring-[color-mix(in_oklab,var(--accent)_35%,transparent)]",
+                                "shadow-[0_0_18px_-6px_rgba(255,255,255,0.26)]",
+                                TONE.running.ring,
                               ].join(" ")}
                               aria-hidden="true"
                             >
-                              <span className="relative inline-flex h-2.5 w-2.5">
-                                <span
-                                  className="absolute inline-flex h-full w-full rounded-full opacity-50 animate-ping"
-                                  style={{ background: "var(--accent)" }}
-                                />
-                                <span
-                                  className="relative inline-flex h-2.5 w-2.5 rounded-full"
-                                  style={{ background: "var(--accent)" }}
-                                />
-                              </span>
+                              <span
+                                className={[
+                                  // 仍保留黄点语义，但用白色高光确保与完成态对比一致
+                                  "relative inline-flex h-2.5 w-2.5 rounded-full",
+                                  "bg-[var(--accent)]",
+                                  "shadow-[0_0_10px_-6px_rgba(255,255,255,0.55)]",
+                                ].join(" ")}
+                                aria-hidden
+                              />
                             </span>
                           ) : (
                             <span
@@ -412,10 +516,11 @@ export function ModuleStepper({
                                 /* idle：与 completed/running 同尺寸 24px，hairline 双层环
                                  * 这样三态在视觉重量上完全对齐，连接线不会"跳格"
                                  */
-                                "relative z-20 inline-flex h-7 w-7 items-center justify-center rounded-full",
-                                "bg-[var(--surface-1)] border-2 border-[var(--border-subtle)]",
+                                "relative z-20 inline-flex h-7 w-7 items-center justify-center rounded-full bg-[var(--surface-1)]",
+                                "border-2 border-[var(--border-subtle)]",
                                 "group-hover/step:border-[var(--border-strong)]",
                                 "ui-motion-fast",
+                                TONE.idle.ring,
                               ].join(" ")}
                               aria-hidden="true"
                               title="未开始"
@@ -423,7 +528,7 @@ export function ModuleStepper({
                               {/* 内嵌一个小 idle 点，避免空环看起来"挂着" */}
                               <span
                                 aria-hidden
-                                className="h-2 w-2 rounded-full bg-[var(--text-muted)] opacity-60"
+                                className={["h-2 w-2 rounded-full", TONE.idle.dot].join(" ")}
                               />
                             </span>
                           )}
@@ -431,7 +536,12 @@ export function ModuleStepper({
 
                         <div className="w-full min-w-0 text-center">
                           <div className="w-full min-w-0">
-                            <div className={["text-[14px] font-semibold leading-tight truncate text-center", tone === "idle" ? "ui-text-secondary" : TONE[tone].text].join(" ")}>
+                            <div
+                              className={[
+                                "text-[14px] font-semibold leading-tight truncate text-center",
+                                tone === "idle" ? "ui-text-secondary opacity-60" : TONE[visualTone].text,
+                              ].join(" ")}
+                            >
                               {label}
                             </div>
                             <div className="mt-1.5 flex justify-center">
@@ -440,7 +550,16 @@ export function ModuleStepper({
                                   执行中
                                 </span>
                               ) : (
-                                <span className={["text-[11.5px] truncate", tone === "idle" ? "text-[var(--text-secondary)]" : "ui-text-muted"].join(" ")}>
+                                <span
+                                  className={[
+                                    "text-[11.5px] truncate",
+                                    tone === "idle"
+                                      ? "text-[var(--text-secondary)]"
+                                      : tone === "completed"
+                                        ? "text-[var(--text-primary)]/65"
+                                        : "ui-text-muted",
+                                  ].join(" ")}
+                                >
                                   {tone === "completed" ? "已完成" : m.currentStepLabel || (m.totalCount ? "进行中" : "待开始")}
                                 </span>
                               )}
@@ -461,8 +580,14 @@ export function ModuleStepper({
             <ModuleStepperHoverTooltip
               hover={hover}
               anchorRect={anchorRect}
-              onTooltipPointerEnter={clearHoverCloseTimer}
-              onTooltipPointerLeave={scheduleHideHover}
+              onTooltipPointerEnter={() => {
+                isHoveringTooltipRef.current = true;
+                clearHoverCloseTimer();
+              }}
+              onTooltipPointerLeave={() => {
+                isHoveringTooltipRef.current = false;
+                scheduleHideHover();
+              }}
             />,
             document.body,
           )
@@ -496,8 +621,8 @@ export function ModuleStepperCompact({ modules, activeModuleId = null, className
   }, []);
 
   const total = modules.length;
-  const completed = modules.filter((m) => m.status === "completed").length;
-  const running = modules.find((m) => m.status === "running");
+  const completed = modules.filter((m) => toneOf(m) === "completed").length;
+  const running = modules.find((m) => toneOf(m) === "running");
   const focusedModule =
     running ??
       (activeModuleId
@@ -505,7 +630,7 @@ export function ModuleStepperCompact({ modules, activeModuleId = null, className
             (m) => canonicalModuleIdForMerge(m.moduleId) === canonicalModuleIdForMerge(activeModuleId ?? ""),
           )
         : undefined) ??
-      modules.find((m) => m.status !== "completed");
+      modules.find((m) => toneOf(m) !== "completed");
   const tone: StepTone = running
     ? "running"
     : completed === total && total > 0

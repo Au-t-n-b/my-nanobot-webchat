@@ -168,6 +168,80 @@ class ToolsConfig(Base):
     mcp_servers: dict[str, MCPServerConfig] = Field(default_factory=dict)
 
 
+class ConsolidationConfig(Base):
+    """Context consolidation (compact) trigger thresholds."""
+
+    trigger_percent: int = 60
+    fixed_reserved_tokens: int = 20_000
+    max_rounds: int = 5
+    max_consecutive_failures: int = 3
+
+
+class PersistedOutputConfig(Base):
+    """Tool result persistence (replaces in-flight truncation)."""
+
+    enabled: bool = True
+    size_threshold: int = 3000
+    preview_head: int = 2000
+    preview_tail: int = 1000
+    results_dir: str = "tool-results"
+    exempt_tools: list[str] = Field(default_factory=lambda: ["read_file", "web_search", "web_fetch"])
+    aggregate_budget: int = 100_000
+    retention_days: int = 30
+
+
+class TimeBasedGraduatedCompactConfig(Base):
+    """Time-triggered graduated compact (compress stale session history)."""
+
+    enabled: bool = True
+    gap_threshold_hours: int = 24
+    keep_recent: int = 30
+    leaf_model: str | None = None
+
+
+class SessionMemoryConfig(Base):
+    """Session memory extractor (single-file summary.md per session)."""
+
+    enabled: bool = True
+    auxiliary_model: str | None = None
+    memory_dir: str = "session-memory"
+
+
+class MessageArchiveConfig(Base):
+    """SQLite archive for compacted message storage."""
+
+    enabled: bool = True
+    db_path: str = "message-archive.db"
+
+
+class HookConfig(Base):
+    """A single pre/post-compact hook command."""
+
+    command: str = ""
+    trigger: list[str] = Field(default_factory=lambda: ["auto", "time"])
+    timeout: int = 30
+
+
+class HooksConfig(Base):
+    """Compact lifecycle hooks."""
+
+    pre_compact: list[HookConfig] = Field(default_factory=list)
+    post_compact: list[HookConfig] = Field(default_factory=list)
+
+
+class ContextConfig(Base):
+    """Context management: consolidation, persistence, archive, hooks."""
+
+    consolidation: ConsolidationConfig = Field(default_factory=ConsolidationConfig)
+    persisted_output: PersistedOutputConfig = Field(default_factory=PersistedOutputConfig)
+    time_based_graduated_compact: TimeBasedGraduatedCompactConfig = Field(
+        default_factory=TimeBasedGraduatedCompactConfig
+    )
+    session_memory: SessionMemoryConfig = Field(default_factory=SessionMemoryConfig)
+    message_archive: MessageArchiveConfig = Field(default_factory=MessageArchiveConfig)
+    hooks: HooksConfig = Field(default_factory=HooksConfig)
+
+
 class BridgeSdkConfig(Base):
     """Platform Runtime ThirdPartyAgentProvider (nanobot/bridge) — optional."""
 
@@ -198,6 +272,7 @@ class Config(BaseSettings):
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
     bridge_sdk: BridgeSdkConfig = Field(default_factory=BridgeSdkConfig)
     internal_chat: InternalChatConfig = Field(default_factory=InternalChatConfig)
+    context: ContextConfig = Field(default_factory=ContextConfig)
 
     @property
     def workspace_path(self) -> Path:

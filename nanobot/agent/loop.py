@@ -361,6 +361,50 @@ class AgentLoop:
             get_tool_definitions=self.tools.get_definitions,
             max_completion_tokens=provider.generation.max_tokens,
         )
+
+        # --- New context management subsystems ---
+        from nanobot.config.schema import Config
+        # Try to load context config from nanobot config if available
+        self._context_config = None
+        try:
+            from nanobot.config.loader import load_config
+            cfg = load_config()
+            self._context_config = cfg.context
+        except Exception:
+            pass
+
+        from nanobot.config.schema import ContextConfig
+        ctx_cfg = self._context_config or ContextConfig()
+
+        # PersistedOutputManager (tool result persistence)
+        from nanobot.agent.persisted_output import PersistedOutputManager
+        self.persisted_output = PersistedOutputManager(workspace, ctx_cfg.persisted_output)
+        # Clean up expired tool-result files on startup
+        self.persisted_output.cleanup_expired()
+
+        # MessageArchive (SQLite)
+        from nanobot.agent.message_archive import MessageArchive
+        self.archive = MessageArchive(workspace, ctx_cfg.message_archive) if ctx_cfg.message_archive.enabled else None
+
+        # HookRunner
+        from nanobot.agent.hooks import HookRunner
+        self.hook_runner = HookRunner(ctx_cfg.hooks)
+
+        # SessionMemoryExtractor
+        from nanobot.agent.session_memory import SessionMemoryExtractor
+        self.session_memory = SessionMemoryExtractor(workspace, ctx_cfg.session_memory) if ctx_cfg.session_memory.enabled else None
+
+        # Wire subsystems into MemoryConsolidator
+        self.memory_consolidator.wire_subsystems(
+            archive=self.archive,
+            hook_runner=self.hook_runner,
+            session_memory=self.session_memory,
+        )
+
+        # Register recall_context tool
+        if self.archive:
+            from nanobot.agent.tools.recall import RecallContextTool
+            self.tools.register(RecallContextTool(self.archive))
         self._register_default_tools()
         self.commands = CommandRouter()
         register_builtin_commands(self.commands)
@@ -766,30 +810,26 @@ class AgentLoop:
                         if has_error:
                             result += _EXCEL_ERROR_HINT
 
-                    # ── In-flight truncation ──────────────────────────────────
-                    # Prevent large tool outputs (Excel headers, file reads, etc.)
-                    # from bloating the current-turn message list and triggering
-                    # gateway payload limits (413 / HTML error pages).
-                    #
-                    # Exemption: read_file results for *.md files are NOT truncated.
-                    # Skill instruction files (SKILL.md, AGENTS.md, …) contain
-                    # critical workflow directives — cutting them causes the agent
-                    # to miss tool-call requirements (e.g. present_choices) and
-                    # fall back to free-form text interaction.
+                    # ── Tool result handling (PersistedOutput) ─────────────────
+                    # Persist large outputs to disk with reference tags,
+                    # or simple truncation for exempt tools.
                     inline_result = result
                     if isinstance(inline_result, str):
                         _is_md_read = (
                             tool_call.name == "read_file"
                             and str(tool_call.arguments.get("path", "")).lower().endswith(".md")
                         )
-                        limit = self._INLINE_RESULT_MAX_CHARS
-                        if not _is_md_read and len(inline_result) > limit:
-                            half = limit // 2
-                            inline_result = (
-                                inline_result[:half]
-                                + f"\n\n... [⚠️ 输出过长，已截断。原长 {len(inline_result)} 字符"
-                                f"，保留首尾各 {half} 字符] ...\n\n"
-                                + inline_result[-half:]
+                        if _is_md_read:
+                            pass  # .md reads always exempt from truncation/persistence
+                        elif self.persisted_output.should_persist(
+                            inline_result, tool_call.name, tool_call.id
+                        ):
+                            inline_result = self.persisted_output.persist(
+                                inline_result, tool_call.id, tool_call.name
+                            )
+                        elif len(inline_result) > self._INLINE_RESULT_MAX_CHARS:
+                            inline_result = self.persisted_output.truncate_inline(
+                                inline_result, self._INLINE_RESULT_MAX_CHARS
                             )
                     messages = self.context.add_tool_result(
                         messages, tool_call.id, tool_call.name, inline_result
@@ -926,6 +966,40 @@ class AgentLoop:
         self._background_tasks.append(task)
         task.add_done_callback(self._background_tasks.remove)
 
+    async def _maybe_time_based_compact(self, session: Session) -> None:
+        """Check if last assistant message is older than gapThresholdHours, trigger compact."""
+        if not self._context_config:
+            return
+        cfg = self._context_config.time_based_graduated_compact
+        if not cfg.enabled:
+            return
+
+        # Find last assistant message with timestamp
+        last_asst_ts = None
+        for msg in reversed(session.messages):
+            if msg.get("role") == "assistant" and msg.get("timestamp"):
+                last_asst_ts = msg["timestamp"]
+                break
+
+        if not last_asst_ts:
+            return
+
+        try:
+            from datetime import datetime
+            if isinstance(last_asst_ts, str):
+                last_asst_dt = datetime.fromisoformat(last_asst_ts)
+            else:
+                return
+            gap_hours = (datetime.now() - last_asst_dt).total_seconds() / 3600
+        except Exception:
+            return
+
+        if gap_hours >= cfg.gap_threshold_hours:
+            logger.info("Time-based compact triggered for {} (gap={:.1f}h)", session.key, gap_hours)
+            await self.memory_consolidator.compact(
+                session, trigger="time", keep_recent=cfg.keep_recent,
+            )
+
     def stop(self) -> None:
         """Stop the agent loop."""
         self._running = False
@@ -1018,7 +1092,22 @@ class AgentLoop:
 
         self._save_turn(session, all_msgs, 1 + len(history))
         self.sessions.save(session)
+
+        # Background: token-based compact check
         self._schedule_background(self.memory_consolidator.maybe_consolidate_by_tokens(session))
+
+        # Background: session memory extraction (deepcopy snapshot)
+        if self.session_memory:
+            import copy
+            snapshot = copy.deepcopy(session.messages)
+            sm_model = self._context_config.session_memory.auxiliary_model if self._context_config else None
+            self._schedule_background(
+                self.session_memory.extract_incremental(session.key, snapshot, self.provider, sm_model)
+            )
+
+        # Background: time-based graduated compact (24h gap)
+        if self._context_config and self._context_config.time_based_graduated_compact.enabled:
+            self._schedule_background(self._maybe_time_based_compact(session))
 
         if (mt := self.tools.get("message")) and isinstance(mt, MessageTool) and mt._sent_in_turn:
             return None

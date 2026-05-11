@@ -7,20 +7,60 @@
 
 ---
 
-## 0. 开工前：准备 3 样“输入材料”
+## 0. 开工前：开发者先准备“初步素材”
 
-你只要准备下面三段信息，后面全都可以交给 Cursor 逐步落地：
+在选型（纯 SDUI / EmbeddedWeb）之前，建议开发者先准备下面这些**初步素材**（不需要完美），Cursor 会基于它们做澄清与收敛：
 
 1) **阶段定义（1 段话）**：本阶段做什么、输入是什么、输出产物是什么。  
-2) **状态机表（强烈建议写成表格）**：  
+2) **业务逻辑/状态机草案**（强烈建议用表格）：  
    - `state`：每个阶段状态（如 `start/upload/running/publish/done/cancelled`）  
    - `action`：每个触发动作（如 `start`, `resume_after_upload`, `publish`, `fallback_cancel`）  
    - `event`：每个动作要输出哪些事件（`dashboard.patch` / `hitl.*` / `artifact.publish`）  
-3) **UI 草图**：选择一种形态并写出节点清单：\n   - 纯 SDUI（Stepper/Statistic/TextArea/Button/ArtifactGrid）\n   - 本地 HTML 工作台（EmbeddedWeb + state 下发 + postMessage 上行）\n   - 外链 iframe（EmbeddedWeb 外链）
+3) **UI 呈现草图**（任选其一/可混合）：  
+   - 纯 SDUI（Stepper/Statistic/TextArea/Button/ArtifactGrid）  
+   - 本地 HTML 工作台（EmbeddedWeb + state 下发 + postMessage 上行）  
+   - 外链 iframe（EmbeddedWeb 外链）  
 
 ---
 
-## 1. 选一个 starter 当骨架（不要从空文件开始）
+## 1. 让 Cursor 基于“初步素材”做需求澄清（推荐）
+
+让 Cursor 通过“访谈”把需求收敛成**可落地的状态机 + UI 节点清单**，再进入实现阶段。
+
+把下面这段直接发给 Cursor（把尖括号内容替换成你自己的）：  
+
+```text
+你是我们 Skill‑First 平台的 Skill 开发助手。现在先不要写代码，也不要创建文件。
+
+请你用 8-12 个问题（分组提问、每次 1-2 个关键问题即可）来澄清我这个“阶段 Skill”的需求，并最终产出：
+1) 业务目标（3-5 句）
+2) 输入/输出定义（输入来源、校验规则、产物清单与预览方式）
+3) 状态机表（state/action/触发条件/输出事件）
+4) UI 方案（选型：纯 SDUI / 本地 HTML 工作台 / 外链 iframe；并给出 SDUI 节点树草案，含稳定 id）
+5) 最小可运行 MVP 范围（第一周能交付的最小闭环）
+
+我的阶段背景（尽量简短）：
+- 阶段名称：<stage4_delivery>
+- 阶段定义：<...>
+- 状态机草案：<...>
+- UI 草图：<...>
+```
+
+> 产出物会在下一步直接喂给“实现指令模板”，用于生成 `module.json` / `dashboard.json` / `driver.py`。
+
+---
+
+## 2. 基于澄清结果做选型与准备输入材料
+
+把 Cursor 的澄清产出整理成 3 样“输入材料”（后续实现会用到）：
+
+1) **阶段定义（1 段话）**：本阶段做什么、输入是什么、输出产物是什么。  
+2) **状态机表**：`state/action/触发条件/输出事件（dashboard.patch / hitl.* / artifact.publish）`  
+3) **UI 节点清单**：选型（纯 SDUI / 本地 HTML 工作台 / 外链 iframe）+ SDUI 节点树草案（稳定 `id`）
+
+---
+
+## 3. 选一个 starter 当骨架（不要从空文件开始）
 
 在仓库根 `skill-starters/` 选一个最接近你的阶段的 starter：  
 
@@ -32,7 +72,7 @@
 
 ---
 
-## 2. 在 Cursor 里对 AI 的“第一条指令模板”（建议照抄）
+## 4. 在 Cursor 里对 AI 的“实现指令模板”（建议照抄）
 
 把下面这段直接发给 Cursor（把尖括号内容替换成你自己的）：  
 
@@ -70,11 +110,11 @@ UI 结构要点（节点 id 必须稳定）:
 - 不要修改前端/后端平台代码
 ```
 
-这条指令的目标是：**让 AI 先把骨架跑通**，而不是一次性写完全部业务。
+这条指令的目标是：**让 AI 先把骨架跑通**，而不是一次性写完全部业务（业务细节在后续迭代中补齐）。
 
 ---
 
-## 3. 让 AI 分三轮交付（每轮都可运行/可验证）
+## 5. 让 AI 分三轮交付（每轮都可运行/可验证）
 
 ### 第 1 轮：只做“能挂载 + 能 patch”
 
@@ -97,7 +137,7 @@ UI 结构要点（节点 id 必须稳定）:
 
 ---
 
-## 4. EmbeddedWeb（本地 HTML 工作台）专项 SOP
+## 6. EmbeddedWeb（本地 HTML 工作台）专项 SOP
 
 如果你的阶段是“本地 HTML 工作台型”，建议把这段要求加进对 AI 的指令：  
 
@@ -108,7 +148,7 @@ UI 结构要点（节点 id 必须稳定）:
 
 ---
 
-## 5. 常见踩坑（让 AI 避免）
+## 7. 常见踩坑（让 AI 避免）
 
 - **模块挂载失败**：`module.json.dataFile` 不等于 `skills/<skill>/data/dashboard.json`  
 - **Patch 不生效/串台**：节点没 `id` 或 `docId/syntheticPath` 不一致  

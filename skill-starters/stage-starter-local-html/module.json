@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "stage_starter_local_html",
+  "docId": "dashboard:stage-starter-local-html",
+  "dataFile": "skills/stage_starter_local_html/data/dashboard.json",
+  "flow": "stage_starter_local_html",
+  "capabilities": {
+    "hitl": true,
+    "uploads": false,
+    "metrics": ["kpi_cards", "bar_chart", "donut_chart"],
+    "skillOrchestration": ["serial"],
+    "taskProgressAutoSync": false
+  }
+}
+

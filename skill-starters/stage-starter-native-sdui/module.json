@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "stage_starter_native_sdui",
+  "docId": "dashboard:stage-starter-native-sdui",
+  "dataFile": "skills/stage_starter_native_sdui/data/dashboard.json",
+  "flow": "stage_starter_native_sdui",
+  "capabilities": {
+    "hitl": true,
+    "uploads": false,
+    "metrics": ["kpi_cards", "bar_chart", "donut_chart"],
+    "skillOrchestration": ["serial"],
+    "taskProgressAutoSync": false
+  }
+}
+

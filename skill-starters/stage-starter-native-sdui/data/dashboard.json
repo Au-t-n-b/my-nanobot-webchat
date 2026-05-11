@@ -1,0 +1,85 @@
+{
+  "schemaVersion": 1,
+  "type": "SduiDocument",
+  "meta": {
+    "docId": "dashboard:stage-starter-native-sdui",
+    "provenance": "stage_starter_native_sdui",
+    "role": "dashboard"
+  },
+  "root": {
+    "type": "Stack",
+    "gap": "lg",
+    "children": [
+      {
+        "type": "Stepper",
+        "id": "stepper-main",
+        "steps": [
+          { "id": "s0", "title": "初始化", "status": "running" },
+          { "id": "s1", "title": "收集输入", "status": "waiting" },
+          { "id": "s2", "title": "生成产物", "status": "waiting" }
+        ]
+      },
+      {
+        "type": "Card",
+        "id": "input-card",
+        "title": "输入",
+        "children": [
+          {
+            "type": "TextArea",
+            "id": "note-input",
+            "inputId": "note",
+            "label": "阶段备注",
+            "placeholder": "输入一段备注，然后点击“写入大盘”按钮…",
+            "rows": 4,
+            "defaultValue": ""
+          },
+          {
+            "type": "Button",
+            "id": "btn-apply-note",
+            "label": "写入大盘（post_user_message）",
+            "variant": "primary",
+            "action": {
+              "kind": "post_user_message",
+              "text": "{\"intent\":{\"verb\":\"skill_runtime_resume\",\"payload\":{\"skillName\":\"stage_starter_native_sdui\",\"action\":\"apply_note\",\"note\":\"{{input:note}}\"}}}"
+            }
+          }
+        ]
+      },
+      {
+        "type": "Card",
+        "id": "status-card",
+        "title": "状态",
+        "children": [
+          { "type": "Markdown", "id": "status-md", "content": "尚未写入备注。" },
+          { "type": "Statistic", "id": "stat-progress", "title": "进度", "value": "0%" }
+        ]
+      },
+      {
+        "type": "Card",
+        "id": "artifacts-card",
+        "title": "产物",
+        "density": "compact",
+        "children": [
+          {
+            "type": "ArtifactGrid",
+            "id": "artifacts",
+            "title": "已发布产物",
+            "mode": "output",
+            "artifacts": []
+          },
+          {
+            "type": "Button",
+            "id": "btn-publish",
+            "label": "发布示例产物",
+            "variant": "secondary",
+            "action": {
+              "kind": "post_user_message",
+              "text": "{\"intent\":{\"verb\":\"skill_runtime_resume\",\"payload\":{\"skillName\":\"stage_starter_native_sdui\",\"action\":\"publish\"}}}"
+            }
+          }
+        ]
+      }
+    ]
+  }
+}
+

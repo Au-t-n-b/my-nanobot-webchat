@@ -8,6 +8,7 @@
 - **理解平台边界与事件契约**：[`docs/skill/guide.md`](./guide.md)  
 - **理解 SDUI 协议与 Patch 约束**：[`docs/sdui/protocol.md`](../sdui/protocol.md)  
 - **理解如何推送 Patch（syntheticPath/docId/revision）**：[`docs/skill/dev-manual.md`](./dev-manual.md)
+- **用 Cursor 从零构建阶段 Skill（SOP）**：[`docs/skill/cursor-sop.md`](./cursor-sop.md)
 
 ---
 

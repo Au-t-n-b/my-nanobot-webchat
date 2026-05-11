@@ -24,6 +24,9 @@
 4. **实时 Patch 手册（syntheticPath/docId/revision 与推送姿势）**  
    - [`docs/skill/dev-manual.md`](./skill/dev-manual.md)
 
+5. **Cursor SOP（用 AI 从零构建阶段 Skill）**  
+   - [`docs/skill/cursor-sop.md`](./skill/cursor-sop.md)
+
 你需要对照的“真实参考实现”（本机用户目录）：  
 `~/.nanobot/workspace/skills/{job_management,smart_survey,jmfz}`
 

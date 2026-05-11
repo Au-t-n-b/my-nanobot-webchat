@@ -21,7 +21,7 @@
 | 类别 | 不变量 |
 |---|---|
 | 后端契约 | `/api/*` 的所有路由、请求/响应字段、SSE event 格式 |
-| 协议层 | `docs/sdui-protocol-spec.md`、`docs/sdui-v3-schema.json`、`docs/hybrid-mode-protocol.md` 全部内容 |
+| 协议层 | `docs/sdui/protocol.md`、`docs/sdui/schema-v3.json`、`docs/runtime/hybrid-mode-protocol.md` 全部内容 |
 | 运行时 | [`frontend/hooks/useAgentChat.ts`](frontend/hooks/useAgentChat.ts) 行为、[`frontend/components/sdui/SkillUiRuntimeProvider.tsx`](frontend/components/sdui/SkillUiRuntimeProvider.tsx) 接口 |
 | 鉴权与路由 | [`frontend/lib/authStore.ts`](frontend/lib/authStore.ts)、[`frontend/lib/authFetch.ts`](frontend/lib/authFetch.ts)、Next.js 路由结构 |
 | Token 定义 | [`frontend/app/globals.css`](frontend/app/globals.css) 中 `--surface-*` / `--text-*` / `--accent` / `--shadow-*` / `--motion-*` / `--border-*` 等 CSS 变量值 |

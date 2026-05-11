@@ -76,8 +76,8 @@
 
 **Files:**
 - Copy to: `C:\Users\华为\.nanobot\workspace\skills\intelligent_analysis_workbench\...`
-- Modify: `D:\code\nanobot\docs/superpowers/specs/2026-04-11-intelligent-analysis-workbench-design.md`
-- Modify: `D:\code\nanobot\docs/superpowers/plans/2026-04-11-intelligent-analysis-workbench.md`
+- Modify: `D:\code\nanobot\docs/design/specs/2026-04-11-intelligent-analysis-workbench-design.md`
+- Modify: `D:\code\nanobot\docs/design/plans/2026-04-11-intelligent-analysis-workbench.md`
 
 - [ ] Sync the new template into the Nanobot workspace as a live module.
 - [ ] Run targeted structural verification for repo files and workspace files.

@@ -60,8 +60,8 @@
 ### Task 5: Verification and handoff
 
 **Files:**
-- Modify: `D:\code\nanobot\docs/superpowers/specs/2026-04-11-module-case-final-design.md`
-- Modify: `D:\code\nanobot\docs/superpowers/plans/2026-04-11-module-case-final.md`
+- Modify: `D:\code\nanobot\docs/design/specs/2026-04-11-module-case-final-design.md`
+- Modify: `D:\code\nanobot\docs/design/plans/2026-04-11-module-case-final.md`
 
 - [ ] Step 1: Re-check that implementation still matches the written design
 - [ ] Step 2: Run the final targeted verification commands

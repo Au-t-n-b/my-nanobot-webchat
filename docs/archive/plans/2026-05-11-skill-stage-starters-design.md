@@ -1,13 +1,3 @@
-# 此文档已迁移
-
-原日期版设计稿已归档到：
-
-- [`docs/archive/plans/2026-05-11-skill-stage-starters-design.md`](../archive/plans/2026-05-11-skill-stage-starters-design.md)
-
-稳定入口请看：
-
-- [`docs/skill/stage-starters.md`](../skill/stage-starters.md)
-
 # Skill-First 阶段 Skill 设计与 UI 参考（Stage Starters）
 
 **目标读者**：后续要像「作业管理 / 智慧工勘 / 建模仿真」一样构建“后续阶段 skill”的同事。  

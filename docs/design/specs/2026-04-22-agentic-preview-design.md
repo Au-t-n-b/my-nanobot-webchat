@@ -1,7 +1,7 @@
 # Phase 3：Agentic Preview（智能降级与 Agent 洞察）设计稿
 
 **日期**：2026-04-22  
-**状态**：**已裁决（Architecture Locked）** — 开放问题已收口；实施见 `docs/superpowers/plans/2026-04-22-agentic-preview.md`  
+**状态**：**已裁决（Architecture Locked）** — 开放问题已收口；实施见 `docs/design/plans/2026-04-22-agentic-preview.md`  
 **依赖**：Phase 0 预览子系统（resolver / parsers / renderers）、Phase 2 ZIP、`skill.agent_task_execute` 混合子任务协议、`BaseRendererProps.onAction` 预留契约  
 
 ---

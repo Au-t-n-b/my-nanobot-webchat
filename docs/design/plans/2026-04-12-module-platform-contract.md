@@ -484,7 +484,7 @@ Expected: PASS
 - [ ] **Step 5: Commit**
 
 ```bash
-git add templates/intelligent_analysis_workbench/module.json templates/intelligent_analysis_workbench/data/dashboard.json templates/intelligent_analysis_workbench/SKILL.md templates/intelligent_analysis_workbench/references/flow.md docs/superpowers/specs/2026-04-12-module-platform-contract-design.md tests/test_module_skill_runtime.py
+git add templates/intelligent_analysis_workbench/module.json templates/intelligent_analysis_workbench/data/dashboard.json templates/intelligent_analysis_workbench/SKILL.md templates/intelligent_analysis_workbench/references/flow.md docs/design/specs/2026-04-12-module-platform-contract-design.md tests/test_module_skill_runtime.py
 git commit -m "docs: finalize module platform mother template"
 ```
 

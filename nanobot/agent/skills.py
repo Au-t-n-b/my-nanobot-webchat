@@ -18,10 +18,11 @@ class SkillsLoader:
     specific tools or perform certain tasks.
     """
 
-    def __init__(self, workspace: Path, builtin_skills_dir: Path | None = None):
+    def __init__(self, workspace: Path, builtin_skills_dir: Path | None = None, skills_auto_config=None):
         self.workspace = workspace
         self.workspace_skills = workspace / "skills"
         self.builtin_skills = builtin_skills_dir or BUILTIN_SKILLS_DIR
+        self._skills_auto_config = skills_auto_config
 
     def list_skills(self, filter_unavailable: bool = True) -> list[dict[str, str]]:
         """
@@ -53,7 +54,15 @@ class SkillsLoader:
 
         # Filter by requirements
         if filter_unavailable:
-            return [s for s in skills if self._check_requirements(self._get_skill_meta(s["name"]))]
+            skills = [s for s in skills if self._check_requirements(self._get_skill_meta(s["name"]))]
+
+        # Filter darwin-skill unless explicitly enabled
+        darwin_enabled = (
+            self._skills_auto_config and self._skills_auto_config.darwin_enabled
+        )
+        if not darwin_enabled:
+            skills = [s for s in skills if s["name"] != "darwin-skill"]
+
         return skills
 
     def load_skill(self, name: str) -> str | None:

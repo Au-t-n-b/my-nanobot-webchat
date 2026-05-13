@@ -366,10 +366,12 @@ class AgentLoop:
         from nanobot.config.schema import Config
         # Try to load context config from nanobot config if available
         self._context_config = None
+        self._skills_auto_config = None
         try:
             from nanobot.config.loader import load_config
             cfg = load_config()
             self._context_config = cfg.context
+            self._skills_auto_config = cfg.skills_auto
         except Exception:
             pass
 
@@ -405,6 +407,13 @@ class AgentLoop:
         if self.archive:
             from nanobot.agent.tools.recall import RecallContextTool
             self.tools.register(RecallContextTool(self.archive))
+
+        # Hermes skill iteration counter
+        self._iters_since_skill_manage: int = 0
+
+        # Pass skills_auto config to ContextBuilder for filtering and guidance injection
+        self.context.set_skills_auto_config(self._skills_auto_config)
+
         self._register_default_tools()
         self.commands = CommandRouter()
         register_builtin_commands(self.commands)
@@ -530,6 +539,11 @@ class AgentLoop:
         self.tools.register(SpawnTool(manager=self.subagents))
         if self.cron_service:
             self.tools.register(CronTool(self.cron_service))
+
+        # Hermes skill_manage tool (conditional on config)
+        if self._skills_auto_config and self._skills_auto_config.hermes_enabled:
+            from nanobot.agent.tools.skill_manage import SkillManageTool
+            self.tools.register(SkillManageTool(workspace=self.workspace))
 
     async def _connect_mcp(self) -> None:
         """Connect to configured MCP servers (one-time, lazy)."""
@@ -736,6 +750,12 @@ class AgentLoop:
                     tools_used.append(tc.name)
                     args_str = json.dumps(tc.arguments, ensure_ascii=False)
                     logger.info("Tool call: {}({})", tc.name, args_str[:200])
+
+                    # Hermes: track iterations since last skill_manage call
+                    if tc.name == "skill_manage":
+                        self._iters_since_skill_manage = 0
+                    else:
+                        self._iters_since_skill_manage += 1
 
                 # Re-bind tool context right before execution so that
                 # concurrent sessions don't clobber each other's routing.
@@ -1109,6 +1129,14 @@ class AgentLoop:
         if self._context_config and self._context_config.time_based_graduated_compact.enabled:
             self._schedule_background(self._maybe_time_based_compact(session))
 
+        # Background: Hermes skill review (auto-create/update skills)
+        if self._skills_auto_config and self._skills_auto_config.hermes_enabled:
+            if self._iters_since_skill_manage >= self._skills_auto_config.hermes_nudge_interval:
+                import copy
+                review_snapshot = copy.deepcopy(session.messages)
+                self._schedule_background(self._run_skill_review(review_snapshot))
+                self._iters_since_skill_manage = 0
+
         if (mt := self.tools.get("message")) and isinstance(mt, MessageTool) and mt._sent_in_turn:
             return None
 
@@ -1201,6 +1229,82 @@ class AgentLoop:
             entry.setdefault("timestamp", datetime.now().isoformat())
             session.messages.append(entry)
         session.updated_at = datetime.now()
+
+    async def _run_skill_review(self, messages_snapshot: list[dict]) -> None:
+        """Background Hermes skill review: analyze conversation and create/update skills."""
+        _SKILL_REVIEW_PROMPT = (
+            "Review the conversation above and consider whether a skill should be saved or updated.\n\n"
+            "Work in this order — do not skip steps:\n\n"
+            "1. SURVEY existing skills. Call list_dir on the workspace skills directory.\n"
+            "   If anything looks relevant, read_file its SKILL.md.\n"
+            "2. THINK CLASS-FIRST. What general pattern of task did the user complete?\n"
+            "   What conditions will trigger this pattern again?\n"
+            "3. PREFER GENERALIZING an existing skill over creating a new one.\n"
+            "   Use skill_manage(action='patch') to update it.\n"
+            "4. ONLY CREATE a new skill when no existing one covers the class.\n"
+            "   Use skill_manage(action='create') with a class-level name.\n\n"
+            "Only act when something is genuinely worth saving.\n"
+            "If nothing stands out, just say 'Nothing to save.' and stop."
+        )
+
+        # Build a minimal tool registry for the review agent
+        from nanobot.agent.tools.skill_manage import SkillManageTool
+        from nanobot.agent.tools.filesystem import ReadFileTool, ListDirTool
+
+        review_tools = ToolRegistry()
+        allowed_dir = self.workspace if self.restrict_to_workspace else None
+        review_tools.register(ListDirTool(workspace=self.workspace, allowed_dir=allowed_dir))
+        review_tools.register(ReadFileTool(workspace=self.workspace, allowed_dir=allowed_dir))
+        review_tools.register(SkillManageTool(workspace=self.workspace))
+
+        tool_defs = review_tools.get_definitions()
+
+        # Build review messages: system prompt + conversation snapshot + review prompt
+        skills_summary = self.context.skills.build_skills_summary()
+        system_parts = ["You are a skill review agent. You analyze conversations and create or update skills."]
+        if skills_summary:
+            system_parts.append(skills_summary)
+        system_prompt = "\n\n".join(system_parts)
+
+        review_messages = [{"role": "system", "content": system_prompt}]
+        # Add conversation history (limit to last 30 messages to keep token count reasonable)
+        for msg in messages_snapshot[-30:]:
+            role = msg.get("role")
+            if role in ("user", "assistant", "tool"):
+                review_messages.append(msg)
+        review_messages.append({"role": "user", "content": _SKILL_REVIEW_PROMPT})
+
+        try:
+            for i in range(8):  # max 8 iterations
+                response = await self.provider.chat_with_retry(
+                    messages=review_messages,
+                    tools=tool_defs,
+                    model=self.model,
+                )
+                if not response.has_tool_calls:
+                    break
+                tool_call_dicts = [tc.to_openai_tool_call() for tc in response.tool_calls]
+                review_messages.append({"role": "assistant", "content": response.content, "tool_calls": tool_call_dicts})
+                for tc in response.tool_calls:
+                    try:
+                        result = await review_tools.execute(tc.name, tc.arguments)
+                        if isinstance(result, dict):
+                            result = json.dumps(result, ensure_ascii=False)
+                    except Exception as e:
+                        result = json.dumps({"success": False, "error": str(e)}, ensure_ascii=False)
+                    review_messages.append({"role": "tool", "tool_call_id": tc.id, "name": tc.name, "content": result})
+
+            # Extract and log any successful actions
+            for msg in review_messages:
+                if msg.get("role") == "tool" and isinstance(msg.get("content"), str):
+                    try:
+                        data = json.loads(msg["content"])
+                        if isinstance(data, dict) and data.get("success"):
+                            logger.info("Hermes skill review: {}", data.get("message", "action completed"))
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+        except Exception as e:
+            logger.warning("Hermes skill review failed: {}", e)
 
     async def process_direct(
         self,

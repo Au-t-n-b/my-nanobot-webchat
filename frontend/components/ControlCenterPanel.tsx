@@ -1,11 +1,12 @@
 "use client";
 
-import { Settings2, SlidersHorizontal } from "lucide-react";
+import { Brain, Settings2, SlidersHorizontal } from "lucide-react";
 import { useEffect, useState } from "react";
 import { ConfigPanel } from "@/components/ConfigPanel";
 import { SettingsHub, type ControlCenterSettingsPane } from "@/components/controlCenter/SettingsHub";
+import { SkillAutoPanel } from "@/components/SkillAutoPanel";
 
-type ControlCenterTab = "config" | "settings";
+type ControlCenterTab = "config" | "settings" | "skillsAuto";
 
 export function ControlCenterPanel({
   onClose,
@@ -31,6 +32,12 @@ export function ControlCenterPanel({
     setActiveSettingsPane(initialSettingsPane);
   }, [initialSettingsPane]);
 
+  const tabStyle = (isActive: boolean) => ({
+    borderColor: isActive ? "var(--accent)" : "var(--border-subtle)",
+    background: isActive ? "color-mix(in oklab, var(--accent) 12%, var(--surface-2))" : "var(--surface-1)",
+    color: isActive ? "var(--text-primary)" : "var(--text-secondary)",
+  });
+
   return (
     <div className="flex h-[85vh] min-h-[520px] max-h-[92vh] min-w-0 flex-col overflow-hidden">
       <div className="flex shrink-0 items-center gap-2 border-b border-[var(--border-subtle)] px-4 py-3">
@@ -38,11 +45,7 @@ export function ControlCenterPanel({
           type="button"
           onClick={() => setActiveTab("config")}
           className="inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors"
-          style={{
-            borderColor: activeTab === "config" ? "var(--accent)" : "var(--border-subtle)",
-            background: activeTab === "config" ? "color-mix(in oklab, var(--accent) 12%, var(--surface-2))" : "var(--surface-1)",
-            color: activeTab === "config" ? "var(--text-primary)" : "var(--text-secondary)",
-          }}
+          style={tabStyle(activeTab === "config")}
         >
           <Settings2 size={14} />
           配置中心
@@ -51,21 +54,26 @@ export function ControlCenterPanel({
           type="button"
           onClick={() => setActiveTab("settings")}
           className="inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors"
-          style={{
-            borderColor: activeTab === "settings" ? "var(--accent)" : "var(--border-subtle)",
-            background: activeTab === "settings" ? "color-mix(in oklab, var(--accent) 12%, var(--surface-2))" : "var(--surface-1)",
-            color: activeTab === "settings" ? "var(--text-primary)" : "var(--text-secondary)",
-          }}
+          style={tabStyle(activeTab === "settings")}
         >
           <SlidersHorizontal size={14} />
           远端与基础设置
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab("skillsAuto")}
+          className="inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors"
+          style={tabStyle(activeTab === "skillsAuto")}
+        >
+          <Brain size={14} />
+          Skill 管理
         </button>
       </div>
 
       <div className="min-h-0 flex-1 overflow-hidden">
         {activeTab === "config" ? (
           <ConfigPanel onClose={onClose} onSaved={onSaved} showCloseButton={false} />
-        ) : (
+        ) : activeTab === "settings" ? (
           <SettingsHub
             activePane={activeSettingsPane}
             onPaneChange={setActiveSettingsPane}
@@ -73,6 +81,8 @@ export function ControlCenterPanel({
             onOpenRemoteUpload={onOpenRemoteUpload}
             showCloseButton={false}
           />
+        ) : (
+          <SkillAutoPanel onClose={onClose} onSaved={onSaved} />
         )}
       </div>
     </div>

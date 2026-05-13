@@ -23,6 +23,12 @@ class ContextBuilder:
         self.workspace = workspace
         self.memory = MemoryStore(workspace)
         self.skills = SkillsLoader(workspace)
+        self._skills_auto_config = None
+
+    def set_skills_auto_config(self, config) -> None:
+        """Set skills_auto config for filtering and guidance injection."""
+        self._skills_auto_config = config
+        self.skills = SkillsLoader(workspace=self.workspace, skills_auto_config=config)
 
     def build_system_prompt(self, skill_names: list[str] | None = None) -> str:
         """Build the system prompt from identity, bootstrap files, memory, and skills."""
@@ -50,6 +56,15 @@ The following skills extend your capabilities. To use a skill, read its SKILL.md
 Skills with available="false" need dependencies installed first - you can try installing them with apt/brew.
 
 {skills_summary}""")
+
+        # Hermes SKILLS_GUIDANCE: instruct agent on when to create/patch skills
+        if self._skills_auto_config and self._skills_auto_config.hermes_enabled:
+            parts.append("""# Skill Auto-Management
+- If a skill has issues (missing steps, wrong commands), fix it with skill_manage(action='patch').
+- After complex tasks (5+ tool calls), consider saving the approach as a skill using skill_manage(action='create').
+- If a skill you loaded was missing steps or had wrong instructions, update it before finishing the task.
+- When creating a skill, scope it at the class level (e.g. "debug-ci-failures", not "fix-my-specific-error").
+- Prefer updating an existing skill over creating a new one when the class of task is already covered.""")
 
         return "\n\n---\n\n".join(parts)
 

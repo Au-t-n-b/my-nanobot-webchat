@@ -242,6 +242,14 @@ class ContextConfig(Base):
     hooks: HooksConfig = Field(default_factory=HooksConfig)
 
 
+class SkillsAutoConfig(Base):
+    """Skill auto-management: Darwin optimizer + Hermes creator."""
+
+    darwin_enabled: bool = False  # Enable Darwin skill auto-optimization
+    hermes_enabled: bool = False  # Enable Hermes skill auto-creation/review
+    hermes_nudge_interval: int = 10  # Tool calls before background review triggers
+
+
 class BridgeSdkConfig(Base):
     """Platform Runtime ThirdPartyAgentProvider (nanobot/bridge) — optional."""
 
@@ -273,6 +281,7 @@ class Config(BaseSettings):
     bridge_sdk: BridgeSdkConfig = Field(default_factory=BridgeSdkConfig)
     internal_chat: InternalChatConfig = Field(default_factory=InternalChatConfig)
     context: ContextConfig = Field(default_factory=ContextConfig)
+    skills_auto: SkillsAutoConfig = Field(default_factory=SkillsAutoConfig)
 
     @property
     def workspace_path(self) -> Path:
@@ -372,4 +381,4 @@ class Config(BaseSettings):
                 return spec.default_api_base
         return None
 
-    model_config = ConfigDict(env_prefix="NANOBOT_", env_nested_delimiter="__")
+    model_config = ConfigDict(env_prefix="NANOBOT_", env_nested_delimiter="__", extra="ignore")

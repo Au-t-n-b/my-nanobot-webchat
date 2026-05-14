@@ -21,6 +21,11 @@ export default function RootLayout({
         <Script id="theme-init" strategy="beforeInteractive">
           {`(function(){try{var ls=window.localStorage;if(ls&&typeof ls.getItem==='function'){var t=ls.getItem('nanobot_agui_theme')||'dark';document.documentElement.setAttribute('data-theme',t);}}catch(e){}})();`}
         </Script>
+        <link rel="manifest" href="/manifest.json" />
+        <meta name="theme-color" content="#f59e0b" />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+        <link rel="apple-touch-icon" href="/icon-192x192.png" />
       </head>
       <body className="antialiased font-sans" style={{ transition: "background-color 0.25s ease, color 0.25s ease" }}>
         <ThemeProvider>

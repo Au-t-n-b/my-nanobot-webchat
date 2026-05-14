@@ -8,6 +8,7 @@ import type { AgentMessage, SessionSummary, TrashedSessionV1 } from "@/hooks/use
 import { extractIndexedFiles } from "@/lib/fileIndex";
 import { openLocation } from "@/lib/apiFile";
 import { SIDEBAR_SECTION_LABEL_CLASS } from "@/lib/sidebarTokens";
+import { SidebarStats } from "@/components/SidebarStats";
 type Props = {
   threadId: string;
   apiBase: string;
@@ -537,6 +538,13 @@ export function Sidebar({
             <span>新建会话</span>
           </button>
         </div>
+
+        <SidebarStats
+          sessionCount={sessions.length}
+          artifactCount={artifacts.length}
+          skillCount={skills.length}
+          orgAssetCount={orgAssets.length}
+        />
 
         <div className="min-h-0 flex-1 touch-pan-y overflow-y-auto overflow-x-hidden pr-0 [overscroll-behavior-y:auto] [scrollbar-gutter:stable]">
           <div className="flex flex-col gap-6 pb-2 pt-4">

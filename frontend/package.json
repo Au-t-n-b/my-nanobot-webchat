@@ -10,6 +10,7 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@ducanh2912/next-pwa": "^10.2.9",
     "@types/react-syntax-highlighter": "^15.5.13",
     "frappe-gantt": "^1.2.2",
     "jszip": "^3.10.1",

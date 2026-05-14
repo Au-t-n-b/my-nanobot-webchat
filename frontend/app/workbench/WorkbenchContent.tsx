@@ -26,6 +26,7 @@ import { SearchOverlay } from "@/components/SearchOverlay";
 import { SystemShellModal } from "@/components/SystemShellModal";
 import { CommandPalette } from "@/components/CommandPalette";
 import { Sidebar } from "@/components/Sidebar";
+import { SetupGuideDialog } from "@/components/SetupGuideDialog";
 import { ModelSelector } from "@/components/ModelSelector";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { SidebarPersonalInfo, type PersonalInfoMenuAction } from "@/components/SidebarPersonalInfo";
@@ -2002,6 +2003,7 @@ export default function WorkbenchContent() {
       </div>
         </div>
       </div>
+      <SetupGuideDialog />
     </main>
   );
 }

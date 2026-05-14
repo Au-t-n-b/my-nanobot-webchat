@@ -292,6 +292,7 @@ function ChatCardBubble({
             onSendTextRaw={onSendTextRaw}
             onOpenPreview={(p) => onFileLinkClick?.(p)}
             docId={card.docId}
+            chatCardId={card.cardId}
           >
             <SduiNodeView node={{ ...card.node, cardId: card.cardId } as unknown as typeof card.node} />
           </SkillUiRuntimeProvider>

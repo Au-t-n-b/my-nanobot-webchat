@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useSkillUiRuntime } from "@/components/sdui/SkillUiRuntimeProvider";
 import { HitlCardShell } from "@/components/sdui/HitlCardShell";
 import { formatLegacyModuleActionBlockedMessage, useLegacyModuleActionAllowed } from "@/lib/legacyModuleGate";
+import type { SduiUploadedFileRecord } from "@/lib/sdui";
 
 type Props = {
   title: string;
@@ -17,6 +18,8 @@ type Props = {
   skillName?: string;
   stateNamespace?: string;
   stepId?: string;
+  aggregateDeferredUploads?: boolean;
+  aggregateTextInputIds?: string[];
 };
 
 export function SduiConfirmCard({
@@ -30,6 +33,8 @@ export function SduiConfirmCard({
   skillName,
   stateNamespace,
   stepId,
+  aggregateDeferredUploads,
+  aggregateTextInputIds,
 }: Props) {
   const runtime = useSkillUiRuntime();
   const legacyGate = useLegacyModuleActionAllowed(moduleId);
@@ -69,6 +74,33 @@ export function SduiConfirmCard({
     const pendingRequestId = hitlRid || cid;
     if (skill && pendingRequestId) {
       setDone(true);
+      const wantAgg =
+        Boolean(aggregateDeferredUploads) ||
+        (Array.isArray(aggregateTextInputIds) && aggregateTextInputIds.length > 0);
+      if (wantAgg) {
+        const result: Record<string, unknown> = { confirmed: true };
+        if (aggregateDeferredUploads) {
+          const uploads = runtime.getDeferredHitlUploads?.(hitlRid || pendingRequestId) ?? [];
+          result.uploads = uploads;
+          if (uploads.length > 0) {
+            result.upload = uploads[uploads.length - 1];
+          }
+        }
+        if (Array.isArray(aggregateTextInputIds) && aggregateTextInputIds.length > 0) {
+          const firstId = String(aggregateTextInputIds[0] ?? "").trim();
+          const txt = firstId ? runtime.getInputValue(firstId).trim() : "";
+          result.symptomText = txt;
+          result.text = txt;
+        }
+        runtime.clearDeferredHitlUploads?.(hitlRid || pendingRequestId);
+        const lockCid = cid || (runtime.chatCardId ?? "").trim();
+        const ups = (result.uploads as unknown[] | undefined) ?? [];
+        if (lockCid && Array.isArray(ups) && ups.length > 0) {
+          runtime.lockFilePickerCard?.(lockCid, ups as SduiUploadedFileRecord[]);
+        }
+        postSkillResult("ok", result);
+        return;
+      }
       postSkillResult("ok", { confirmed: true });
       return;
     }
@@ -103,6 +135,7 @@ export function SduiConfirmCard({
     const pendingRequestId = hitlRid || cid;
     if (skill && pendingRequestId) {
       setDone(true);
+      runtime.clearDeferredHitlUploads?.(hitlRid || pendingRequestId);
       postSkillResult("cancel", { confirmed: false });
       return;
     }

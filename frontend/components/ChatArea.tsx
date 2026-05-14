@@ -92,8 +92,12 @@ export function ChatArea({
     stepLogs.length === 0 &&
     !pendingTool;
 
+  // 临时：演示阶段隐藏 Follow-up Dock（不影响其它聊天/工具流程）
+  const ENABLE_FOLLOWUP_DOCK = false;
+
   // Follow-up Dock：早期对话（≤3 条）且最后一条来自 assistant 且不在 loading/工具确认中
   const showFollowUpDock =
+    ENABLE_FOLLOWUP_DOCK &&
     !isLoading &&
     !pendingTool &&
     !disabled &&

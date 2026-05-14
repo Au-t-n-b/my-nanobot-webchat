@@ -442,6 +442,28 @@ class AgentLoop:
             self.memory_consolidator.model = self.model
             self.memory_consolidator.max_completion_tokens = provider.generation.max_tokens
 
+    async def reload_tool_config(
+        self,
+        *,
+        email_config: "EmailToolConfig | None" = None,
+        welink_config: "WelinkToolConfig | None" = None,
+    ) -> None:
+        """Hot-reload email / welink tool registration based on updated config."""
+        from nanobot.config.schema import EmailToolConfig, WelinkToolConfig
+
+        async with self._reload_lock:
+            if email_config is not None:
+                self.email_config = email_config
+                self.tools.unregister("send_email")
+                if email_config.enable:
+                    self.tools.register(SendEmailTool(config=email_config, workspace=self.workspace))
+
+            if welink_config is not None:
+                self.welink_config = welink_config
+                self.tools.unregister("send_welink")
+                if welink_config.enable:
+                    self.tools.register(SendWelinkTool(config=welink_config))
+
     def set_tool_approval_callback(self, callback: ToolApprovalCallback | None) -> Token:
         """Bind per-request HITL callback in context-local storage."""
         return _APPROVAL_CALLBACK.set(callback)

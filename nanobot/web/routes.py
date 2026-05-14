@@ -1742,7 +1742,7 @@ async def handle_config_get(request: web.Request) -> web.Response:
     cors = _cors_headers(request)
     from nanobot.config.loader import get_config_path  # local import to avoid circular deps
 
-    SENSITIVE_PATTERNS = ("password", "apikey", "api_key", "token", "secret", "passwd")
+    SENSITIVE_PATTERNS = ("password", "apikey", "api_key", "token", "secret", "passwd", "auth")
 
     def _is_sensitive(key: str) -> bool:
         k = (key or "").lower()
@@ -1819,7 +1819,7 @@ async def handle_config_post(request: web.Request) -> web.Response:
     from nanobot.web.run_registry import RunRegistry
     from nanobot.web.keys import AGENT_LOOP_KEY, CONFIG_KEY, RUN_REGISTRY_KEY
 
-    SENSITIVE_PATTERNS = ("password", "apikey", "api_key", "token", "secret", "passwd")
+    SENSITIVE_PATTERNS = ("password", "apikey", "api_key", "token", "secret", "passwd", "auth")
 
     def _is_sensitive(key: str) -> bool:
         k = (key or "").lower()
@@ -1942,6 +1942,13 @@ async def handle_config_post(request: web.Request) -> web.Response:
         except Exception as exc:
             logger.warning("Hot reload failed after config update: {}", exc)
             return web.json_response({"detail": f"hot reload failed: {exc}"}, status=500, headers=cors)
+        try:
+            await agent.reload_tool_config(
+                email_config=cfg.tools.email,
+                welink_config=cfg.tools.welink,
+            )
+        except Exception as exc:
+            logger.warning("Tool config hot reload failed: {}", exc)
 
     logger.info("config.json updated via API (hot reload applied)")
     return web.json_response(
@@ -1969,7 +1976,7 @@ async def handle_config_test(request: web.Request) -> web.Response:
     cors = _cors_headers(request)
     from nanobot.config.loader import get_config_path
 
-    SENSITIVE_PATTERNS = ("password", "apikey", "api_key", "token", "secret", "passwd")
+    SENSITIVE_PATTERNS = ("password", "apikey", "api_key", "token", "secret", "passwd", "auth")
 
     def _is_sensitive(key: str) -> bool:
         k = (key or "").lower()

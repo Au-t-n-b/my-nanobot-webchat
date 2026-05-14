@@ -1915,6 +1915,8 @@ async def handle_config_post(request: web.Request) -> web.Response:
                 restrict_to_workspace=cfg.tools.restrict_to_workspace,
                 mcp_servers=cfg.tools.mcp_servers,
                 channels_config=cfg.channels,
+                email_config=cfg.tools.email,
+                welink_config=cfg.tools.welink,
             )
             request.app[AGENT_LOOP_KEY] = agent
             logger.info("config.json updated via API (AgentLoop bootstrapped)")

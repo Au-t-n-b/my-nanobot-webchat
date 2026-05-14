@@ -19,6 +19,7 @@ from nanobot.agent.memory import MemoryConsolidator
 from nanobot.agent.subagent import SubagentManager
 from nanobot.agent.tools.choices import PresentChoicesTool
 from nanobot.agent.tools.user_upload import RequestUserUploadTool
+from nanobot.agent.tools.fault_log_intake import PresentFaultLogIntakeCardTool
 from nanobot.agent.tools.cron import CronTool
 from nanobot.agent.skills import BUILTIN_SKILLS_DIR
 from nanobot.agent.tools.filesystem import EditFileTool, ListDirTool, ReadFileTool, WriteFileTool
@@ -28,8 +29,10 @@ from nanobot.agent.tools.shell import ExecTool
 from nanobot.agent.tools.module_skill_runtime import ModuleSkillRuntimeTool
 from nanobot.agent.tools.site_survey import AnalyzeSiteArtifactsTool
 from nanobot.agent.tools.test_sdui_v3 import RunAssetScanTool
+from nanobot.agent.tools.email import SendEmailTool
 from nanobot.agent.tools.spawn import SpawnTool
 from nanobot.agent.tools.web import WebFetchTool, WebSearchTool
+from nanobot.agent.tools.welink import SendWelinkTool
 from nanobot.bus.events import InboundMessage, OutboundMessage
 from nanobot.command import CommandContext, CommandRouter, register_builtin_commands
 from nanobot.bus.queue import MessageBus
@@ -37,7 +40,7 @@ from nanobot.providers.base import LLMProvider
 from nanobot.session.manager import Session, SessionManager
 
 if TYPE_CHECKING:
-    from nanobot.config.schema import ChannelsConfig, ExecToolConfig, WebSearchConfig
+    from nanobot.config.schema import ChannelsConfig, EmailToolConfig, ExecToolConfig, WebSearchConfig, WelinkToolConfig
     from nanobot.cron.service import CronService
 
 ToolApprovalCallback = Callable[[Any], Awaitable[bool]]
@@ -305,8 +308,10 @@ class AgentLoop:
         session_manager: SessionManager | None = None,
         mcp_servers: dict | None = None,
         channels_config: ChannelsConfig | None = None,
+        email_config: EmailToolConfig | None = None,
+        welink_config: WelinkToolConfig | None = None,
     ):
-        from nanobot.config.schema import ExecToolConfig, WebSearchConfig
+        from nanobot.config.schema import EmailToolConfig, ExecToolConfig, WebSearchConfig, WelinkToolConfig
 
         self.bus = bus
         self.channels_config = channels_config
@@ -318,6 +323,8 @@ class AgentLoop:
         self.web_search_config = web_search_config or WebSearchConfig()
         self.web_proxy = web_proxy
         self.exec_config = exec_config or ExecToolConfig()
+        self.email_config = email_config or EmailToolConfig()
+        self.welink_config = welink_config or WelinkToolConfig()
         self.cron_service = cron_service
         self.restrict_to_workspace = restrict_to_workspace
         self._start_time = time.time()
@@ -526,10 +533,18 @@ class AgentLoop:
         self.tools.register(ModuleSkillRuntimeTool())
         self.tools.register(PresentChoicesTool())
         self.tools.register(RequestUserUploadTool())
+        self.tools.register(PresentFaultLogIntakeCardTool())
         self.tools.register(MessageTool(send_callback=self.bus.publish_outbound))
         self.tools.register(SpawnTool(manager=self.subagents))
         if self.cron_service:
             self.tools.register(CronTool(self.cron_service))
+        if self.email_config.enable:
+            self.tools.register(SendEmailTool(
+                config=self.email_config,
+                workspace=self.workspace,
+            ))
+        if self.welink_config.enable:
+            self.tools.register(SendWelinkTool(config=self.welink_config))
 
     async def _connect_mcp(self) -> None:
         """Connect to configured MCP servers (one-time, lazy)."""

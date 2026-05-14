@@ -36,3 +36,7 @@ frontend/.next/
 
 # 本地 nanobot 运行时数据库（个人环境产物）
 .nanobot/*.db
+
+# Sensitive auth files (WeLINK XiaoLuban tokens, etc.)
+auth.local
+*.local

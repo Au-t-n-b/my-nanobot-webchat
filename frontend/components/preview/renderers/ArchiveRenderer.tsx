@@ -289,8 +289,7 @@ export function ArchiveRenderer(
 
       {error ? (
         <div
-          className="rounded-xl text-sm p-3 whitespace-pre-wrap"
-          style={{ border: "1px solid rgba(239,107,115,0.24)", background: "rgba(239,107,115,0.08)", color: "var(--danger)" }}
+          className="ui-error-banner rounded-xl text-sm p-3 whitespace-pre-wrap"
         >
           {error}
         </div>

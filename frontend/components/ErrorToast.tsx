@@ -16,7 +16,7 @@ export function ErrorToast({ message, onRetry, onClose }: Props) {
   }, [message, onClose]);
 
   return (
-    <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 flex items-start gap-3 rounded-2xl px-4 py-3 max-w-md w-[calc(100vw-2rem)] animate-in slide-in-from-top-2 duration-200 ui-panel" style={{ borderColor: "rgba(239,107,115,0.28)" }}>
+    <div role="alert" aria-live="assertive" className="ui-error-banner fixed top-4 left-1/2 -translate-x-1/2 z-50 flex items-start gap-3 rounded-2xl px-4 py-3 max-w-md w-[calc(100vw-2rem)] animate-in slide-in-from-top-2 duration-200">
       <AlertCircle size={16} className="shrink-0 mt-0.5" style={{ color: "var(--danger)" }} />
       <p className="flex-1 text-sm break-words" style={{ color: "var(--danger)" }}>{message}</p>
       <div className="flex items-center gap-1 shrink-0">

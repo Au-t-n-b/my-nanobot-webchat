@@ -408,8 +408,16 @@ class AgentLoop:
             from nanobot.agent.tools.recall import RecallContextTool
             self.tools.register(RecallContextTool(self.archive))
 
-        # Hermes skill iteration counter
-        self._iters_since_skill_manage: int = 0
+        # Hermes skill iteration counter (per-session)
+        self._hermes_state: dict[str, dict] = {}  # session_key → state
+
+        # Skill change store (SQLite) for Hermes review gate
+        from nanobot.agent.skill_change_store import SkillChangeStore
+        expiry_days = self._skills_auto_config.request_expiry_days if self._skills_auto_config else 60
+        grace_days = self._skills_auto_config.hermes_duplicate_grace_days if self._skills_auto_config else 14
+        self.skill_change_store = SkillChangeStore(workspace, expiry_days, duplicate_grace_days=grace_days)
+        # Wire LLM provider for semantic judge (updated on reload)
+        self.skill_change_store.set_provider(provider, model)
 
         # Pass skills_auto config to ContextBuilder for filtering and guidance injection
         self.context.set_skills_auto_config(self._skills_auto_config)
@@ -442,6 +450,10 @@ class AgentLoop:
             # Memory consolidation uses provider/model for summarization and token estimation.
             self.memory_consolidator.provider = provider
             self.memory_consolidator.model = self.model
+
+            # Update skill change store's LLM provider for semantic judge
+            if hasattr(self, 'skill_change_store'):
+                self.skill_change_store.set_provider(provider, self.model)
             self.memory_consolidator.max_completion_tokens = provider.generation.max_tokens
 
     def set_tool_approval_callback(self, callback: ToolApprovalCallback | None) -> Token:
@@ -543,7 +555,10 @@ class AgentLoop:
         # Hermes skill_manage tool (conditional on config)
         if self._skills_auto_config and self._skills_auto_config.hermes_enabled:
             from nanobot.agent.tools.skill_manage import SkillManageTool
-            self.tools.register(SkillManageTool(workspace=self.workspace))
+            self.tools.register(SkillManageTool(
+                workspace=self.workspace,
+                change_store=self.skill_change_store,
+            ))
 
     async def _connect_mcp(self) -> None:
         """Connect to configured MCP servers (one-time, lazy)."""
@@ -604,6 +619,7 @@ class AgentLoop:
         chat_id: str = "direct",
         message_id: str | None = None,
         model_name: str | None = None,
+        session_key: str | None = None,
     ) -> tuple[str | None, list[str], list[dict]]:
         """Run the agent iteration loop.
 
@@ -751,11 +767,13 @@ class AgentLoop:
                     args_str = json.dumps(tc.arguments, ensure_ascii=False)
                     logger.info("Tool call: {}({})", tc.name, args_str[:200])
 
-                    # Hermes: track iterations since last skill_manage call
-                    if tc.name == "skill_manage":
-                        self._iters_since_skill_manage = 0
-                    else:
-                        self._iters_since_skill_manage += 1
+                    # Hermes: track iterations since last skill_manage call (session-scoped)
+                    if session_key and self._skills_auto_config and self._skills_auto_config.hermes_enabled:
+                        hs = self._get_hermes_state(session_key)
+                        if tc.name == "skill_manage":
+                            hs["iters_since_skill_manage"] = 0
+                        else:
+                            hs["iters_since_skill_manage"] += 1
 
                 # Re-bind tool context right before execution so that
                 # concurrent sessions don't clobber each other's routing.
@@ -980,6 +998,209 @@ class AgentLoop:
                 pass  # MCP SDK cancel scope cleanup is noisy but harmless
             self._mcp_stack = None
 
+    def _get_hermes_state(self, session_key: str) -> dict:
+        """Return (creating if needed) per-session Hermes tracking state.
+
+        Uses LRU eviction: recently accessed entries survive, stale ones are pruned.
+        Each entry tracks last_seen_at for proper LRU ordering.
+        """
+        now = __import__("time").time()
+        if len(self._hermes_state) > 100:
+            # LRU eviction: sort by last_seen_at ascending, remove the stalest 50
+            sorted_keys = sorted(
+                self._hermes_state,
+                key=lambda k: self._hermes_state[k].get("last_seen_at", 0),
+            )
+            for k in sorted_keys[:50]:
+                del self._hermes_state[k]
+        if session_key not in self._hermes_state:
+            self._hermes_state[session_key] = {
+                "iters_since_skill_manage": 0,
+                "user_turns_since_review": 0,
+                "reviews_this_session": 0,
+                "last_seen_at": now,
+            }
+        else:
+            self._hermes_state[session_key]["last_seen_at"] = now
+        return self._hermes_state[session_key]
+
+    @staticmethod
+    def _distill_for_review(messages: list[dict]) -> list[dict]:
+        """Distill raw session messages into a compact form for the Hermes review agent.
+
+        - User messages: kept intact (capped at 4000 chars)
+        - Assistant messages: text reasoning kept (capped at 800 chars);
+          pure tool-call messages compressed to a called-tools list
+        - Tool messages: structured summary with head/tail/error extraction
+        """
+        import re as _re
+
+        _ERROR_RE = _re.compile(
+            r"(?i)(traceback|error|failed|exception|assertion|denied|permission"
+            r"|not found|401|403|500|fatal|panic|segfault)",
+        )
+        _TEST_RESULT_RE = _re.compile(r"(\d+)\s+(passed|failed|error|warning)", _re.IGNORECASE)
+        _FILE_PATH_RE = _re.compile(r"(?:^|\s)([\w./\-]+\.[\w]+)(?::(\d+))?", _re.MULTILINE)
+        _SENSITIVE_RE = _re.compile(
+            r"(?i)((?:authorization|bearer|api[_-]?key|token|password|secret|credential|private[_-]?key|cookie)"
+            r"\s*[:=]\s*).+",
+        )
+
+        def _redact(text: str) -> str:
+            return _SENSITIVE_RE.sub(r"\1***", text)
+
+        def _summarize_tool(name: str, content: str) -> str:
+            if len(content) <= 600:
+                return _redact(content)
+            head = _redact(content[:300])
+            tail = _redact(content[-300:])
+            lines = content.split("\n")
+            error_lines = [l for l in lines if _ERROR_RE.search(l)]
+            error_excerpt = _redact("\n".join(error_lines[-5:])) if error_lines else ""
+            test_results = _TEST_RESULT_RE.findall(content)
+            file_paths = [m[0] for m in _FILE_PATH_RE.findall(content)][:5]
+            summary = {
+                "tool": name,
+                "head": head,
+                "tail": tail,
+                "errors": error_excerpt[:300] or None,
+                "test_results": " ".join(f"{n} {s}" for n, s in test_results) or None,
+                "file_paths": file_paths or None,
+                "truncated": True,
+                "original_chars": len(content),
+            }
+            return json.dumps(summary, ensure_ascii=False)
+
+        distilled: list[dict] = []
+        for msg in messages:
+            role = msg.get("role")
+            if role == "user":
+                content = msg.get("content", "")
+                if isinstance(content, str) and content.strip():
+                    distilled.append({"role": "user", "content": content[:4000]})
+            elif role == "assistant":
+                content = msg.get("content")
+                tool_calls = msg.get("tool_calls")
+                if isinstance(content, str) and content.strip():
+                    distilled.append({"role": "assistant", "content": content[:800]})
+                elif tool_calls:
+                    names = [tc.get("function", {}).get("name", "?") for tc in tool_calls]
+                    distilled.append({
+                        "role": "assistant",
+                        "content": f"Called tools: {', '.join(names)}",
+                    })
+            elif role == "tool":
+                tool_name = msg.get("name", "")
+                content = msg.get("content", "")
+                if isinstance(content, str):
+                    summary = _summarize_tool(tool_name, content)
+                    distilled.append({
+                        "role": "assistant",
+                        "content": f"[Tool summary: {tool_name}]\n{summary}",
+                    })
+        # Global size cap: keep early user messages + recent context
+        MAX_REVIEW_CHARS = 50_000
+        total = sum(len(m.get("content", "")) for m in distilled)
+        if total > MAX_REVIEW_CHARS:
+            # Keep first 10% (early user intent) and last 60% (recent actions)
+            head_end = max(1, int(len(distilled) * 0.1))
+            tail_start = max(head_end, int(len(distilled) * 0.4))
+            head = distilled[:head_end]
+            tail = distilled[tail_start:]
+            # Drop from the middle of tail until under budget
+            while tail and sum(len(m.get("content", "")) for m in head) + sum(len(m.get("content", "")) for m in tail) > MAX_REVIEW_CHARS:
+                tail.pop(0)
+            distilled = head + tail
+        return distilled
+
+    @staticmethod
+    def _build_review_evidence_summary(
+        distilled_messages: list[dict],
+        hermes_state: dict | None = None,
+        pending_count: int = 0,
+    ) -> str:
+        """Build a Chinese evidence summary explaining why Hermes triggered this review.
+
+        Extracts user intent, corrections, tool errors, and trigger context into a
+        compact human-readable summary (max ~8K chars).
+        """
+        import re as _re
+
+        _SENSITIVE_RE = _re.compile(
+            r"(?i)((?:authorization|bearer|api[_-]?key|token|password|secret|credential|private[_-]?key|cookie)"
+            r"\s*[:=]\s*).+",
+        )
+
+        def _redact(text: str) -> str:
+            return _SENSITIVE_RE.sub(r"\1***", text)
+
+        sections: list[str] = []
+
+        # 1. User intent (early user messages)
+        user_msgs = [m for m in distilled_messages if m.get("role") == "user"]
+        if user_msgs:
+            intent_lines = []
+            for m in user_msgs[:3]:
+                content = str(m.get("content", ""))[:500]
+                content = _redact(content)
+                intent_lines.append(f"- {content}")
+            sections.append("【用户意图】\n" + "\n".join(intent_lines))
+
+        # 2. Recent user corrections / preferences
+        correction_keywords = ("以后", "不要", "记住", "下次", "应该", "记得", "下次注意",
+                               "always", "never", "remember", "should", "don't", "avoid")
+        corrections = []
+        for m in user_msgs[-5:]:
+            content = str(m.get("content", ""))
+            if any(kw in content.lower() for kw in correction_keywords):
+                corrections.append(f"- {_redact(content[:300])}")
+        if corrections:
+            sections.append("【用户偏好/纠正】\n" + "\n".join(corrections[:5]))
+
+        # 3. Key tool behaviors (errors, test results)
+        tool_msgs = [m for m in distilled_messages
+                     if m.get("role") == "assistant" and m.get("content", "").startswith("[Tool summary:")]
+        if tool_msgs:
+            tool_lines = []
+            for m in tool_msgs[-8:]:
+                content = str(m.get("content", ""))
+                # Try to extract errors from JSON summary
+                try:
+                    json_part = content.split("\n", 1)[1]
+                    parsed = json.loads(json_part)
+                    parts = [f"工具: {parsed.get('tool', '?')}"]
+                    if parsed.get("errors"):
+                        parts.append(f"错误: {parsed['errors'][:200]}")
+                    if parsed.get("test_results"):
+                        parts.append(f"测试结果: {parsed['test_results'][:200]}")
+                    if parsed.get("file_paths"):
+                        parts.append(f"文件: {', '.join(str(p) for p in parsed['file_paths'][:3])}")
+                    tool_lines.append("- " + " | ".join(parts))
+                except (json.JSONDecodeError, IndexError):
+                    tool_lines.append(f"- {_redact(content[:200])}")
+            if tool_lines:
+                sections.append("【关键工具行为】\n" + "\n".join(tool_lines[:8]))
+
+        # 4. Trigger context
+        if hermes_state:
+            trigger_info = [
+                f"- 距上次技能管理的迭代次数: {hermes_state.get('iters_since_skill_manage', '?')}",
+                f"- 距上次审核的用户轮次: {hermes_state.get('user_turns_since_review', '?')}",
+                f"- 本会话审核次数: {hermes_state.get('reviews_this_session', '?')}",
+                f"- 当前待审核请求数: {pending_count}",
+            ]
+            sections.append("【触发原因】\n" + "\n".join(trigger_info))
+
+        result = "\n\n".join(sections)
+
+        # Cap at 8K chars, preserving early sections first
+        MAX_EVIDENCE_CHARS = 8000
+        if len(result) > MAX_EVIDENCE_CHARS:
+            # Truncate from the end
+            result = result[:MAX_EVIDENCE_CHARS]
+
+        return result
+
     def _schedule_background(self, coro) -> None:
         """Schedule a coroutine as a tracked background task (drained on shutdown)."""
         task = asyncio.create_task(coro)
@@ -1054,7 +1275,7 @@ class AgentLoop:
             final_content, _, all_msgs = await self._run_agent_loop(
                 messages, channel=channel, chat_id=chat_id,
                 message_id=msg.metadata.get("message_id"),
-                model_name=model_name,
+                model_name=model_name, session_key=key,
             )
             self._save_turn(session, all_msgs, 1 + len(history))
             self.sessions.save(session)
@@ -1067,6 +1288,12 @@ class AgentLoop:
 
         key = session_key or msg.session_key
         session = self.sessions.get_or_create(key)
+
+        # Update session_key on SkillManageTool so requests are traceable
+        from nanobot.agent.tools.skill_manage import SkillManageTool as _SkillManageTool
+        if smt := self.tools.get("skill_manage"):
+            if isinstance(smt, _SkillManageTool):
+                smt._session_key = key
 
         # Slash commands
         raw = msg.content.strip()
@@ -1105,6 +1332,7 @@ class AgentLoop:
             channel=msg.channel, chat_id=msg.chat_id,
             message_id=msg.metadata.get("message_id"),
             model_name=model_name,
+            session_key=key,
         )
 
         if final_content is None:
@@ -1131,11 +1359,35 @@ class AgentLoop:
 
         # Background: Hermes skill review (auto-create/update skills)
         if self._skills_auto_config and self._skills_auto_config.hermes_enabled:
-            if self._iters_since_skill_manage >= self._skills_auto_config.hermes_nudge_interval:
-                import copy
-                review_snapshot = copy.deepcopy(session.messages)
-                self._schedule_background(self._run_skill_review(review_snapshot))
-                self._iters_since_skill_manage = 0
+            cfg = self._skills_auto_config
+            try:
+                hs = self._get_hermes_state(key)
+                pending = self.skill_change_store.pending_count()
+            except Exception:
+                logger.warning("Hermes: failed to query state, skipping trigger check")
+                pending = cfg.hermes_max_pending  # safe default: skip trigger
+            else:
+                should_trigger = (
+                    hs["iters_since_skill_manage"] >= cfg.hermes_nudge_interval
+                    and pending < cfg.hermes_max_pending
+                    and hs["user_turns_since_review"] >= cfg.hermes_cooldown_turns
+                    and hs["reviews_this_session"] < cfg.hermes_max_reviews_per_session
+                )
+                if should_trigger:
+                    if cfg.hermes_distill_snapshot:
+                        review_snapshot = self._distill_for_review(session.messages)
+                    else:
+                        import copy
+                        review_snapshot = copy.deepcopy(session.messages)
+                    self._schedule_background(self._run_skill_review(review_snapshot))
+                    hs["iters_since_skill_manage"] = 0
+                    hs["user_turns_since_review"] = 0
+                    hs["reviews_this_session"] += 1
+                else:
+                    hs["user_turns_since_review"] += 1
+
+        # Background: expire stale skill change requests
+        self._schedule_background(self.skill_change_store.expire_requests())
 
         if (mt := self.tools.get("message")) and isinstance(mt, MessageTool) and mt._sent_in_turn:
             return None
@@ -1233,29 +1485,54 @@ class AgentLoop:
     async def _run_skill_review(self, messages_snapshot: list[dict]) -> None:
         """Background Hermes skill review: analyze conversation and create/update skills."""
         _SKILL_REVIEW_PROMPT = (
-            "Review the conversation above and consider whether a skill should be saved or updated.\n\n"
+            "Review the conversation above and consider whether a new skill should be created.\n\n"
             "Work in this order — do not skip steps:\n\n"
             "1. SURVEY existing skills. Call list_dir on the workspace skills directory.\n"
             "   If anything looks relevant, read_file its SKILL.md.\n"
             "2. THINK CLASS-FIRST. What general pattern of task did the user complete?\n"
             "   What conditions will trigger this pattern again?\n"
-            "3. PREFER GENERALIZING an existing skill over creating a new one.\n"
-            "   Use skill_manage(action='patch') to update it.\n"
-            "4. ONLY CREATE a new skill when no existing one covers the class.\n"
-            "   Use skill_manage(action='create') with a class-level name.\n\n"
+            "3. If an existing skill already covers this pattern, do NOT create a new one.\n"
+            "4. If the pattern is genuinely new and no existing skill covers it,\n"
+            "   use skill_manage(action='create') with a class-level name.\n\n"
+            "IMPORTANT — Hermes may ONLY propose CREATE requests for new skills.\n"
+            "Do NOT patch, edit, or delete existing skills.\n\n"
             "Only act when something is genuinely worth saving.\n"
-            "If nothing stands out, just say 'Nothing to save.' and stop."
+            "If nothing stands out, just say 'Nothing to save.' and stop.\n\n"
+            "DO NOT create a skill if:\n"
+            "- The task is one-time (e.g., fixing a specific typo or a single bug).\n"
+            "- The conversation is mostly Q&A or exploration, not a repeatable workflow.\n"
+            "- There was no multi-step tool usage or user correction pattern.\n"
+            "- The pattern is already fully covered by an existing skill.\n"
+            "- You cannot state a concrete future trigger (when this skill should activate again).\n"
+            "- You cannot explain why this is reusable rather than session-only.\n"
+            "- The proposed change only records a temporary token, branch name, path, or command.\n"
+            "- The task is environment-specific and will not generalize.\n"
+            "- An existing skill is related but distinct — only create when the reusable class is genuinely separate."
         )
 
         # Build a minimal tool registry for the review agent
         from nanobot.agent.tools.skill_manage import SkillManageTool
         from nanobot.agent.tools.filesystem import ReadFileTool, ListDirTool
 
+        # Build Chinese evidence summary for trigger_conversation
+        try:
+            pending_count = self.skill_change_store.pending_count()
+        except Exception:
+            pending_count = 0
+        evidence_summary = self._build_review_evidence_summary(
+            messages_snapshot, hermes_state=None, pending_count=pending_count,
+        )
+
         review_tools = ToolRegistry()
         allowed_dir = self.workspace if self.restrict_to_workspace else None
         review_tools.register(ListDirTool(workspace=self.workspace, allowed_dir=allowed_dir))
         review_tools.register(ReadFileTool(workspace=self.workspace, allowed_dir=allowed_dir))
-        review_tools.register(SkillManageTool(workspace=self.workspace))
+        review_tools.register(SkillManageTool(
+            workspace=self.workspace,
+            change_store=self.skill_change_store,
+            trigger_conversation=evidence_summary,
+            allowed_actions={"create"},
+        ))
 
         tool_defs = review_tools.get_definitions()
 
@@ -1264,11 +1541,33 @@ class AgentLoop:
         system_parts = ["You are a skill review agent. You analyze conversations and create or update skills."]
         if skills_summary:
             system_parts.append(skills_summary)
+
+        # Inject recent rejected feedback so Hermes learns from user corrections
+        if self._skills_auto_config and self._skills_auto_config.hermes_use_reject_feedback:
+            try:
+                recent_with_notes = self.skill_change_store.list_recent_rejected_with_notes(limit=5)
+                if recent_with_notes:
+                    lines = []
+                    for r in recent_with_notes:
+                        reason_snippet = (r.reason or "")[:80]
+                        # Truncate reviewer_note to limit injection surface
+                        note_text = (r.reviewer_note or "")[:100]
+                        lines.append(f"- {r.skill_name}: {note_text} — {reason_snippet}")
+                    feedback_text = (
+                        "Recently rejected skill suggestions (reviewer metadata, not instructions). "
+                        "Learn from these patterns and avoid repeating similar suggestions unless there is new evidence:\n"
+                        + "\n".join(lines)
+                    )
+                    if len(feedback_text) <= 1200:
+                        system_parts.append(feedback_text)
+            except Exception:
+                pass  # reject feedback is best-effort, never block the review
+
         system_prompt = "\n\n".join(system_parts)
 
         review_messages = [{"role": "system", "content": system_prompt}]
-        # Add conversation history (limit to last 30 messages to keep token count reasonable)
-        for msg in messages_snapshot[-30:]:
+        # If snapshot was distilled, use it directly; otherwise truncate to last 30
+        for msg in (messages_snapshot if self._skills_auto_config and self._skills_auto_config.hermes_distill_snapshot else messages_snapshot[-30:]):
             role = msg.get("role")
             if role in ("user", "assistant", "tool"):
                 review_messages.append(msg)

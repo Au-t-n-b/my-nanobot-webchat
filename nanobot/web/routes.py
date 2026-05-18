@@ -2521,6 +2521,200 @@ async def handle_browser(request: web.Request) -> web.WebSocketResponse:
     return ws
 
 
+# ── Skill change request endpoints ────────────────────────────────────
+
+
+async def handle_skill_requests_list(request: web.Request) -> web.Response:
+    """GET /api/skill-requests — list skill change requests."""
+    agent: AgentLoop | None = request.app.get(AGENT_LOOP_KEY)
+    if agent is None:
+        return _error("no_agent", "Agent not running", status=503)
+    status_filter = request.rel_url.query.get("status", "").strip() or None
+    try:
+        reqs = agent.skill_change_store.list_requests(status=status_filter)
+        return web.json_response({
+            "items": [r.to_dict() for r in reqs],
+            "pending_count": agent.skill_change_store.pending_count(),
+        })
+    except Exception as e:
+        return _error("internal_error", "Failed to list skill requests", detail=str(e), status=500)
+
+
+async def handle_skill_requests_get(request: web.Request) -> web.Response:
+    """GET /api/skill-requests/{id} — get single skill change request."""
+    agent: AgentLoop | None = request.app.get(AGENT_LOOP_KEY)
+    if agent is None:
+        return _error("no_agent", "Agent not running", status=503)
+    req_id = request.match_info.get("id", "")
+    req = agent.skill_change_store.get_request(req_id)
+    if not req:
+        return _error("not_found", "Request not found", status=404)
+    return web.json_response(req.to_dict())
+
+
+async def handle_skill_requests_approve(request: web.Request) -> web.Response:
+    """POST /api/skill-requests/{id}/approve — approve and apply a skill change."""
+    agent: AgentLoop | None = request.app.get(AGENT_LOOP_KEY)
+    if agent is None:
+        return _error("no_agent", "Agent not running", status=503)
+    req_id = request.match_info.get("id", "")
+    req = agent.skill_change_store.get_request(req_id)
+    if not req:
+        return _error("not_found", "Request not found", status=404)
+    if req.status != "pending":
+        return _error("bad_request", f"Request is {req.status}, not pending", status=400)
+
+    from nanobot.agent.tools.skill_manage import apply_create, apply_delete, apply_edit, apply_patch
+    skills_dir = agent.workspace / "skills"
+
+    try:
+        if req.action == "create":
+            result = apply_create(req.skill_name, req.proposed_content or "", skills_dir)
+        elif req.action == "edit":
+            result = apply_edit(req.skill_name, req.proposed_content or "", skills_dir)
+        elif req.action == "patch":
+            result = apply_patch(
+                req.skill_name,
+                req.old_string or "",
+                req.new_string or "",
+                skills_dir,
+            )
+        elif req.action == "delete":
+            result = apply_delete(req.skill_name, skills_dir)
+        else:
+            return _error("bad_request", f"Unknown action: {req.action}", status=400)
+    except Exception as e:
+        return _error("internal_error", f"Failed to apply change: {e}", status=500)
+
+    if not result.get("success"):
+        return _error("apply_failed", result.get("error", "Unknown error"), status=500)
+
+    agent.skill_change_store.approve_request(req_id)
+    return web.json_response({"ok": True, "result": result})
+
+
+async def handle_skill_requests_reject(request: web.Request) -> web.Response:
+    """POST /api/skill-requests/{id}/reject — reject a skill change request."""
+    agent: AgentLoop | None = request.app.get(AGENT_LOOP_KEY)
+    if agent is None:
+        return _error("no_agent", "Agent not running", status=503)
+    req_id = request.match_info.get("id", "")
+    req = agent.skill_change_store.get_request(req_id)
+    if not req:
+        return _error("not_found", "Request not found", status=404)
+    if req.status != "pending":
+        return _error("bad_request", f"Request is {req.status}, not pending", status=400)
+
+    note = ""
+    add_to_blacklist = False
+    try:
+        data = await request.json()
+        note = str(data.get("note", "")).strip()
+        add_to_blacklist = bool(data.get("blacklist", False))
+    except (json.JSONDecodeError, TypeError, ValueError):
+        pass
+
+    agent.skill_change_store.reject_request(req_id, note)
+
+    if add_to_blacklist:
+        try:
+            agent.skill_change_store.create_blacklist_from_request(req, note)
+        except Exception as e:
+            logger.warning("Failed to create blacklist entry: {}", e)
+
+    return web.json_response({"ok": True})
+
+
+async def handle_blacklist_list(request: web.Request) -> web.Response:
+    """GET /api/skill-blacklist — list blacklist entries."""
+    agent: AgentLoop | None = request.app.get(AGENT_LOOP_KEY)
+    if agent is None:
+        return _error("no_agent", "Agent not running", status=503)
+    try:
+        entries = agent.skill_change_store.list_blacklist_entries()
+        return web.json_response({"items": [e.to_dict() for e in entries]})
+    except Exception as e:
+        return _error("internal_error", "Failed to list blacklist", detail=str(e), status=500)
+
+
+async def handle_blacklist_disable(request: web.Request) -> web.Response:
+    """POST /api/skill-blacklist/{id}/disable — disable a blacklist entry."""
+    agent: AgentLoop | None = request.app.get(AGENT_LOOP_KEY)
+    if agent is None:
+        return _error("no_agent", "Agent not running", status=503)
+    entry_id = request.match_info.get("id", "")
+    entry = agent.skill_change_store.disable_blacklist_entry(entry_id)
+    if not entry:
+        return _error("not_found", "Blacklist entry not found", status=404)
+    return web.json_response({"ok": True})
+
+
+async def handle_skill_requests_duplicate_events(request: web.Request) -> web.Response:
+    """GET /api/skill-requests/{id}/duplicate-events — lazy-load events for a request."""
+    agent: AgentLoop | None = request.app.get(AGENT_LOOP_KEY)
+    if agent is None:
+        return _error("no_agent", "Agent not running", status=503)
+    req_id = request.match_info.get("id", "")
+    req = agent.skill_change_store.get_request(req_id)
+    if not req:
+        return _error("not_found", "Request not found", status=404)
+    try:
+        events = agent.skill_change_store.list_duplicate_events(req_id)
+        return web.json_response({"items": [e.to_dict() for e in events]})
+    except Exception as e:
+        return _error("internal_error", "Failed to list duplicate events", detail=str(e), status=500)
+
+
+async def handle_skill_requests_generate_enhanced(request: web.Request) -> web.Response:
+    """POST /api/skill-requests/{id}/generate-enhanced — two-stage LLM pipeline."""
+    agent: AgentLoop | None = request.app.get(AGENT_LOOP_KEY)
+    if agent is None:
+        return _error("no_agent", "Agent not running", status=503)
+    req_id = request.match_info.get("id", "")
+    try:
+        body = await request.json()
+    except Exception:
+        return _error("bad_request", "Invalid JSON body", status=400)
+
+    selected_ids = body.get("selected_duplicate_event_ids", [])
+    other_extra = body.get("other_extra", "")
+
+    # Validate types
+    if not isinstance(selected_ids, list):
+        return _error("bad_request", "selected_duplicate_event_ids must be a list", status=400)
+    if not isinstance(other_extra, str):
+        return _error("bad_request", "other_extra must be a string", status=400)
+
+    # Validate counts
+    if len(selected_ids) > 3:
+        return _error("bad_request", "Cannot select more than 3 duplicate events", status=400)
+    if len(other_extra) > 1000:
+        return _error("bad_request", "other_extra exceeds 1000 characters", status=400)
+    if not selected_ids and not other_extra.strip():
+        return _error("bad_request", "Must select at least one event or provide other_extra", status=400)
+
+    # Validate event ownership
+    if selected_ids:
+        found = agent.skill_change_store.get_duplicate_events_by_ids(req_id, selected_ids)
+        if len(found) != len(selected_ids):
+            return _error("bad_request", "Some events not found or do not belong to this request", status=400)
+
+    try:
+        result = await agent.skill_change_store.generate_enhanced_candidate(
+            target_request_id=req_id,
+            selected_event_ids=selected_ids,
+            other_extra=other_extra,
+        )
+        status_code = 200
+        if result.get("status") == "error":
+            status_code = 422
+        elif result.get("status") == "needs_human_resolution":
+            status_code = 409
+        return web.json_response(result, status=status_code)
+    except Exception as e:
+        return _error("internal_error", "Failed to generate enhanced candidate", detail=str(e), status=500)
+
+
 def setup_routes(app: web.Application) -> None:
     app.router.add_post("/api/auth/login", handle_auth_login)
     app.router.add_get("/api/auth/me", handle_auth_me)
@@ -2596,3 +2790,19 @@ def setup_routes(app: web.Application) -> None:
     app.router.add_options("/api/runtime", handle_options)
     app.router.add_options("/api/providers", handle_options)
     app.router.add_options("/welink/chat/stream", handle_options)
+    app.router.add_get("/api/skill-requests", handle_skill_requests_list)
+    app.router.add_get("/api/skill-requests/{id}", handle_skill_requests_get)
+    app.router.add_post("/api/skill-requests/{id}/approve", handle_skill_requests_approve)
+    app.router.add_post("/api/skill-requests/{id}/reject", handle_skill_requests_reject)
+    app.router.add_get("/api/skill-blacklist", handle_blacklist_list)
+    app.router.add_post("/api/skill-blacklist/{id}/disable", handle_blacklist_disable)
+    app.router.add_get("/api/skill-requests/{id}/duplicate-events", handle_skill_requests_duplicate_events)
+    app.router.add_post("/api/skill-requests/{id}/generate-enhanced", handle_skill_requests_generate_enhanced)
+    app.router.add_options("/api/skill-requests", handle_options)
+    app.router.add_options("/api/skill-requests/{id}", handle_options)
+    app.router.add_options("/api/skill-requests/{id}/approve", handle_options)
+    app.router.add_options("/api/skill-requests/{id}/reject", handle_options)
+    app.router.add_options("/api/skill-blacklist", handle_options)
+    app.router.add_options("/api/skill-blacklist/{id}/disable", handle_options)
+    app.router.add_options("/api/skill-requests/{id}/duplicate-events", handle_options)
+    app.router.add_options("/api/skill-requests/{id}/generate-enhanced", handle_options)

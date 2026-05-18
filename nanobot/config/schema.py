@@ -248,6 +248,13 @@ class SkillsAutoConfig(Base):
     darwin_enabled: bool = False  # Enable Darwin skill auto-optimization
     hermes_enabled: bool = False  # Enable Hermes skill auto-creation/review
     hermes_nudge_interval: int = 10  # Tool calls before background review triggers
+    request_expiry_days: int = 60  # Auto-expire pending skill change requests after N days
+    hermes_cooldown_turns: int = 5  # Min user turns between Hermes reviews
+    hermes_max_pending: int = 5  # Pause Hermes when this many requests are pending
+    hermes_max_reviews_per_session: int = 3  # Max auto-reviews per session
+    hermes_distill_snapshot: bool = True  # Use distilled snapshot instead of raw deepcopy
+    hermes_use_reject_feedback: bool = True  # Inject recent rejected notes into review prompt
+    hermes_duplicate_grace_days: int = 14  # Grace period extension when similar pending is re-matched
 
 
 class BridgeSdkConfig(Base):

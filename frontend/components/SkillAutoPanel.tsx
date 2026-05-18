@@ -3,9 +3,12 @@
 import { CheckCircle2, Save } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
-function aguiRequestPath(path: string): string {
-  const base = (process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8765").replace(/\/$/, "");
-  return `${base}${path.startsWith("/") ? path : `/${path}`}`;
+function apiPath(path: string): string {
+  if (process.env.NEXT_PUBLIC_AGUI_DIRECT === "1") {
+    const base = (process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8765").replace(/\/$/, "");
+    return `${base}${path.startsWith("/") ? path : `/${path}`}`;
+  }
+  return path;
 }
 
 type Status = "idle" | "loading" | "saving" | "success" | "error";
@@ -33,7 +36,7 @@ export function SkillAutoPanel({
     setStatus("loading");
     setErrorMsg("");
     try {
-      const res = await fetch(aguiRequestPath("/api/config"));
+      const res = await fetch(apiPath("/api/config"));
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const cfg = await res.json();
       const sa = cfg?.skills_auto ?? {};
@@ -65,7 +68,7 @@ export function SkillAutoPanel({
           hermes_nudge_interval: form.hermesNudgeInterval,
         },
       };
-      const res = await fetch(aguiRequestPath("/api/config"), {
+      const res = await fetch(apiPath("/api/config"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(patch),

@@ -488,6 +488,8 @@ def gateway(
         session_manager=session_manager,
         mcp_servers=config.tools.mcp_servers,
         channels_config=config.channels,
+        email_config=config.tools.email,
+        welink_config=config.tools.welink,
     )
 
     # Set cron callback (needs agent)
@@ -697,6 +699,8 @@ def agui(
                 restrict_to_workspace=cfg.tools.restrict_to_workspace,
                 mcp_servers=cfg.tools.mcp_servers,
                 channels_config=cfg.channels,
+                email_config=cfg.tools.email,
+                welink_config=cfg.tools.welink,
             )
             aio_app = create_app(agent_loop=agent_loop, config=cfg)
             mode = f"model={agent_loop.model}"
@@ -763,6 +767,8 @@ def agent(
         restrict_to_workspace=config.tools.restrict_to_workspace,
         mcp_servers=config.tools.mcp_servers,
         channels_config=config.channels,
+        email_config=config.tools.email,
+        welink_config=config.tools.welink,
     )
 
     # Shared reference for progress callbacks

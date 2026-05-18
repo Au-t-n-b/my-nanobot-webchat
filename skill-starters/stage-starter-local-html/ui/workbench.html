@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Stage Starter Workbench</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0b1220;
+        --card: rgba(255, 255, 255, 0.06);
+        --border: rgba(255, 255, 255, 0.12);
+        --text: rgba(255, 255, 255, 0.92);
+        --muted: rgba(255, 255, 255, 0.65);
+        --accent: #7c3aed;
+      }
+      body {
+        margin: 0;
+        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji",
+          "Segoe UI Emoji";
+        background: var(--bg);
+        color: var(--text);
+      }
+      .wrap {
+        padding: 16px;
+      }
+      .card {
+        border: 1px solid var(--border);
+        background: var(--card);
+        border-radius: 12px;
+        padding: 14px;
+      }
+      .row {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        align-items: center;
+      }
+      .muted {
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.5;
+      }
+      button {
+        border: 1px solid var(--border);
+        background: rgba(124, 58, 237, 0.18);
+        color: var(--text);
+        padding: 10px 12px;
+        border-radius: 10px;
+        cursor: pointer;
+      }
+      button:hover {
+        background: rgba(124, 58, 237, 0.26);
+      }
+      code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+        font-size: 12px;
+      }
+      .kv {
+        display: grid;
+        grid-template-columns: 120px 1fr;
+        gap: 8px 12px;
+        margin-top: 12px;
+      }
+      .k {
+        color: var(--muted);
+      }
+      .v {
+        overflow-wrap: anywhere;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="card">
+        <div class="row">
+          <strong id="title">本地 HTML 工作台</strong>
+          <span class="muted" id="hint"></span>
+        </div>
+
+        <div class="kv">
+          <div class="k">embedId</div>
+          <div class="v"><code id="embedId">workbench-web</code></div>
+          <div class="k">最近一次 state</div>
+          <div class="v"><code id="statePreview">{}</code></div>
+        </div>
+
+        <div style="height: 12px"></div>
+        <div class="row">
+          <button id="btnSend">发送 skill_web_intent（模拟“完成编辑”）</button>
+          <button id="btnPing">发送 CLAW_EVENT（仅日志）</button>
+        </div>
+
+        <div style="height: 12px"></div>
+        <div class="muted">
+          本页演示与宿主的最小 postMessage 协议：
+          <div>1) 宿主下发：<code>CLAW_UPDATE_STATE</code> + <code>payload</code></div>
+          <div>2) 子页上行：<code>skill_web_intent</code> 或 <code>CLAW_EVENT</code></div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const CLAW_UPDATE_STATE = "CLAW_UPDATE_STATE";
+      const CLAW_EVENT = "CLAW_EVENT";
+      const SKILL_WEB_INTENT = "skill_web_intent";
+
+      const embedId = "workbench-web";
+
+      function postToParent(type, payload) {
+        window.parent.postMessage({ type, payload }, "*");
+      }
+
+      function setText(id, text) {
+        const el = document.getElementById(id);
+        if (el) el.textContent = String(text ?? "");
+      }
+
+      window.addEventListener("message", (evt) => {
+        const data = evt.data || {};
+        if (!data || typeof data !== "object") return;
+
+        if (data.type === CLAW_UPDATE_STATE && data.embedId === embedId) {
+          const state = data.payload || {};
+          setText("title", state.title || "本地 HTML 工作台");
+          setText("hint", state.hint || "");
+          setText("statePreview", JSON.stringify(state));
+        }
+      });
+
+      document.getElementById("btnSend")?.addEventListener("click", () => {
+        postToParent(SKILL_WEB_INTENT, {
+          embedId,
+          action: "workbench_done",
+          data: { ts: Date.now(), note: "workbench.html: user clicked done" },
+        });
+      });
+
+      document.getElementById("btnPing")?.addEventListener("click", () => {
+        postToParent(CLAW_EVENT, { embedId, event: "ping", ts: Date.now() });
+      });
+
+      setText("embedId", embedId);
+    </script>
+  </body>
+</html>
+

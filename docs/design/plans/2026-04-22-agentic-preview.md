@@ -8,7 +8,7 @@
 
 **Tech Stack:** Next.js/React、TypeScript、现有 preview 子系统、Python aiohttp SSE、`pydantic`、`skill_runtime_bridge` / `hybrid_agent_subtask`
 
-**规格锁定:** `docs/superpowers/specs/2026-04-22-agentic-preview-design.md`
+**规格锁定:** `docs/design/specs/2026-04-22-agentic-preview-design.md`
 
 ---
 
@@ -422,7 +422,7 @@ git commit -m "feat(preview): 合并 Content-Length 与 binary HEAD 元数据"
 
 ### Task 10: 文档与收尾
 
-- [ ] **确认** `docs/superpowers/specs/2026-04-22-agentic-preview-design.md` 与实现一致。
+  - [ ] **确认** `docs/design/specs/2026-04-22-agentic-preview-design.md` 与实现一致。
 - [ ] **全量验证**
 
 Run:
@@ -437,6 +437,6 @@ Expected: 全部 PASS。
 - [ ] **Commit**
 
 ```bash
-git add docs/superpowers/
+git add docs/design/
 git commit -m "docs(preview): Phase 3 Agentic Preview 实施收尾"
 ```

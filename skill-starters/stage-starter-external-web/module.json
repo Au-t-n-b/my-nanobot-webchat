@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "stage_starter_external_web",
+  "docId": "dashboard:stage-starter-external-web",
+  "dataFile": "skills/stage_starter_external_web/data/dashboard.json",
+  "flow": "stage_starter_external_web",
+  "capabilities": {
+    "hitl": true,
+    "uploads": false,
+    "metrics": ["kpi_cards", "bar_chart", "donut_chart"],
+    "skillOrchestration": ["serial"],
+    "taskProgressAutoSync": false
+  }
+}
+

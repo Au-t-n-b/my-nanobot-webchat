@@ -147,6 +147,24 @@ class ExecToolConfig(Base):
     timeout: int = 60
     path_append: str = ""
 
+class EmailToolConfig(Base):
+    """Email sending tool configuration (Outlook COM)."""
+
+    enable: bool = False
+    allowed_domains: list[str] = Field(default_factory=lambda: ["huawei.com"])
+
+
+class WelinkToolConfig(Base):
+    """WeLINK XiaoLuban messaging tool configuration."""
+
+    enable: bool = False
+    xiaoluban_auth: str = ""
+    xiaoluban_url: str = "http://xiaoluban.rnd.huawei.com:80/"
+    xiaoluban_sender: str = ""
+    rate_limit_per_minute: int = 20
+    rate_limit_per_day: int = 200
+
+
 class MCPServerConfig(Base):
     """MCP server connection configuration (stdio or HTTP)."""
 
@@ -164,6 +182,8 @@ class ToolsConfig(Base):
 
     web: WebToolsConfig = Field(default_factory=WebToolsConfig)
     exec: ExecToolConfig = Field(default_factory=ExecToolConfig)
+    email: EmailToolConfig = Field(default_factory=EmailToolConfig)
+    welink: WelinkToolConfig = Field(default_factory=WelinkToolConfig)
     restrict_to_workspace: bool = False  # If true, restrict all tool access to workspace directory
     mcp_servers: dict[str, MCPServerConfig] = Field(default_factory=dict)
 

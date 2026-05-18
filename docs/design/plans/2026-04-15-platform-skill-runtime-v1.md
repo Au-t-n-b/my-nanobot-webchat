@@ -9,7 +9,7 @@
 - User completes HITL
 - Platform returns a unified `skill_runtime_result` to resume the skill
 
-**Architecture:** Add a small generic bridge module in `nanobot/web` that accepts protocol envelopes (see `docs/handoffs/2026-04-15-平台事件协议草案-v1.md`) and maps them onto existing platform primitives (`MissionControlManager`, `SkillUiPatchPusher`, existing SSE task-status emission, and current artifact append behavior).
+**Architecture:** Add a small generic bridge module in `nanobot/web` that accepts protocol envelopes (see `docs/design/handoffs/2026-04-15-平台事件协议草案-v1.md`) and maps them onto existing platform primitives (`MissionControlManager`, `SkillUiPatchPusher`, existing SSE task-status emission, and current artifact append behavior).
 
 **Transport constraint (Hard Rule):** Reuse the existing `/api/chat` “fast-path intent” message body structure for both:
 
@@ -37,7 +37,7 @@ The bridge must enforce core protocol rules: **requestId idempotency**, **dashbo
 - Test: `tests/web/test_skill_runtime_bridge.py`
 - Reference: `nanobot/web/mission_control.py`
 - Reference: `nanobot/web/skill_ui_patch.py`
-- Reference: `docs/handoffs/2026-04-15-平台事件协议草案-v1.md`
+- Reference: `docs/design/handoffs/2026-04-15-平台事件协议草案-v1.md`
 
 - [ ] **Step 1: Write the failing bridge tests**
 
@@ -278,7 +278,7 @@ Expected: FAIL because store module does not exist
 - [ ] **Step 5: Add `skill_runtime_result` ingest via chat fast-path intent**
   - Reuse the `/api/chat` fast-path intent message structure
   - **Hard Rule:** Use a dedicated intent name: `skill_runtime_result` (must not be renamed)
-  - The intent payload must be the `skill_runtime_result` schema defined in `docs/handoffs/2026-04-15-平台事件协议草案-v1.md`
+  - The intent payload must be the `skill_runtime_result` schema defined in `docs/design/handoffs/2026-04-15-平台事件协议草案-v1.md`
   - Calls `consume_result()` and returns a deterministic response for duplicates
   - Triggers the skill resume execution (integration stub acceptable in v1; ensure the contract is stable)
 
@@ -375,7 +375,7 @@ Expected: only `nanobot/web/routes.py`, `nanobot/web/skill_runtime_bridge.py`, a
 - [ ] **Step 4: Commit verification-only updates if needed**
 
 ```bash
-git add docs/superpowers/plans/2026-04-15-platform-skill-runtime-v1.md
+git add docs/design/plans/2026-04-15-platform-skill-runtime-v1.md
 git commit -m "docs: add platform skill runtime v1 plan"
 ```
 

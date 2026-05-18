@@ -26,6 +26,8 @@ import { SearchOverlay } from "@/components/SearchOverlay";
 import { SystemShellModal } from "@/components/SystemShellModal";
 import { CommandPalette } from "@/components/CommandPalette";
 import { Sidebar } from "@/components/Sidebar";
+import { CenteredConfirmModal } from "@/components/CenteredModal";
+import { SetupGuideDialog } from "@/components/SetupGuideDialog";
 import { ModelSelector } from "@/components/ModelSelector";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { SidebarPersonalInfo, type PersonalInfoMenuAction } from "@/components/SidebarPersonalInfo";
@@ -354,6 +356,7 @@ export default function WorkbenchContent() {
   const [searchQuery, setSearchQuery] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [clearSessionConfirmOpen, setClearSessionConfirmOpen] = useState(false);
   const [navExpanded, setNavExpanded] = useState(false);
   /** 右侧大盘：总览 vs Skill 模块视图（用于在模块大盘时隐藏顶栏项目区） */
   const [dashboardNavigatorView, setDashboardNavigatorView] = useState<"overview" | "module">("overview");
@@ -1119,9 +1122,7 @@ export default function WorkbenchContent() {
       clearChat({ saveUndoSnapshot: true });
     };
     const onClearSession = () => {
-      const ok = window.confirm("确认清空当前会话？此操作不可撤销。");
-      if (!ok) return;
-      clearChat({ saveUndoSnapshot: true });
+      setClearSessionConfirmOpen(true);
     };
     const onOpenProjectSwitcher = () => {
       // Best-effort: show overview column and scroll into dashboard; project dropdown lives there.
@@ -2002,6 +2003,19 @@ export default function WorkbenchContent() {
       </div>
         </div>
       </div>
+      <SetupGuideDialog />
+      <CenteredConfirmModal
+        open={clearSessionConfirmOpen}
+        title="清空当前会话"
+        description="确认清空当前会话？此操作不可撤销。"
+        variant="warning"
+        confirmText="清空"
+        onCancel={() => setClearSessionConfirmOpen(false)}
+        onConfirm={() => {
+          setClearSessionConfirmOpen(false);
+          clearChat({ saveUndoSnapshot: true });
+        }}
+      />
     </main>
   );
 }

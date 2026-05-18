@@ -8,6 +8,7 @@ import type { AgentMessage, SessionSummary, TrashedSessionV1 } from "@/hooks/use
 import { extractIndexedFiles } from "@/lib/fileIndex";
 import { openLocation } from "@/lib/apiFile";
 import { SIDEBAR_SECTION_LABEL_CLASS } from "@/lib/sidebarTokens";
+import { SidebarStats } from "@/components/SidebarStats";
 type Props = {
   threadId: string;
   apiBase: string;
@@ -538,6 +539,13 @@ export function Sidebar({
           </button>
         </div>
 
+        <SidebarStats
+          sessionCount={sessions.length}
+          artifactCount={artifacts.length}
+          skillCount={skills.length}
+          orgAssetCount={orgAssets.length}
+        />
+
         <div className="min-h-0 flex-1 touch-pan-y overflow-y-auto overflow-x-hidden pr-0 [overscroll-behavior-y:auto] [scrollbar-gutter:stable]">
           <div className="flex flex-col gap-6 pb-2 pt-4">
             {/* ── SidebarPrimary：会话列表 + 最近清空 ── */}
@@ -610,7 +618,7 @@ export function Sidebar({
 
         <div className="max-h-48 overflow-y-auto overflow-x-hidden space-y-0 [scrollbar-width:thin]">
           {artifacts.length === 0 ? (
-            <p className="ui-text-eyebrow ui-text-muted">暂无产物，生成后可在右侧预览。</p>
+            <p className="ui-text-eyebrow ui-text-muted">暂无产物。在对话中让 Agent 生成文件后，产物会自动出现在这里。</p>
           ) : (
             artifacts.map((artifact, index) => (
               <div
@@ -740,7 +748,14 @@ export function Sidebar({
         )}
 
           <div className="max-h-48 overflow-y-auto overflow-x-hidden space-y-0 [scrollbar-width:thin]" role="list">
-          {!skillsLoading && skills.length === 0 && <p className="ui-text-eyebrow ui-text-muted">暂无技能。</p>}
+          {!skillsLoading && skills.length === 0 && (
+            <div className="flex flex-col items-center gap-1.5 py-3">
+              <p className="ui-text-eyebrow ui-text-muted text-center">暂无技能</p>
+              <p className="ui-text-eyebrow ui-text-muted text-center opacity-60">
+                将 SKILL.md 放入 workspace/skills/ 目录，然后点击刷新。
+              </p>
+            </div>
+          )}
           {skills.map((s) => {
             const isActive = selectedSkillName === s.name;
             return (
@@ -892,7 +907,7 @@ export function Sidebar({
                 <span className="text-lg opacity-60" aria-hidden="true">
                   🏛️
                 </span>
-                <p className="ui-text-eyebrow ui-text-muted text-center leading-snug px-2">暂无组织资产。</p>
+                <p className="ui-text-eyebrow ui-text-muted text-center leading-snug px-2">暂无组织资产，请先在设置中连接组织中心。</p>
               </div>
             ) : (
               orgAssets.map((asset) => (

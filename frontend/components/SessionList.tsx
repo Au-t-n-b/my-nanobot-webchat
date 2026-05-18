@@ -23,7 +23,15 @@ function formatUpdatedAt(ts: number): string {
 
 export function SessionList({ currentThreadId, sessions, onCreate, onSelect, onDelete, hideCreate }: Props) {
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
   const pendingSession = pendingDeleteId ? sessions.find((s) => s.id === pendingDeleteId) : null;
+
+  const filteredSessions = searchQuery.trim()
+    ? sessions.filter((s) => {
+        const q = searchQuery.trim().toLowerCase();
+        return (s.title?.toLowerCase().includes(q)) || (s.preview?.toLowerCase().includes(q));
+      })
+    : sessions;
 
   return (
     <>
@@ -43,8 +51,23 @@ export function SessionList({ currentThreadId, sessions, onCreate, onSelect, onD
           )}
         </div>
 
+        {sessions.length > 3 && (
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="搜索会话..."
+            className="w-full h-7 px-2 text-xs rounded-md outline-none ui-motion-fast"
+            style={{
+              background: "var(--surface-0)",
+              border: "1px solid var(--border-subtle)",
+              color: "var(--text-primary)",
+            }}
+          />
+        )}
+
         <div className="max-h-[min(320px,44dvh)] min-h-0 overflow-y-auto space-y-0 pr-0 [overscroll-behavior-y:auto] [scrollbar-width:thin]">
-          {sessions.map((session) => {
+          {filteredSessions.map((session) => {
             const active = session.id === currentThreadId;
             return (
               <div

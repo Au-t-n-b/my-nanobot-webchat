@@ -541,6 +541,14 @@ export type SduiConfirmCardNode = {
   hitlRequestId?: string;
   stateNamespace?: string;
   stepId?: string;
+  /**
+   * 与 FilePicker ``deferHitlSubmit`` 配合：确认时把 ``getDeferredHitlUploads(hitlRequestId)`` 写入 result。
+   */
+  aggregateDeferredUploads?: boolean;
+  /**
+   * 与 TextArea ``inputId`` 配合：取首项 id 的当前输入写入 ``result.symptomText`` / ``result.text``。
+   */
+  aggregateTextInputIds?: string[];
   flex?: number;
 };
 
@@ -757,6 +765,11 @@ export type SduiFilePickerNode = SduiOptionalId & {
   stepId?: string;
   /** 与 PendingHitlStore.request_id 一致（skill HITL envelope payload.requestId） */
   hitlRequestId?: string;
+  /**
+   * Skill HITL 单卡聚合：为 true 时上传成功仅暂存到运行时，不单独发 ``skill_runtime_result``，
+   * 由同卡 ``ConfirmCard``（aggregateDeferredUploads）一次性提交。
+   */
+  deferHitlSubmit?: boolean;
   /** workspace 相对目录，上传文件落盘为 ``<saveRelativeDir>/<净化后的原文件名>`` */
   saveRelativeDir?: string;
 };

@@ -159,7 +159,6 @@ export default function LandingClient() {
       <header className="absolute top-0 z-10 flex w-full items-center justify-between px-6 py-6 md:px-12">
         <div className="flex items-center gap-2 font-medium tracking-wide ui-text-secondary">
           <Terminal size={18} className="shrink-0 text-[var(--accent)]" aria-hidden />
-          <span className="text-sm md:text-base">Nanobot Space</span>
         </div>
         <button
           type="button"

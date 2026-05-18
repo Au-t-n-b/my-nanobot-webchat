@@ -30,3 +30,13 @@ uv.lock
 
 # 本地 HITL 队列（SQLite），由运行时自动生成，每人各自一份，勿提交
 .nanobot/hitl.db
+
+# Next.js build output / cache
+frontend/.next/
+
+# 本地 nanobot 运行时数据库（个人环境产物）
+.nanobot/*.db
+
+# Sensitive auth files (WeLINK XiaoLuban tokens, etc.)
+auth.local
+*.local

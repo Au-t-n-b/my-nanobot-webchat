@@ -218,12 +218,7 @@ class ChatCardErrorBoundary extends Component<
     if (this.state.hasError) {
       return (
         <div
-          className="rounded-xl px-3 py-3 text-sm"
-          style={{
-            border: "1px solid rgba(239,107,115,0.24)",
-            background: "rgba(239,107,115,0.08)",
-            color: "var(--danger)",
-          }}
+          className="ui-error-banner rounded-xl px-3 py-3 text-sm"
         >
           ChatCard 渲染失败（已隔离，不影响聊天流）。
         </div>
@@ -292,6 +287,7 @@ function ChatCardBubble({
             onSendTextRaw={onSendTextRaw}
             onOpenPreview={(p) => onFileLinkClick?.(p)}
             docId={card.docId}
+            chatCardId={card.cardId}
           >
             <SduiNodeView node={{ ...card.node, cardId: card.cardId } as unknown as typeof card.node} />
           </SkillUiRuntimeProvider>

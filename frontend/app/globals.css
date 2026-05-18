@@ -484,6 +484,15 @@ body::before {
   100% { transform: translateX(60%); }
 }
 
+/* ─────────────────────────────────────────────
+   Error / danger banner — replaces inline rgba(239,107,115,...) everywhere
+   ───────────────────────────────────────────── */
+.ui-error-banner {
+  background: color-mix(in oklab, var(--danger) 10%, transparent);
+  border: 1px solid color-mix(in oklab, var(--danger) 26%, transparent);
+  color: var(--danger);
+}
+
 /* 反向联动：右侧预览 Tab 切换时，聊天区产物锚点闪烁提示 */
 @keyframes artifact-flash {
   0% {

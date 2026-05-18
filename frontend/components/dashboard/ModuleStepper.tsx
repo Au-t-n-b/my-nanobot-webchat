@@ -17,7 +17,11 @@ type Props = {
 
 function railClassForPair(from: StepTone, to: StepTone): string {
   // 只控制“呈现语义”，不参与任何进度推进逻辑。
+  // 注意：必须用客观 tone（toneOf），不要用 visualTone（选中态会把 completed 画成 running，连线会误用 accent 金色）。
   if (from === "completed" && to === "completed") return "bg-emerald-500/50";
+  if (from === "completed" && to === "idle") {
+    return "bg-gradient-to-r from-emerald-500/55 via-emerald-500/30 to-[var(--border-subtle)]";
+  }
   if (from === "completed" && to === "running") {
     return "bg-gradient-to-r from-emerald-500/55 via-[color-mix(in_oklab,var(--success)_45%,var(--accent))] to-[color-mix(in_oklab,var(--accent)_70%,transparent)]";
   }
@@ -394,7 +398,7 @@ export function ModuleStepper(props: Props) {
                       className={[
                         "pointer-events-none absolute top-[24px] overflow-hidden rounded-full",
                         visualTone === "running" ? "h-[2px]" : "h-[1.5px]",
-                        railClassForPair(visualTone, visualToneOf(modules[idx + 1], toneOf(modules[idx + 1]))),
+                        railClassForPair(tone, toneOf(modules[idx + 1])),
                       ].join(" ")}
                       style={{
                         zIndex: 0,

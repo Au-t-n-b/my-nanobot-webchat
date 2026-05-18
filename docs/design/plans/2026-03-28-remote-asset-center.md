@@ -258,7 +258,7 @@ Manual:
 ### Task 7: End-to-end verification
 
 **Files:**
-- Modify: `docs/superpowers/specs/2026-03-28-remote-asset-center-design.md` (only if implementation forces contract adjustment)
+- Modify: `docs/design/specs/2026-03-28-remote-asset-center-design.md` (only if implementation forces contract adjustment)
 - Test: `tests/web/test_api_remote_center.py`, `tests/web/test_api_remote_assets.py`, `npm run lint`
 
 - [ ] **Step 1: Run backend tests**

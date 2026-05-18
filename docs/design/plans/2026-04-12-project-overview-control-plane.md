@@ -342,6 +342,6 @@ Verify manually in the app:
 - [ ] **Step 5: Commit**
 
 ```bash
-git add D:/code/nanobot/docs/superpowers/plans/2026-04-12-project-overview-control-plane.md D:/code/nanobot/nanobot/web/routes.py D:/code/nanobot/nanobot/web/skills.py D:/code/nanobot/frontend/lib/projectOverviewStore.ts D:/code/nanobot/frontend/hooks/useAgentChat.ts D:/code/nanobot/frontend/components/dashboard/ProjectOverview.tsx D:/code/nanobot/frontend/components/DashboardNavigator.tsx D:/code/nanobot/frontend/components/TaskProgressBar.tsx D:/code/nanobot/frontend/app/page.tsx
+git add D:/code/nanobot/docs/design/plans/2026-04-12-project-overview-control-plane.md D:/code/nanobot/nanobot/web/routes.py D:/code/nanobot/nanobot/web/skills.py D:/code/nanobot/frontend/lib/projectOverviewStore.ts D:/code/nanobot/frontend/hooks/useAgentChat.ts D:/code/nanobot/frontend/components/dashboard/ProjectOverview.tsx D:/code/nanobot/frontend/components/DashboardNavigator.tsx D:/code/nanobot/frontend/components/TaskProgressBar.tsx D:/code/nanobot/frontend/app/page.tsx
 git commit -m "feat: unify project overview control plane"
 ```

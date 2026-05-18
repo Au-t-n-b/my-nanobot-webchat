@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { Send, Square } from "lucide-react";
 
 type Props = {
@@ -16,6 +16,9 @@ type Props = {
   inputBarRef?: RefObject<HTMLDivElement | null>;
 };
 
+const MAX_ROWS = 8;
+const LINE_HEIGHT_PX = 24;
+
 export function ChatInput({
   disabled,
   loading,
@@ -29,20 +32,39 @@ export function ChatInput({
   const [value, setValue] = useState("");
   const trimmed = value.trim();
   const sendActive = trimmed.length > 0 && !loading && !disabled;
-  const inputRef = useRef<HTMLInputElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const autoResize = useCallback(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    const maxH = LINE_HEIGHT_PX * MAX_ROWS + 20;
+    el.style.height = `${Math.min(el.scrollHeight, maxH)}px`;
+  }, []);
 
   useEffect(() => {
     if (focusSignal && focusSignal > 0) {
-      inputRef.current?.focus();
+      textareaRef.current?.focus();
     }
   }, [focusSignal]);
 
   useEffect(() => {
     if (typeof prefillText === "string" && prefillText.length > 0) {
       setValue(prefillText);
-      inputRef.current?.focus();
+      textareaRef.current?.focus();
     }
   }, [prefillText]);
+
+  useEffect(() => {
+    autoResize();
+  }, [value, autoResize]);
+
+  const handleSubmit = useCallback(() => {
+    if (sendActive) {
+      onSubmit(trimmed);
+      setValue("");
+    }
+  }, [sendActive, onSubmit, trimmed]);
 
   const modelGhostRowClass =
     "model-controls-ghost flex min-w-0 flex-wrap items-center gap-2 border-b border-[var(--border-subtle)] bg-transparent px-3 py-2 text-xs " +
@@ -61,7 +83,7 @@ export function ChatInput({
 
   const textFieldClass =
     "min-w-0 flex-1 rounded-xl border-0 bg-[var(--surface-2)]/70 px-3 py-2.5 text-base leading-relaxed text-[var(--text-primary)] outline-none " +
-    "ring-0 placeholder:text-[var(--text-muted)] " +
+    "ring-0 placeholder:text-[var(--text-muted)] resize-none " +
     "focus-visible:ring-0 focus-visible:outline-none";
 
   return (
@@ -69,21 +91,25 @@ export function ChatInput({
       <div className={fusedShellClass}>
         {modelControls ? <div className={modelGhostRowClass}>{modelControls}</div> : null}
         <form
-          className="flex items-center gap-2 p-2"
+          className="flex items-end gap-2 p-2"
           onSubmit={(e) => {
             e.preventDefault();
-            if (sendActive) {
-              onSubmit(trimmed);
-              setValue("");
-            }
+            handleSubmit();
           }}
         >
-          <input
-            ref={inputRef}
+          <textarea
+            ref={textareaRef}
             className={textFieldClass}
             placeholder="输入消息…"
             value={value}
+            rows={1}
             onChange={(e) => setValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+                e.preventDefault();
+                handleSubmit();
+              }
+            }}
             disabled={disabled || loading}
             aria-label="消息输入"
           />

@@ -116,6 +116,22 @@ export function EmbeddedWeb({
     lastSentJsonRef.current = null;
   }, []);
 
+  const onRefresh = useCallback(() => {
+    const myIframe = document.getElementById("myIframe") as any;
+    const win = myIframe.contentWindow;
+    // console.log(iframeRef)
+    if (!win) return;
+    try {
+      // Reload the iframe's current document (keeps user at current in-iframe page when supported).
+      win.postMessage({
+        name: 'pageRefresh',
+        type: 'data'
+      }, '*');
+    } catch {
+      // Best-effort only for cross-origin restricted embeds.
+    }
+  }, []);
+
   useEffect(() => {
     const onFsChange = () => {
       const el = hostRef.current;
@@ -215,6 +231,15 @@ export function EmbeddedWeb({
         </button>
         <button
           type="button"
+          onClick={onRefresh}
+          className="rounded-lg border border-[var(--border-subtle)] bg-[color-mix(in_oklab,var(--surface-0)_80%,transparent)] px-2 py-1 ui-text-eyebrow font-medium ui-text-secondary hover:ui-text-primary hover:bg-[var(--surface-2)] transition-colors"
+          aria-label="刷新当前页面"
+          title="刷新当前页面"
+        >
+          刷新
+        </button>
+        <button
+          type="button"
           onClick={() => {
             try {
               window.open(src, "_blank", "noopener,noreferrer");
@@ -241,6 +266,7 @@ export function EmbeddedWeb({
         </div>
       ) : null}
       <iframe
+        id="myIframe"
         ref={iframeRef}
         title={embedId}
         src={src}

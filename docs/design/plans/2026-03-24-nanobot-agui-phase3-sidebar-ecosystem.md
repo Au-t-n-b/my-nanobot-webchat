@@ -8,7 +8,7 @@
 
 **Tech Stack:** aiohttp, pathlib, send2trash, pytest + aiohttp test client, Next.js App Router, TypeScript, React state hooks
 
-**Spec:** `docs/superpowers/specs/2026-03-24-nanobot-agui-phase3-sidebar-ecosystem-design.md`
+**Spec:** `docs/design/specs/2026-03-24-nanobot-agui-phase3-sidebar-ecosystem-design.md`
 
 ---
 
@@ -364,7 +364,7 @@ git commit -m "feat(frontend): phase3 indexed files tooltip and trash workflow"
 ### Task 6: Final verification + docs sync
 
 **Files:**
-- Modify: `docs/superpowers/plans/2025-03-24-nanobot-agui.md` (勾�?Phase 3)
+- Modify: `docs/design/plans/2025-03-24-nanobot-agui.md` (勾�?Phase 3)
 - Optional: add short notes to AGUI docs if needed
 
 - [x] **Step 1: Run backend web tests**
@@ -402,7 +402,7 @@ Expected:
 - [x] **Step 4: Update plan checkboxes and commit**
 
 ```bash
-git add docs/superpowers/plans/2025-03-24-nanobot-agui.md
+git add docs/design/plans/2025-03-24-nanobot-agui.md
 git commit -m "chore(plan): mark phase3 sidebar ecosystem complete"
 ```
 

@@ -267,6 +267,8 @@ export function SduiNodeView({ node, pathPrefix = "root" }: Props) {
           skillName={cn.skillName}
           stateNamespace={cn.stateNamespace}
           stepId={cn.stepId}
+          aggregateDeferredUploads={cn.aggregateDeferredUploads}
+          aggregateTextInputIds={cn.aggregateTextInputIds}
         />
       );
     }

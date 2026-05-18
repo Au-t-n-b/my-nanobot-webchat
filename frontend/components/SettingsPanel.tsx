@@ -241,11 +241,14 @@ export function SettingsPanel({
       {/* Toast */}
       {toast.kind !== "none" && (
         <div
-          className="rounded-2xl px-3 py-2 text-xs flex items-center gap-2 shrink-0"
+          className={
+            "rounded-2xl px-3 py-2 text-xs flex items-center gap-2 shrink-0 " +
+            (toast.kind === "error" ? "ui-error-banner" : "")
+          }
           style={
             toast.kind === "success"
               ? { background: "rgba(34,197,94,0.12)", border: "1px solid rgba(34,197,94,0.28)", color: "var(--success)" }
-              : { background: "rgba(239,107,115,0.12)", border: "1px solid rgba(239,107,115,0.28)", color: "var(--danger)" }
+              : undefined
           }
         >
           {toast.kind === "success" ? <Check size={12} /> : null}

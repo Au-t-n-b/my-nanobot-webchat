@@ -137,7 +137,7 @@ export function RemoteAssetUploadPanel({
         </div>
       )}
       {error && (
-        <div className="rounded-xl px-3 py-2 text-xs flex items-center gap-2" style={{ background: "rgba(239,107,115,0.12)", border: "1px solid rgba(239,107,115,0.28)", color: "var(--danger)" }}>
+        <div className="ui-error-banner rounded-xl px-3 py-2 text-xs flex items-center gap-2">
           <AlertCircle size={13} className="shrink-0" />
           {error}
         </div>

@@ -279,6 +279,9 @@ async def test_path6_generate_enhanced(ws: Path, store: SkillChangeStore):
     generate_resp.content = (
         "---\nname: docker-build\ndescription: Docker 镜像构建并推送到 ECR\n---\n\n"
         "## When to use\n\n构建 Docker 镜像并推送时使用。\n\n## Rules\n\n- 推送到 ECR\n"
+        "---change_summary---\n"
+        '{"preserved_points": [], "added_points": ["推送到 ECR"], "changed_points": [], "ignored_points": []}\n'
+        "---end_change_summary---"
     )
     generate_provider.chat = AsyncMock(return_value=generate_resp)
 

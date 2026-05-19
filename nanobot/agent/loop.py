@@ -417,6 +417,7 @@ class AgentLoop:
 
         # Hermes skill iteration counter (per-session)
         self._hermes_state: dict[str, dict] = {}  # session_key → state
+        self._hermes_epoch: int = 0  # incremented when hermes_enabled or gating config changes
 
         # Skill change store (SQLite) for Hermes review gate
         from nanobot.agent.skill_change_store import SkillChangeStore
@@ -484,6 +485,55 @@ class AgentLoop:
                 self.tools.unregister("send_welink")
                 if welink_config.enable:
                     self.tools.register(SendWelinkTool(config=welink_config))
+
+    def reload_skills_auto_config(self) -> bool:
+        """Hot-reload skills_auto config (hermes_enabled, nudge_interval, etc).
+
+        Returns True if a meaningful config change was detected (epoch bumped).
+        Does NOT: scan history, trigger review, delete pending, or interrupt
+        in-flight model calls. Changes take effect from the next turn.
+        """
+        try:
+            from nanobot.config.loader import load_config
+            new_cfg = load_config().skills_auto
+        except Exception:
+            return False
+
+        old_cfg = self._skills_auto_config
+        self._skills_auto_config = new_cfg
+
+        # Propagate to context builder for system prompt guidance
+        self.context.set_skills_auto_config(new_cfg)
+
+        # Rebuild tool registry: register or unregister skill_manage
+        from nanobot.agent.tools.skill_manage import SkillManageTool
+        if new_cfg and new_cfg.hermes_enabled:
+            if not self.tools.get("skill_manage"):
+                self.tools.register(SkillManageTool(
+                    workspace=self.workspace,
+                    change_store=self.skill_change_store,
+                ))
+        else:
+            self.tools.unregister("skill_manage")
+
+        # Detect meaningful changes that require epoch bump
+        _GATING_FIELDS = (
+            "hermes_enabled", "hermes_nudge_interval", "hermes_cooldown_turns",
+            "hermes_max_pending", "hermes_max_reviews_per_session",
+        )
+        bumped = False
+        if old_cfg is None or new_cfg is None:
+            bumped = (old_cfg is not None) != (new_cfg is not None)
+        else:
+            for field in _GATING_FIELDS:
+                if getattr(old_cfg, field, None) != getattr(new_cfg, field, None):
+                    bumped = True
+                    break
+
+        if bumped:
+            self._hermes_epoch += 1
+
+        return bumped
 
     def set_tool_approval_callback(self, callback: ToolApprovalCallback | None) -> Token:
         """Bind per-request HITL callback in context-local storage."""
@@ -1040,6 +1090,9 @@ class AgentLoop:
 
         Uses LRU eviction: recently accessed entries survive, stale ones are pruned.
         Each entry tracks last_seen_at for proper LRU ordering.
+
+        If the global epoch has advanced (config changed), the entry is
+        lazy-reset so counting starts fresh from the new configuration.
         """
         now = __import__("time").time()
         if len(self._hermes_state) > 100:
@@ -1050,15 +1103,29 @@ class AgentLoop:
             )
             for k in sorted_keys[:50]:
                 del self._hermes_state[k]
+
+        cooldown_turns = (
+            self._skills_auto_config.hermes_cooldown_turns
+            if self._skills_auto_config else 5
+        )
+
         if session_key not in self._hermes_state:
             self._hermes_state[session_key] = {
                 "iters_since_skill_manage": 0,
-                "user_turns_since_review": 0,
+                "user_turns_since_review": cooldown_turns,
                 "reviews_this_session": 0,
                 "last_seen_at": now,
+                "epoch": self._hermes_epoch,
             }
         else:
-            self._hermes_state[session_key]["last_seen_at"] = now
+            entry = self._hermes_state[session_key]
+            entry["last_seen_at"] = now
+            # Lazy epoch reset: config changed since last access
+            if entry.get("epoch", 0) != self._hermes_epoch:
+                entry["iters_since_skill_manage"] = 0
+                entry["reviews_this_session"] = 0
+                entry["user_turns_since_review"] = cooldown_turns
+                entry["epoch"] = self._hermes_epoch
         return self._hermes_state[session_key]
 
     @staticmethod
@@ -1416,7 +1483,7 @@ class AgentLoop:
                     else:
                         import copy
                         review_snapshot = copy.deepcopy(session.messages)
-                    self._schedule_background(self._run_skill_review(review_snapshot))
+                    self._schedule_background(self._run_skill_review(review_snapshot, review_epoch=self._hermes_epoch))
                     hs["iters_since_skill_manage"] = 0
                     hs["user_turns_since_review"] = 0
                     hs["reviews_this_session"] += 1
@@ -1424,7 +1491,9 @@ class AgentLoop:
                     hs["user_turns_since_review"] += 1
 
         # Background: expire stale skill change requests
-        self._schedule_background(self.skill_change_store.expire_requests())
+        async def _expire_bg():
+            self.skill_change_store.expire_requests()
+        self._schedule_background(_expire_bg())
 
         if (mt := self.tools.get("message")) and isinstance(mt, MessageTool) and mt._sent_in_turn:
             return None
@@ -1519,8 +1588,17 @@ class AgentLoop:
             session.messages.append(entry)
         session.updated_at = datetime.now()
 
-    async def _run_skill_review(self, messages_snapshot: list[dict]) -> None:
+    async def _run_skill_review(self, messages_snapshot: list[dict], *, review_epoch: int | None = None) -> None:
         """Background Hermes skill review: analyze conversation and create/update skills."""
+        # Stale-write guard: if Hermes was disabled or config changed after this
+        # review was scheduled, abort without writing anything.
+        if not self._skills_auto_config or not self._skills_auto_config.hermes_enabled:
+            logger.info("Hermes: skipping in-flight review — Hermes disabled at runtime")
+            return
+        if review_epoch is not None and review_epoch != self._hermes_epoch:
+            logger.info("Hermes: skipping in-flight review — epoch mismatch (config changed)")
+            return
+
         _SKILL_REVIEW_PROMPT = (
             "Review the conversation above and consider whether a new skill should be created.\n\n"
             "Work in this order — do not skip steps:\n\n"

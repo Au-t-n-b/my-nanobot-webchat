@@ -189,7 +189,12 @@ export function SkillRequestPanel() {
       const res = await fetch(apiPath(`/api/skill-requests/${id}/approve`), { method: "POST" });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        throw new Error(body.error?.message ?? `HTTP ${res.status}`);
+        if (res.status === 409) {
+          setError(`文件冲突：${body.error?.message ?? "目标文件已变化，请检查后重新提交。"}`);
+        } else {
+          throw new Error(body.error?.message ?? `HTTP ${res.status}`);
+        }
+        return;
       }
       setRequests((prev) => prev.map((r) => (r.id === id ? { ...r, status: "approved" as const } : r)));
     } catch (e) {

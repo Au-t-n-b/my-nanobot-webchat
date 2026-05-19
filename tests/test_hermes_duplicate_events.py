@@ -44,6 +44,14 @@ def _make_judge_result(**overrides) -> dict:
     return defaults
 
 
+# Minimal valid change_summary to append to gen_response.content in enhanced tests
+_MINIMAL_CHANGE_SUMMARY = (
+    "---change_summary---\n"
+    '{"preserved_points": [], "added_points": ["规则"], "changed_points": [], "ignored_points": []}\n'
+    "---end_change_summary---"
+)
+
+
 # ── Part A: DuplicateEvent data model ────────────────────────────────────
 
 def test_duplicate_event_to_dict():
@@ -337,7 +345,7 @@ async def test_merge_generate_valid_frontmatter(store: SkillChangeStore):
         "absorbed_points": [], "ignored_points": [], "conflicts": [],
         "skill_shape": {"name": "ci-pipeline"}, "should_generate_enhanced": True,
     }
-    result = await store._call_llm_merge_generate_async(
+    result, change_summary = await store._call_llm_merge_generate_async(
         canonical_request=req, merge_brief=brief, selected_events=[], other_extra="",
     )
     assert result == skill_md
@@ -351,7 +359,7 @@ async def test_merge_generate_no_frontmatter_returns_none(store: SkillChangeStor
     mock_response.content = "Just some text without frontmatter"
     mock_provider.chat = AsyncMock(return_value=mock_response)
     store.set_provider(mock_provider, model="test")
-    result = await store._call_llm_merge_generate_async(
+    result, change_summary = await store._call_llm_merge_generate_async(
         canonical_request=req, merge_brief={}, selected_events=[], other_extra="",
     )
     assert result is None
@@ -382,7 +390,7 @@ async def test_generate_enhanced_candidate_full(store: SkillChangeStore):
     })
     # Stage 2: generate
     gen_response = MagicMock()
-    gen_response.content = "---\nname: ci-pipeline\ndescription: 增强版CI\n---\n## When to use\nCI\n## Rules\n规则"
+    gen_response.content = "---\nname: ci-pipeline\ndescription: 增强版CI\n---\n## When to use\nCI\n## Rules\n规则\n" + _MINIMAL_CHANGE_SUMMARY
     mock_provider.chat = AsyncMock(side_effect=[brief_response, gen_response])
     store.set_provider(mock_provider, model="test")
 
@@ -592,7 +600,7 @@ async def test_enhanced_skill_secret_scan_blocks(store: SkillChangeStore):
         "skill_shape": {"name": "ci-pipeline"}, "should_generate_enhanced": True, "summary_zh": "ok",
     })
     gen_response = MagicMock()
-    gen_response.content = "---\nname: ci-pipeline\ndescription: CI with auth\n---\n## When to use\nCI\n## Rules\nAPI_KEY=sk-abc123"
+    gen_response.content = "---\nname: ci-pipeline\ndescription: CI with auth\n---\n## When to use\nCI\n## Rules\nAPI_KEY=sk-abc123\n" + _MINIMAL_CHANGE_SUMMARY
     mock_provider.chat = AsyncMock(side_effect=[brief_response, gen_response])
     store.set_provider(mock_provider, model="test")
 
@@ -614,7 +622,7 @@ async def test_enhanced_skill_name_mismatch_blocked(store: SkillChangeStore):
         "skill_shape": {"name": "ci-pipeline"}, "should_generate_enhanced": True, "summary_zh": "ok",
     })
     gen_response = MagicMock()
-    gen_response.content = "---\nname: wrong-name\ndescription: CI\n---\n## When to use\nCI\n## Rules\n规则"
+    gen_response.content = "---\nname: wrong-name\ndescription: CI\n---\n## When to use\nCI\n## Rules\n规则\n" + _MINIMAL_CHANGE_SUMMARY
     mock_provider.chat = AsyncMock(side_effect=[brief_response, gen_response])
     store.set_provider(mock_provider, model="test")
 
@@ -636,7 +644,7 @@ async def test_enhanced_skill_missing_required_section(store: SkillChangeStore):
         "skill_shape": {"name": "ci-pipeline"}, "should_generate_enhanced": True, "summary_zh": "ok",
     })
     gen_response = MagicMock()
-    gen_response.content = "---\nname: ci-pipeline\ndescription: CI\n---\n## When to use\nCI场景"
+    gen_response.content = "---\nname: ci-pipeline\ndescription: CI\n---\n## When to use\nCI场景\n" + _MINIMAL_CHANGE_SUMMARY
     mock_provider.chat = AsyncMock(side_effect=[brief_response, gen_response])
     store.set_provider(mock_provider, model="test")
 
@@ -658,7 +666,7 @@ async def test_enhanced_skill_empty_description_blocked(store: SkillChangeStore)
         "skill_shape": {"name": "ci-pipeline"}, "should_generate_enhanced": True, "summary_zh": "ok",
     })
     gen_response = MagicMock()
-    gen_response.content = "---\nname: ci-pipeline\ndescription:\n---\n## When to use\nCI\n## Rules\n规则"
+    gen_response.content = "---\nname: ci-pipeline\ndescription:\n---\n## When to use\nCI\n## Rules\n规则\n" + _MINIMAL_CHANGE_SUMMARY
     mock_provider.chat = AsyncMock(side_effect=[brief_response, gen_response])
     store.set_provider(mock_provider, model="test")
 
@@ -684,7 +692,7 @@ async def test_trigger_conversation_includes_absorbed_details(store: SkillChange
         "summary_zh": "吸收了缓存规则",
     })
     gen_response = MagicMock()
-    gen_response.content = "---\nname: ci-pipeline\ndescription: 增强CI\n---\n## When to use\nCI\n## Rules\n使用缓存加速"
+    gen_response.content = "---\nname: ci-pipeline\ndescription: 增强CI\n---\n## When to use\nCI\n## Rules\n使用缓存加速\n" + _MINIMAL_CHANGE_SUMMARY
     mock_provider.chat = AsyncMock(side_effect=[brief_response, gen_response])
     store.set_provider(mock_provider, model="test")
 

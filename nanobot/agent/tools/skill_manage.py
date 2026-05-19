@@ -370,6 +370,7 @@ class SkillManageTool(Tool):
                 proposed_content=kwargs.get("content"),
                 old_string=kwargs.get("old_string"),
                 new_string=kwargs.get("new_string"),
+                replace_all=bool(kwargs.get("replace_all", False)),
                 judge_result=judge_result,
                 coverage_result=coverage_result,
             )

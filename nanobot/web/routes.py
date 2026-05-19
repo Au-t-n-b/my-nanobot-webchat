@@ -1885,6 +1885,7 @@ async def handle_config_post(request: web.Request) -> web.Response:
     # Update in-memory config and hot-reload the running AgentLoop (if present).
     request.app[CONFIG_KEY] = cfg
     agent = request.app[AGENT_LOOP_KEY]
+    skills_auto_applied = False
     if agent is None:
         # Bootstrap: if AGUI started in "unconfigured" mode (no AgentLoop),
         # create one now so the user does NOT need to restart `npm run dev`.
@@ -1950,11 +1951,23 @@ async def handle_config_post(request: web.Request) -> web.Response:
         except Exception as exc:
             logger.warning("Tool config hot reload failed: {}", exc)
 
+        # Hot-reload skills_auto config (hermes_enabled, nudge_interval, etc.)
+        skills_auto_applied = False
+        try:
+            skills_auto_applied = agent.reload_skills_auto_config()
+        except Exception as exc:
+            logger.warning("Skills auto config hot reload failed: {}", exc)
+
     logger.info("config.json updated via API (hot reload applied)")
     return web.json_response(
         {
             "ok": True,
+            "saved": True,
             "reloaded": agent is not None,
+            "runtime_applied": True,
+            "effective_from": "next_turn",
+            "requires_restart": False,
+            "skills_auto_applied": skills_auto_applied if agent is not None else False,
             "current_model": cfg.agents.defaults.model,
             "current_provider": cfg.agents.defaults.provider,
         },
@@ -2573,6 +2586,16 @@ async def handle_skill_requests_approve(request: web.Request) -> web.Response:
     if req.status != "pending":
         return _error("bad_request", f"Request is {req.status}, not pending", status=400)
 
+    # TOCTOU check: verify target file hasn't changed since request creation
+    conflict = agent.skill_change_store.check_disk_conflict(req)
+    if conflict:
+        agent.skill_change_store.record_audit_event(
+            event_type="approve_disk_conflict", request_id=req_id,
+            skill_name=req.skill_name, effect="blocked",
+            error_message=conflict,
+        )
+        return _error("disk_conflict", conflict, status=409)
+
     from nanobot.agent.tools.skill_manage import apply_create, apply_delete, apply_edit, apply_patch
     skills_dir = agent.workspace / "skills"
 
@@ -2587,18 +2610,33 @@ async def handle_skill_requests_approve(request: web.Request) -> web.Response:
                 req.old_string or "",
                 req.new_string or "",
                 skills_dir,
+                replace_all=bool(req.replace_all),
             )
         elif req.action == "delete":
             result = apply_delete(req.skill_name, skills_dir)
         else:
             return _error("bad_request", f"Unknown action: {req.action}", status=400)
     except Exception as e:
+        agent.skill_change_store.record_audit_event(
+            event_type="approve_apply_failed", request_id=req_id,
+            skill_name=req.skill_name, effect="error",
+            error_code="exception", error_message=str(e),
+        )
         return _error("internal_error", f"Failed to apply change: {e}", status=500)
 
     if not result.get("success"):
+        agent.skill_change_store.record_audit_event(
+            event_type="approve_apply_failed", request_id=req_id,
+            skill_name=req.skill_name, effect="error",
+            error_code="apply_failed", error_message=result.get("error", ""),
+        )
         return _error("apply_failed", result.get("error", "Unknown error"), status=500)
 
     agent.skill_change_store.approve_request(req_id)
+    agent.skill_change_store.record_audit_event(
+        event_type="approve_apply_success", request_id=req_id,
+        skill_name=req.skill_name, effect="approved",
+    )
     return web.json_response({"ok": True, "result": result})
 
 

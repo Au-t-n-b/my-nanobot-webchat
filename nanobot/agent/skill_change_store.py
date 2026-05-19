@@ -25,6 +25,7 @@ class SkillChangeRequest:
         "conflict_ids", "created_at", "expires_at", "reviewed_at", "reviewer_note",
         "duplicate_count", "last_matched_at", "similarity_key", "maybe_duplicate_ids",
         "related_existing_skill_ids", "related_existing_skill_note", "existing_coverage_status",
+        "replace_all", "target_file_exists", "target_file_hash", "target_file_mtime", "target_file_size",
     )
 
     def __init__(self, **kwargs: Any) -> None:
@@ -110,6 +111,12 @@ def _redact(text: str) -> str:
     return _SENSITIVE_RE.sub(r"\1***", text)
 
 
+def _build_input_hash(action: str, skill_name: str, reason: str) -> str:
+    import hashlib
+    payload = f"{action}|{skill_name}|{reason[:200]}"
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+
+
 # ── Blacklist entry ─────────────────────────────────────────────────────
 
 
@@ -157,6 +164,24 @@ class ExistingSkillSummary:
         "skill_name", "description", "path",
         "content_excerpt", "when_to_use", "do_not_use",
         "similarity_key", "file_hash",
+    )
+
+    def __init__(self, **kwargs: Any) -> None:
+        for slot in self.__slots__:
+            setattr(self, slot, kwargs.get(slot))
+
+    def to_dict(self) -> dict[str, Any]:
+        return {slot: getattr(self, slot) for slot in self.__slots__}
+
+
+class AuditEvent:
+    """Structured audit trail entry for Hermes skill change decisions."""
+
+    __slots__ = (
+        "id", "created_at", "event_type", "request_id", "skill_name",
+        "session_key", "decision", "confidence", "target_id", "effect",
+        "reason_zh", "error_code", "error_message", "input_hash",
+        "metadata_json",
     )
 
     def __init__(self, **kwargs: Any) -> None:
@@ -313,6 +338,14 @@ _MERGE_GENERATE_PROMPT = """\
 - 不要写入具体的 token、password、secret、cookie 值。
 - 不要写入一次性路径、临时 branch、临时调试命令（除非这些本来就是 skill 的通用规则）。
 
+核心守恒原则（Conservation Law）：
+1. canonical SKILL.md 是主体，增强版只能在其基础上做增量修改。
+2. 不得删除、弱化、重写 canonical 中仍然正确的核心规则。
+3. 只能吸收 merge_brief.absorbed_points 中明确通过的增量内容。
+4. 不得为了"大而全"而扩大 skill 适用范围或降低规则的严格程度。
+5. 如果必须修改 canonical 原有规则（仅限 merge_brief.conflicts 中明确要求的情况），
+   必须在输出末尾的 change_summary 中说明原因。
+
 输出要求：
 1. 必须是完整的 SKILL.md，以 YAML frontmatter (---) 开头和结尾。
 2. frontmatter 必须包含 name 和 description 字段。
@@ -328,7 +361,22 @@ _MERGE_GENERATE_PROMPT = """\
 6. 保留 canonical 中已有且仍正确的内容。
 7. 只吸收 merge_brief.absorbed_points 中明确通过的内容。
 
-请直接输出完整的 SKILL.md 内容（YAML frontmatter + markdown body），不要包含其他说明文字。"""
+在 SKILL.md 正文之后、最后一个 --- 之前，附加一个 change_summary JSON 块：
+---change_summary---
+{
+  "preserved_points": ["保留了哪些 canonical 核心点（各一句话）"],
+  "added_points": ["新增了哪些 absorbed points（各一句话）"],
+  "changed_points": [
+    {"original_zh": "原 canonical 规则", "new_zh": "修改后规则", "reason_zh": "为什么必须修改"}
+  ],
+  "ignored_points": ["哪些 extra 没有吸收（各一句话）"]
+}
+---end_change_summary---
+
+注意：
+- changed_points 只在确实修改了 canonical 原有规则时才填写，必须提供 reason_zh。
+- preserved_points 和 added_points 不能为空（至少各 1 条）。
+- 如果没有任何修改，changed_points 为空数组。"""
 
 _EXISTING_COVERAGE_JUDGE_PROMPT = """\
 你是一个技能覆盖检查助手。请判断「候选新技能请求」是否已经被「已有正式技能」覆盖。
@@ -423,6 +471,11 @@ class SkillChangeStore:
                 "related_existing_skill_ids TEXT",
                 "related_existing_skill_note TEXT",
                 "existing_coverage_status TEXT",
+                "replace_all INTEGER DEFAULT 0",
+                "target_file_exists INTEGER",
+                "target_file_hash TEXT",
+                "target_file_mtime TEXT",
+                "target_file_size INTEGER",
             ]:
                 col_name = col_spec.split()[0]
                 try:
@@ -462,6 +515,31 @@ class SkillChangeStore:
             """)
             conn.execute("CREATE INDEX IF NOT EXISTS idx_sde_target ON skill_request_duplicate_events(target_request_id)")
 
+            # ── Audit events table ────────────────────────────────────
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS hermes_audit_events (
+                    id TEXT PRIMARY KEY,
+                    created_at TEXT NOT NULL,
+                    event_type TEXT NOT NULL,
+                    request_id TEXT,
+                    skill_name TEXT,
+                    session_key TEXT,
+                    decision TEXT,
+                    confidence REAL,
+                    target_id TEXT,
+                    effect TEXT,
+                    reason_zh TEXT,
+                    error_code TEXT,
+                    error_message TEXT,
+                    input_hash TEXT,
+                    metadata_json TEXT
+                )
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_ae_event_type ON hermes_audit_events(event_type)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_ae_request_id ON hermes_audit_events(request_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_ae_skill_name ON hermes_audit_events(skill_name)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_ae_created_at ON hermes_audit_events(created_at)")
+
     def create_request(
         self,
         *,
@@ -473,14 +551,20 @@ class SkillChangeStore:
         proposed_content: str | None = None,
         old_string: str | None = None,
         new_string: str | None = None,
+        replace_all: bool = False,
         judge_result: dict[str, Any] | None = None,
         coverage_result: dict[str, Any] | None = None,
     ) -> SkillChangeRequest:
+        import hashlib
+
         now = datetime.now(timezone.utc)
         expires = now + timedelta(days=self._expiry_days)
 
         description = _extract_description(proposed_content)
         sim_key = build_similarity_key(action, skill_name, reason, description)
+
+        # Capture target file state at request creation time
+        file_state = self._capture_target_file_state(skill_name)
 
         # ── Step 1: Blacklist check (highest priority) ──────────────
         if judge_result:
@@ -494,6 +578,13 @@ class SkillChangeStore:
                     "SkillChangeStore: LLM judge blocked '{}' (blacklist_hit, conf={:.2f})",
                     skill_name, confidence,
                 )
+                self.record_audit_event(
+                    event_type="judge_blacklist_hit", skill_name=skill_name,
+                    session_key=trigger_session, decision="blacklist_hit",
+                    confidence=confidence, target_id=target_id, effect="blocked",
+                    reason_zh=judge_result.get("reason_zh"),
+                    input_hash=_build_input_hash(action, skill_name, reason),
+                )
                 return self._make_blocked_response(action, skill_name, reason, proposed_content,
                                                    old_string, new_string, trigger_session,
                                                    now, expires, sim_key)
@@ -504,10 +595,19 @@ class SkillChangeStore:
                     "SkillChangeStore: suspected blacklist hit for '{}' (conf={:.2f}), creating pending with warning",
                     skill_name, confidence,
                 )
+                self.record_audit_event(
+                    event_type="judge_blacklist_hit", skill_name=skill_name,
+                    session_key=trigger_session, decision="blacklist_hit",
+                    confidence=confidence, target_id=target_id,
+                    effect="downgraded_to_pending",
+                    reason_zh=judge_result.get("reason_zh"),
+                    input_hash=_build_input_hash(action, skill_name, reason),
+                )
                 return self._create_new_pending(
                     action, skill_name, reason, trigger_session, trigger_conversation,
                     proposed_content, old_string, new_string, now, expires, sim_key,
                     maybe_duplicate_ids=[], judge_note="suspected_blacklist",
+                    replace_all=replace_all, **file_state,
                 )
 
         # ── Step 2: Existing skill coverage check (create only) ────────
@@ -529,6 +629,13 @@ class SkillChangeStore:
                     "SkillChangeStore: existing skill covers '{}' (skill={}, conf={:.2f})",
                     skill_name, cov_skill, cov_confidence,
                 )
+                self.record_audit_event(
+                    event_type="coverage_covered", skill_name=skill_name,
+                    decision="existing_covered", confidence=cov_confidence,
+                    target_id=cov_skill, effect="covered",
+                    reason_zh=cov_reason,
+                    input_hash=_build_input_hash(action, skill_name, reason),
+                )
                 return SkillChangeRequest(
                     id="covered_by_existing", action=action, skill_name=skill_name,
                     proposed_content=proposed_content, old_string=old_string, new_string=new_string,
@@ -547,6 +654,13 @@ class SkillChangeStore:
                 related_existing_ids = [cov_skill]
                 related_existing_note = cov_reason or f"已有技能「{cov_skill}」相关但不完全覆盖。"
                 existing_coverage_status = "related_existing"
+                self.record_audit_event(
+                    event_type="coverage_not_covered", skill_name=skill_name,
+                    decision="existing_related_but_distinct", confidence=cov_confidence,
+                    target_id=cov_skill, effect="related_existing",
+                    reason_zh=cov_reason,
+                    input_hash=_build_input_hash(action, skill_name, reason),
+                )
 
         # ── Step 3: Pending duplicate check ─────────────────────────
         if judge_result:
@@ -570,12 +684,28 @@ class SkillChangeStore:
                         incoming_action=action,
                     )
                     if merged is not None:
+                        self.record_audit_event(
+                            event_type="judge_same_duplicate", request_id=merged.id,
+                            skill_name=skill_name, session_key=trigger_session,
+                            decision="same_duplicate", confidence=confidence,
+                            target_id=target_id, effect="merged",
+                            reason_zh=judge_result.get("reason_zh"),
+                            input_hash=_build_input_hash(action, skill_name, reason),
+                        )
                         return merged
                     # Cross-action: fall through to related_but_distinct
 
             # Related but distinct — create pending with maybe_duplicate_ids
             if decision in ("related_but_distinct", "same_duplicate") and target_id:
                 related_ids = [target_id]
+                self.record_audit_event(
+                    event_type="judge_related_but_distinct", skill_name=skill_name,
+                    session_key=trigger_session, decision=decision,
+                    confidence=confidence, target_id=target_id,
+                    effect="pending_created",
+                    reason_zh=judge_result.get("reason_zh"),
+                    input_hash=_build_input_hash(action, skill_name, reason),
+                )
                 return self._create_new_pending(
                     action, skill_name, reason, trigger_session, trigger_conversation,
                     proposed_content, old_string, new_string, now, expires, sim_key,
@@ -583,6 +713,7 @@ class SkillChangeStore:
                     related_existing_skill_ids=related_existing_ids,
                     related_existing_skill_note=related_existing_note,
                     existing_coverage_status=existing_coverage_status,
+                    replace_all=replace_all, **file_state,
                 )
 
         # ── Step 4: Normal create ───────────────────────────────────
@@ -593,7 +724,51 @@ class SkillChangeStore:
             related_existing_skill_ids=related_existing_ids,
             related_existing_skill_note=related_existing_note,
             existing_coverage_status=existing_coverage_status,
+            replace_all=replace_all, **file_state,
         )
+
+    def _capture_target_file_state(self, skill_name: str) -> dict[str, Any]:
+        """Read current on-disk state of the target skill file."""
+        import hashlib
+
+        if not self._workspace:
+            return {}
+        target = self._workspace / "skills" / skill_name / "SKILL.md"
+        if not target.is_file():
+            return {
+                "target_file_exists": 0,
+                "target_file_hash": None,
+                "target_file_mtime": None,
+                "target_file_size": None,
+            }
+        try:
+            content = target.read_bytes()
+            stat = target.stat()
+            return {
+                "target_file_exists": 1,
+                "target_file_hash": hashlib.sha256(content).hexdigest(),
+                "target_file_mtime": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
+                "target_file_size": stat.st_size,
+            }
+        except Exception:
+            return {}
+
+    def check_disk_conflict(self, req: SkillChangeRequest) -> str | None:
+        """Check if target file has changed since request creation. Returns conflict message or None."""
+        current = self._capture_target_file_state(req.skill_name)
+        stored_exists = bool(req.target_file_exists) if req.target_file_exists is not None else None
+
+        if req.action == "create":
+            # At creation time, target did not exist
+            if stored_exists == 0 and current.get("target_file_exists") == 1:
+                return f"目标技能「{req.skill_name}」在审核期间已被创建，为避免覆盖新内容已中止应用。请检查后重新提交。"
+        else:
+            # edit/patch/delete: target must still exist with same hash
+            if stored_exists == 1 and current.get("target_file_exists") != 1:
+                return f"目标技能「{req.skill_name}」在审核期间已被删除，无法应用变更。"
+            if stored_exists == 1 and current.get("target_file_hash") != req.target_file_hash:
+                return f"目标技能「{req.skill_name}」在审核期间已被修改（文件内容已变化），为避免覆盖新内容已中止应用。请检查后重新提交。"
+        return None
 
     async def prefilter_and_judge(
         self,
@@ -864,6 +1039,79 @@ class SkillChangeStore:
 
     def _row_to_duplicate_event(self, row: sqlite3.Row) -> DuplicateEvent:
         return DuplicateEvent(**dict(row))
+
+    # ── Audit events ──────────────────────────────────────────────────────
+
+    def record_audit_event(
+        self,
+        *,
+        event_type: str,
+        request_id: str | None = None,
+        skill_name: str | None = None,
+        session_key: str | None = None,
+        decision: str | None = None,
+        confidence: float | None = None,
+        target_id: str | None = None,
+        effect: str | None = None,
+        reason_zh: str | None = None,
+        error_code: str | None = None,
+        error_message: str | None = None,
+        input_hash: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        """Record a structured audit event. Write failure is silently swallowed."""
+        try:
+            event_id = uuid.uuid4().hex[:16]
+            created_at = datetime.now(timezone.utc).isoformat()
+            safe_reason = _redact((reason_zh or "")[:500]) if reason_zh else None
+            safe_error = _redact((error_message or "")[:500]) if error_message else None
+            if metadata:
+                metadata_json = _redact(json.dumps(metadata, ensure_ascii=False)[:2000])
+            else:
+                metadata_json = None
+
+            with self._conn() as conn:
+                conn.execute(
+                    """INSERT INTO hermes_audit_events
+                       (id, created_at, event_type, request_id, skill_name,
+                        session_key, decision, confidence, target_id, effect,
+                        reason_zh, error_code, error_message, input_hash, metadata_json)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (event_id, created_at, event_type, request_id, skill_name,
+                     session_key, decision, confidence, target_id, effect,
+                     safe_reason, error_code, safe_error, input_hash, metadata_json),
+                )
+        except Exception as exc:
+            logger.warning("AuditEvent write failed (type={}, req={}): {}", event_type, request_id, exc)
+
+    def list_audit_events(
+        self,
+        *,
+        request_id: str | None = None,
+        skill_name: str | None = None,
+        event_type: str | None = None,
+        limit: int = 50,
+    ) -> list[AuditEvent]:
+        """Query audit events with optional filters."""
+        clauses: list[str] = []
+        params: list[Any] = []
+        if request_id is not None:
+            clauses.append("request_id = ?")
+            params.append(request_id)
+        if skill_name is not None:
+            clauses.append("skill_name = ?")
+            params.append(skill_name)
+        if event_type is not None:
+            clauses.append("event_type = ?")
+            params.append(event_type)
+        where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+        params.append(limit)
+        with self._conn() as conn:
+            rows = conn.execute(
+                f"SELECT * FROM hermes_audit_events{where} ORDER BY created_at DESC LIMIT ?",
+                params,
+            ).fetchall()
+        return [AuditEvent(**dict(r)) for r in rows]
 
     # ── Prefilter: n-gram candidate retrieval ────────────────────────────
 
@@ -1235,9 +1483,10 @@ class SkillChangeStore:
         merge_brief: dict[str, Any],
         selected_events: list[DuplicateEvent],
         other_extra: str = "",
-    ) -> str | None:
+    ) -> tuple[str | None, dict[str, Any] | None]:
+        """Returns (enhanced_content, change_summary) or (None, None) on failure."""
         if not self._provider:
-            return None
+            return None, None
         canon_excerpt = {
             "skill_name": canonical_request.skill_name,
             "proposed_content": _redact((canonical_request.proposed_content or "")[:3000]),
@@ -1262,15 +1511,44 @@ class SkillChangeStore:
             )
             raw = self._build_llm_content(response.content or "", strip_think=True)
             if not raw:
-                return None
+                return None, None
             # Must start with YAML frontmatter
             if not raw.startswith("---"):
                 logger.warning("LLM merge generate: no YAML frontmatter")
-                return None
-            return raw
+                return None, None
+
+            # Extract change_summary block if present
+            change_summary = None
+            cs_start_marker = "---change_summary---"
+            cs_end_marker = "---end_change_summary---"
+            cs_start = raw.find(cs_start_marker)
+            if cs_start != -1:
+                cs_end = raw.find(cs_end_marker, cs_start)
+                if cs_end != -1:
+                    cs_block = raw[cs_start + len(cs_start_marker):cs_end].strip()
+                    # Strip code fences if wrapped
+                    if cs_block.startswith("```"):
+                        cs_block = cs_block.split("\n", 1)[-1]
+                    if cs_block.endswith("```"):
+                        cs_block = cs_block.rsplit("```", 1)[0]
+                    cs_block = cs_block.strip()
+                    try:
+                        cs_match = re.search(r'\{[\s\S]*\}', cs_block)
+                        if cs_match:
+                            change_summary = json.loads(cs_match.group(0))
+                    except json.JSONDecodeError:
+                        logger.warning("LLM merge generate: change_summary JSON parse failed")
+                    # Remove the change_summary block from content
+                    raw = raw[:cs_start].rstrip() + "\n" + raw[cs_end + len(cs_end_marker):].lstrip("\n")
+                else:
+                    # Incomplete marker pair: strip start marker to avoid leaking into SKILL.md
+                    logger.warning("LLM merge generate: change_summary has start but no end marker")
+                    raw = raw[:cs_start].rstrip() + "\n" + raw[cs_start + len(cs_start_marker):].lstrip("\n")
+
+            return raw.strip(), change_summary
         except Exception as e:
             logger.warning("LLM merge generate failed: {}", e)
-            return None
+            return None, None
 
     async def generate_enhanced_candidate(
         self,
@@ -1283,10 +1561,21 @@ class SkillChangeStore:
         # Validate target request
         canonical = self.get_request(target_request_id)
         if not canonical:
+            self.record_audit_event(event_type="generate_enhanced_called",
+                                    request_id=target_request_id, effect="error",
+                                    error_code="request_not_found")
             return {"status": "error", "message": "Request not found."}
         if canonical.status != "pending":
+            self.record_audit_event(event_type="generate_enhanced_called",
+                                    request_id=target_request_id, skill_name=canonical.skill_name,
+                                    effect="error", error_code="not_pending",
+                                    error_message=f"Request is {canonical.status}")
             return {"status": "error", "message": f"Request is {canonical.status}, not pending."}
         if canonical.action != "create":
+            self.record_audit_event(event_type="generate_enhanced_called",
+                                    request_id=target_request_id, skill_name=canonical.skill_name,
+                                    effect="error", error_code="action_not_create",
+                                    error_message=f"Action is {canonical.action}")
             return {"status": "error", "message": "生成增强版候选仅支持 create 类型请求。"}
 
         # Fetch selected events
@@ -1294,6 +1583,9 @@ class SkillChangeStore:
         if len(selected_events) != len(selected_event_ids):
             found_ids = {e.id for e in selected_events}
             missing = [i for i in selected_event_ids if i not in found_ids]
+            self.record_audit_event(event_type="generate_enhanced_called",
+                                    request_id=target_request_id, skill_name=canonical.skill_name,
+                                    effect="error", error_code="events_not_found")
             return {"status": "error", "message": f"Events not found or do not belong to this request: {missing}"}
 
         # Stage 1: merge_brief
@@ -1303,8 +1595,15 @@ class SkillChangeStore:
             other_extra=other_extra,
         )
         if brief is None:
+            self.record_audit_event(event_type="merge_brief_invalid",
+                                    request_id=target_request_id, skill_name=canonical.skill_name,
+                                    effect="error", error_code="llm_merge_brief_failed")
             return {"status": "error", "message": "LLM merge brief failed — could not analyze extra info."}
         if not brief.get("should_generate_enhanced"):
+            self.record_audit_event(event_type="merge_brief_rejected",
+                                    request_id=target_request_id, skill_name=canonical.skill_name,
+                                    effect="skipped", error_code="no_new_value",
+                                    reason_zh=brief.get("summary_zh"))
             return {
                 "status": "needs_human_resolution",
                 "conflicts": brief.get("conflicts", []),
@@ -1312,14 +1611,56 @@ class SkillChangeStore:
             }
 
         # Stage 2: generate enhanced SKILL.md
-        enhanced_content = await self._call_llm_merge_generate_async(
+        enhanced_content, change_summary = await self._call_llm_merge_generate_async(
             canonical_request=canonical,
             merge_brief=brief,
             selected_events=selected_events,
             other_extra=other_extra,
         )
         if enhanced_content is None:
+            self.record_audit_event(event_type="generate_enhanced_called",
+                                    request_id=target_request_id, skill_name=canonical.skill_name,
+                                    effect="error", error_code="llm_merge_generate_failed")
             return {"status": "error", "message": "LLM merge generate failed — could not create enhanced skill."}
+
+        # Fail-closed: change_summary is mandatory for enhanced pending
+        if change_summary is None:
+            logger.warning("Enhanced candidate: LLM did not output change_summary, blocking.")
+            self.record_audit_event(event_type="change_summary_missing",
+                                    request_id=target_request_id, skill_name=canonical.skill_name,
+                                    effect="error", error_code="missing")
+            return {"status": "error", "message": "LLM 未输出变更摘要，无法验证守恒原则，已拒绝生成。"}
+
+        # Schema validation: change_summary must be a dict with correct field types
+        if not isinstance(change_summary, dict):
+            logger.warning("Enhanced candidate: change_summary is not a dict, blocking.")
+            self.record_audit_event(event_type="change_summary_invalid",
+                                    request_id=target_request_id, skill_name=canonical.skill_name,
+                                    effect="error", error_code="not_dict")
+            return {"status": "error", "message": "变更摘要格式不合法，已拒绝生成。"}
+        for _cs_key in ("preserved_points", "added_points", "changed_points", "ignored_points"):
+            _cs_val = change_summary.get(_cs_key)
+            if _cs_val is not None and not isinstance(_cs_val, list):
+                logger.warning("Enhanced candidate: change_summary.%s is not a list, blocking.", _cs_key)
+                self.record_audit_event(event_type="change_summary_invalid",
+                                        request_id=target_request_id, skill_name=canonical.skill_name,
+                                        effect="error", error_code=f"{_cs_key}_not_list")
+                return {"status": "error", "message": f"变更摘要字段 {_cs_key} 格式不合法，已拒绝生成。"}
+
+        # Validate changed_points entries: must be dict with reason_zh
+        for cp in change_summary.get("changed_points", []):
+            if not isinstance(cp, dict):
+                logger.warning("Enhanced candidate: changed_points entry is not a dict, blocking.")
+                self.record_audit_event(event_type="enhanced_validation_failed",
+                                        request_id=target_request_id, skill_name=canonical.skill_name,
+                                        effect="error", error_code="changed_points_not_dict")
+                return {"status": "error", "message": "变更摘要 changed_points 条目格式不合法，已拒绝生成。"}
+            if not cp.get("reason_zh", "").strip():
+                logger.warning("Enhanced candidate: changed_point without reason_zh, blocking.")
+                self.record_audit_event(event_type="enhanced_validation_failed",
+                                        request_id=target_request_id, skill_name=canonical.skill_name,
+                                        effect="error", error_code="changed_points_no_reason")
+                return {"status": "error", "message": "增强版候选修改了原有规则但未说明原因，已拒绝生成。"}
 
         # Validate generated content
         from nanobot.agent.tools.skill_manage import (
@@ -1327,12 +1668,24 @@ class SkillChangeStore:
         )
         name_err = validate_name(canonical.skill_name)
         if name_err:
+            self.record_audit_event(event_type="enhanced_validation_failed",
+                                    request_id=target_request_id, skill_name=canonical.skill_name,
+                                    effect="error", error_code="name_invalid",
+                                    error_message=name_err)
             return {"status": "error", "message": f"Name validation failed: {name_err}"}
         fm_err = validate_frontmatter(enhanced_content)
         if fm_err:
+            self.record_audit_event(event_type="enhanced_validation_failed",
+                                    request_id=target_request_id, skill_name=canonical.skill_name,
+                                    effect="error", error_code="frontmatter_invalid",
+                                    error_message=fm_err)
             return {"status": "error", "message": f"Frontmatter validation failed: {fm_err}"}
         size_err = validate_content_size(enhanced_content)
         if size_err:
+            self.record_audit_event(event_type="enhanced_validation_failed",
+                                    request_id=target_request_id, skill_name=canonical.skill_name,
+                                    effect="error", error_code="content_too_large",
+                                    error_message=size_err)
             return {"status": "error", "message": size_err}
 
         # Frontmatter name must match canonical skill_name
@@ -1340,23 +1693,37 @@ class SkillChangeStore:
         if fm_match:
             name_val = re.search(r"^name:\s*(.+)$", fm_match.group(1), re.MULTILINE)
             if name_val and name_val.group(1).strip() != canonical.skill_name:
+                self.record_audit_event(event_type="enhanced_validation_failed",
+                                        request_id=target_request_id, skill_name=canonical.skill_name,
+                                        effect="error", error_code="name_mismatch",
+                                        error_message=f"Generated '{name_val.group(1).strip()}' != '{canonical.skill_name}'")
                 return {"status": "error", "message": f"Generated name '{name_val.group(1).strip()}' does not match canonical '{canonical.skill_name}'."}
 
         # Frontmatter description must be non-empty
         if fm_match:
             desc_val = re.search(r"^description:\s*(.+)$", fm_match.group(1), re.MULTILINE)
             if not desc_val or not desc_val.group(1).strip():
+                self.record_audit_event(event_type="enhanced_validation_failed",
+                                        request_id=target_request_id, skill_name=canonical.skill_name,
+                                        effect="error", error_code="empty_description")
                 return {"status": "error", "message": "Generated skill has empty description."}
 
         # Required sections check
         _REQUIRED_SECTIONS = ["When to use", "Rules"]
         for section in _REQUIRED_SECTIONS:
             if section not in enhanced_content:
+                self.record_audit_event(event_type="enhanced_validation_failed",
+                                        request_id=target_request_id, skill_name=canonical.skill_name,
+                                        effect="error", error_code="missing_section",
+                                        error_message=f"Missing '{section}'")
                 return {"status": "error", "message": f"Generated skill missing required section: '{section}'."}
 
         # Final secret scan on generated output
         if _SENSITIVE_RE.search(enhanced_content):
             logger.warning("Enhanced candidate contains secrets, blocking.")
+            self.record_audit_event(event_type="enhanced_validation_failed",
+                                    request_id=target_request_id, skill_name=canonical.skill_name,
+                                    effect="error", error_code="contains_secrets")
             return {"status": "error", "message": "Enhanced candidate contains sensitive information — blocked for safety."}
 
         # Build enhancement summary for trigger_conversation
@@ -1389,6 +1756,25 @@ class SkillChangeStore:
                 enhancement_summary_parts.append(
                     f"  - {c.get('topic_zh', '')}: 原始={c.get('canonical_zh', '')} vs 额外={c.get('extra_zh', '')} → {c.get('resolution_zh', '')}"
                 )
+        # Append change_summary_zh to trigger_conversation for human review
+        if change_summary:
+            cs_lines = ["\n【变更摘要 change_summary_zh】"]
+            preserved = change_summary.get("preserved_points", [])
+            if preserved:
+                cs_lines.append(f"保留({len(preserved)}条): " + "; ".join(str(p) for p in preserved[:5]))
+            added = change_summary.get("added_points", [])
+            if added:
+                cs_lines.append(f"新增({len(added)}条): " + "; ".join(str(a) for a in added[:5]))
+            changed = change_summary.get("changed_points", [])
+            if changed:
+                cs_lines.append(f"修改({len(changed)}条):")
+                for ch in changed[:3]:
+                    cs_lines.append(f"  - 原: {ch.get('original_zh', '?')} → 新: {ch.get('new_zh', '?')} (原因: {ch.get('reason_zh', '')})")
+            ignored_cs = change_summary.get("ignored_points", [])
+            if ignored_cs:
+                cs_lines.append(f"未吸收({len(ignored_cs)}条): " + "; ".join(str(i) for i in ignored_cs[:3]))
+            enhancement_summary_parts.extend(cs_lines)
+
         enhancement_summary = "\n".join(enhancement_summary_parts)
         if len(enhancement_summary) > 8000:
             enhancement_summary = enhancement_summary[:8000]
@@ -1407,7 +1793,15 @@ class SkillChangeStore:
             old_string=None, new_string=None,
             now=now, expires=expires, sim_key=sim_key,
             maybe_duplicate_ids=[],
+            target_file_exists=canonical.target_file_exists,
+            target_file_hash=canonical.target_file_hash,
+            target_file_mtime=canonical.target_file_mtime,
+            target_file_size=canonical.target_file_size,
         )
+        self.record_audit_event(event_type="enhanced_pending_created",
+                                request_id=new_req.id, skill_name=canonical.skill_name,
+                                effect="created",
+                                input_hash=_build_input_hash(canonical.action, canonical.skill_name, canonical.reason))
         return {
             "status": "pending_review",
             "request_id": new_req.id,
@@ -1439,6 +1833,11 @@ class SkillChangeStore:
         related_existing_skill_ids: list[str] | None = None,
         related_existing_skill_note: str = "",
         existing_coverage_status: str = "",
+        replace_all: bool = False,
+        target_file_exists: int | None = None,
+        target_file_hash: str | None = None,
+        target_file_mtime: str | None = None,
+        target_file_size: int | None = None,
     ) -> SkillChangeRequest:
         req_id = uuid.uuid4().hex[:16]
         req = SkillChangeRequest(
@@ -1453,6 +1852,11 @@ class SkillChangeStore:
             related_existing_skill_ids=json.dumps(related_existing_skill_ids) if related_existing_skill_ids else None,
             related_existing_skill_note=related_existing_skill_note or None,
             existing_coverage_status=existing_coverage_status or None,
+            replace_all=1 if replace_all else 0,
+            target_file_exists=target_file_exists,
+            target_file_hash=target_file_hash,
+            target_file_mtime=target_file_mtime,
+            target_file_size=target_file_size,
         )
         with self._conn() as conn:
             conn.execute(
@@ -1461,15 +1865,18 @@ class SkillChangeStore:
                     reason, trigger_session, trigger_conversation, status, priority,
                     conflict_ids, created_at, expires_at, reviewed_at, reviewer_note,
                     duplicate_count, last_matched_at, similarity_key, maybe_duplicate_ids,
-                    related_existing_skill_ids, related_existing_skill_note, existing_coverage_status)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    related_existing_skill_ids, related_existing_skill_note, existing_coverage_status,
+                    replace_all, target_file_exists, target_file_hash, target_file_mtime, target_file_size)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (req.id, req.action, req.skill_name, req.proposed_content,
                  req.old_string, req.new_string, req.reason, req.trigger_session,
                  req.trigger_conversation, req.status, req.priority, req.conflict_ids,
                  req.created_at, req.expires_at, req.reviewed_at, req.reviewer_note,
                  req.duplicate_count, req.last_matched_at, req.similarity_key,
                  req.maybe_duplicate_ids, req.related_existing_skill_ids,
-                 req.related_existing_skill_note, req.existing_coverage_status),
+                 req.related_existing_skill_note, req.existing_coverage_status,
+                 req.replace_all, req.target_file_exists, req.target_file_hash,
+                 req.target_file_mtime, req.target_file_size),
             )
         if judge_note:
             logger.info("SkillChangeStore: created pending for '{}' with judge note: {}", skill_name, judge_note)

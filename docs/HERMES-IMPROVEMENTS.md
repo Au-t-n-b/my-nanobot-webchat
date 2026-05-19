@@ -1,7 +1,7 @@
 # Hermes 技能管理改进总览
 
 > 记录 Hermes（技能自动萃取 + 审核系统）从初始版本到当前版本的所有改进。
-> 最后更新：2026-05-17
+> 最后更新：2026-05-19
 
 ---
 
@@ -84,7 +84,7 @@
 | 健壮 JSON 提取 | markdown code fence 剥离 + regex 提取 JSON 对象，容错 prose 包裹 |
 | Provider 延迟绑定 | `set_provider()` 在 AgentLoop 构造后/重载时更新，避免初始化顺序问题 |
 
-### Round 3A+ Addition：黑名单管理
+### Round 3A+ Addition：黑名单管理 ✅
 
 | 改进 | 说明 |
 |------|------|
@@ -94,7 +94,7 @@
 | 前端黑名单面板 | 拒绝时可勾选"加入黑名单"，独立面板管理黑名单条目（查看/解除） |
 | 柔性黑名单 | 低置信度命中不阻止流程，仅标记为 suspected_blacklist |
 
-### Round 3C：Duplicate Event + Generate Enhanced Candidate
+### Round 3C：Duplicate Event + Generate Enhanced Candidate ✅
 
 | 改进 | 说明 |
 |------|------|
@@ -298,8 +298,11 @@ skills_auto:
 | `test_hermes_llm_judge_live.py` | 16 | 真实 Qwen3-235B 调用：正向（合并/等价/黑名单命中）+ 负向（无关/同类别不同目的/重叠关键词/roundtrip）|
 | `test_hermes_create_only.py` | 18 | **新增 (P0)**：allowed_actions schema/runtime 守卫、Hermes prompt 验证、generate-enhanced action 守卫、跨 action 合并拒绝 |
 | `test_existing_skill_coverage.py` | 25 | **新增 (P0.5)**：ExistingSkillSummary 扫描/解析、prefilter 候选召回、LLM coverage judge、create_request 集成（covered/related/no_match/blacklist 优先级）、to_dict 新字段 |
+| `test_hermes_toctou_replace_all.py` | 18 | **新增 (P0)**：TOCTOU 文件状态快照（hash/mtime/size）、磁盘冲突检测（create 已存在/patch hash 变/edit 删/delete 已删）、replace_all 全链路、DB 迁移幂等 |
+| `test_hermes_conservation_law.py` | 16 | **新增 (P0.5)**：Conservation Law prompt 验证、change_summary 提取/校验、fail-closed（缺失/非 dict/非 list/无 reason）、trigger_conversation 变更摘要、proposed_content 清洁 |
+| `test_hermes_audit_events.py` | 18 | **新增 (P1)**：AuditEvent schema、CRUD + 过滤、失败隔离、redact + 截断、黑名单/合并/增强失败/disk_conflict 决策点审计、input_hash 不可逆、5 场景 E2E smoke |
 
-**总计：200 个测试，全部通过。**
+**总计：277+ 个测试，全部通过。**
 
 运行命令：
 ```bash
@@ -381,7 +384,7 @@ cd frontend && npx tsc --noEmit
 | `_merge_into_existing` 跨 action 守卫 | incoming 与 existing action 不同时不合并，降级为 `related_but_distinct` |
 | `prefilter_and_judge` 返回值变更 | 从 `dict | None` 改为 `(judge_result, coverage_result)` 元组 |
 
-### P0.5 改动：Existing Skill Coverage Check
+### P0.5 改动：Existing Skill Coverage Check ✅
 
 | 改动 | 说明 |
 |------|------|
@@ -458,17 +461,263 @@ ALTER TABLE skill_change_requests ADD COLUMN existing_coverage_status TEXT;
 
 ---
 
+## 九-B-2、P0：TOCTOU File State Check + replace_all ✅
+
+> 实施日期：2026-05-19
+
+### 设计目标
+
+Approve 时验证目标文件在 pending 创建后未被外部修改（TOCTOU 防护），并支持 `replace_all` 参数传递给 `apply_patch`。
+
+### 核心改动
+
+| 改动 | 说明 |
+|------|------|
+| `target_file_exists` / `target_file_hash` / `target_file_mtime` / `target_file_size` | `create_request` 时快照目标文件状态（sha256 / mtime / size） |
+| `replace_all` 字段 | `create_request` 参数，存储到 DB，approve 时传给 `apply_patch` |
+| `check_disk_conflict(req)` | 对比 pending 快照 vs 当前磁盘状态：create→是否已存在、edit/patch/delete→是否被删除或 hash 变化 |
+| routes.py TOCTOU 检查 | approve 前调 `check_disk_conflict`，冲突返回 HTTP 409 + 中文错误消息 |
+| 前端 409 处理 | `SkillRequestPanel.approve()` 对 409 显示 "文件冲突" 前缀错误 |
+| DB 迁移幂等 | 5 列 ALTER TABLE 用 try/except OperationalError，重复执行不报错 |
+| 旧数据兼容 | 迁移前创建的 pending（file state 字段为 NULL）不触发误报 |
+
+### SQLite Schema 变化
+
+```sql
+ALTER TABLE skill_change_requests ADD COLUMN replace_all INTEGER DEFAULT 0;
+ALTER TABLE skill_change_requests ADD COLUMN target_file_exists INTEGER;
+ALTER TABLE skill_change_requests ADD COLUMN target_file_hash TEXT;
+ALTER TABLE skill_change_requests ADD COLUMN target_file_mtime TEXT;
+ALTER TABLE skill_change_requests ADD COLUMN target_file_size INTEGER;
+```
+
+---
+
+## 九-B-3、P0.5：Conservation Law + change_summary_zh ✅
+
+> 实施日期：2026-05-19
+
+### 设计目标
+
+generate-enhanced 产出必须通过 **守恒原则（Conservation Law）** 验证：不允许删除、弱化、重写 canonical pending 的核心规则。LLM 必须输出结构化变更摘要 `change_summary`，作为人类审核的审计追踪。
+
+### 核心改动
+
+| 改动 | 说明 |
+|------|------|
+| `_MERGE_GENERATE_PROMPT` 新增守恒原则 | 5 条核心规则 + change_summary 输出格式规范 |
+| `change_summary` 结构 | `preserved_points` / `added_points` / `changed_points`（需 `reason_zh`）/ `ignored_points` |
+| `_call_llm_merge_generate_async` 返回值变更 | 从 `str | None` 改为 `tuple[str | None, dict | None]`，提取并剥离 `---change_summary---` 块 |
+| Fail-closed 校验 | `change_summary is None` → 拒绝；非 dict → 拒绝；字段非 list → 拒绝；`changed_points` 条目非 dict → 拒绝；缺 `reason_zh` → 拒绝 |
+| 不完整标记处理 | 有 start marker 无 end marker 时剥离 start marker，不泄漏到 SKILL.md |
+| `trigger_conversation` 增加变更摘要 | 审核者可看到保留/新增/修改/未吸收的完整变更摘要 |
+| `proposed_content` 清洁 | change_summary block 在存入 pending 前被剥离 |
+
+### change_summary 格式
+
+```
+---change_summary---
+{"preserved_points": ["保留了规则A"], "added_points": ["新增了部署前检查"],
+ "changed_points": [{"original_zh": "旧规则", "new_zh": "新规则", "reason_zh": "原因"}],
+ "ignored_points": ["一次性路径"]}
+---end_change_summary---
+```
+
+---
+
+## 九-B-4、P1：Hermes Structured Audit Events ✅
+
+> 实施日期：2026-05-19
+
+### 设计目标
+
+Hermes 的后台关键决策（judge / coverage / duplicate merge / enhanced pipeline / approve）记录为结构化事件，便于回答：
+- 为什么这个 pending 被合并？
+- 为什么这个 request 被 blacklist block？
+- 为什么 generate-enhanced 失败？
+- 为什么 approve 返回 disk_conflict？
+
+### hermes_audit_events 表
+
+```sql
+CREATE TABLE IF NOT EXISTS hermes_audit_events (
+    id TEXT PRIMARY KEY,                -- uuid hex[:16]
+    created_at TEXT NOT NULL,           -- ISO UTC
+    event_type TEXT NOT NULL,           -- 事件类型枚举
+    request_id TEXT,                    -- 关联的 pending ID（nullable）
+    skill_name TEXT,                    -- 技能名
+    session_key TEXT,                   -- 触发 session
+    decision TEXT,                      -- LLM judge/coverage 决策
+    confidence REAL,                    -- LLM 置信度
+    target_id TEXT,                     -- 匹配到的 target（pending ID 或 skill name）
+    effect TEXT,                        -- 结果：blocked / merged / created / error
+    reason_zh TEXT,                     -- 中文原因（≤500 字符，_redact 脱敏）
+    error_code TEXT,                    -- 错误代码
+    error_message TEXT,                 -- 错误消息（≤500 字符，_redact 脱敏）
+    input_hash TEXT,                    -- sha256(action|name|reason[:200])[:16]
+    metadata_json TEXT                  -- JSON 扩展字段（≤2000 字符，_redact 脱敏）
+);
+-- Indexes: idx_ae_event_type, idx_ae_request_id, idx_ae_skill_name, idx_ae_created_at
+```
+
+### 安全保障
+
+- **不存完整 prompt / proposed_content / trigger_conversation**。仅存 `request_id` / `target_id` / `reason_zh` / `error_code`。
+- **`reason_zh` / `error_message` / `metadata_json`**：统一经过 `_redact()` 脱敏 + 长度截断。
+- **`input_hash`**：`sha256[:16]` 不可逆，不存原文。
+- **写入失败不影响主流程**：`record_audit_event` 内部 try/except Exception，仅 `logger.warning`。
+
+### 事件类型
+
+| 类别 | event_type | 触发点 |
+|------|-----------|--------|
+| 判断 | `judge_blacklist_hit` | blacklist_hit conf≥0.85（blocked）/ 0.6-0.84（downgraded） |
+| 判断 | `judge_same_duplicate` | same_duplicate 合并成功 |
+| 判断 | `judge_related_but_distinct` | related_but_distinct 新建 pending |
+| 覆盖 | `coverage_covered` | existing_covered 跳过创建 |
+| 覆盖 | `coverage_not_covered` | existing_related_but_distinct 关联已有 |
+| 增强 | `merge_brief_invalid` | brief LLM 返回失败 |
+| 增强 | `merge_brief_rejected` | brief 判定无新增价值 |
+| 增强 | `change_summary_missing` | LLM 未输出 change_summary |
+| 增强 | `change_summary_invalid` | change_summary schema 不合法 |
+| 增强 | `enhanced_validation_failed` | name/frontmatter/size/section/secrets 校验失败 |
+| 增强 | `enhanced_pending_created` | 增强版候选创建成功 |
+| 审批 | `approve_disk_conflict` | TOCTOU 检测到文件变化 |
+| 审批 | `approve_apply_failed` | apply 异常或返回失败 |
+| 审批 | `approve_apply_success` | apply + approve 均成功 |
+
+### Store 方法
+
+- `record_audit_event(*, event_type, request_id, skill_name, session_key, decision, confidence, target_id, effect, reason_zh, error_code, error_message, input_hash, metadata)` — 写入审计事件
+- `list_audit_events(*, request_id=None, skill_name=None, event_type=None, limit=50)` → `list[AuditEvent]`
+
+### 剩余非阻塞项
+
+1. **Audit TTL** — `hermes_audit_events` 表无清理机制，持续增长。后续加 `DELETE WHERE created_at < ?`。
+2. **`approve_request()` store-level 审计** — 目前 `approve_apply_success` 在 routes.py 层记录。其他代码直接调用 `approve_request()` 不会产生审计。低优先级。
+3. **测试 warning** — `test_audit_event_recorded_for_generate_enhanced_failure` 曾使用 `asyncio.get_event_loop()` 产生 DeprecationWarning，已改为 `@pytest.mark.asyncio`。
+
+---
+
+## 九-C、Round 3E：Hermes Runtime Hot Reload
+
+> 实施日期：2026-05-19
+
+### 设计目标
+
+配置更新 API 修改 `hermes_enabled` / `nudge_interval` / `cooldown` / `max_pending` / `max_reviews` 等 `skills_auto` 配置后，**不需要重启 nanobot 服务**。热生效只从下一轮用户消息或下一次 agent loop 边界开始，不追溯历史。
+
+### 修改前行为
+
+- `_skills_auto_config` 在 `AgentLoop.__init__` 里读取一次，运行期间不更新。
+- `routes.py` 配置更新只 reload provider/model/email/welink，不 reload `skills_auto`。
+- 改 `hermes_enabled` 后必须重启 nanobot 才生效。
+
+### 核心改动
+
+| 改动 | 说明 |
+|------|------|
+| `AgentLoop.reload_skills_auto_config()` | 同步方法，重新 `load_config().skills_auto`，更新内存配置、context builder、tool registry |
+| `_hermes_epoch` | 全局计数器，每次 hermes_enabled 或门控配置变化时递增 |
+| `_get_hermes_state()` lazy epoch reset | 发现 epoch 不匹配时重置 `iters_since_skill_manage=0`, `reviews_this_session=0`, `user_turns_since_review=cooldown_turns` |
+| `_run_skill_review()` epoch guard | 入口处检查 `hermes_enabled` 和 epoch，不匹配时直接 return，防止 stale write |
+| `routes.py` 配置更新 API | 保存后调用 `reload_skills_auto_config()`，返回新字段 |
+| Tool registry rebuild | `reload_skills_auto_config()` 内注册/注销 `skill_manage` tool |
+
+### Runtime Reload 语义
+
+1. **生效边界**：`next_turn` / next loop boundary。当前 in-flight model call 不中断，新配置从下一轮开始生效。
+2. **不追溯历史**：off→on 后从新工具调用开始计数（epoch reset → iters=0），不追溯旧的 tool call 历史。
+3. **不立刻 review**：on 之后不立即触发 review，需满足 nudge_interval / cooldown / pending_count / max_reviews 门控。
+4. **Cooldown 满足**：off→on 后 `user_turns_since_review` 初始化为 `cooldown_turns`，避免第一次 review 被不存在的"上一次 review"阻塞。
+5. **Disable 不删 pending**：关闭 Hermes 时已有 pending 保留。
+6. **In-flight 防护**：已调度的 `_run_skill_review` 在写入前检查 epoch 和 `hermes_enabled`，不匹配则放弃。
+
+### Epoch / State Reset 逻辑
+
+```
+reload_skills_auto_config():
+  new_cfg = load_config().skills_auto
+  old_cfg = self._skills_auto_config
+  self._skills_auto_config = new_cfg
+  self.context.set_skills_auto_config(new_cfg)
+  rebuild_tool_registry(new_cfg)
+
+  if hermes_enabled or gating fields changed:
+    self._hermes_epoch += 1
+
+_get_hermes_state(session_key):
+  entry = get_or_create(session_key)
+  if entry.epoch != self._hermes_epoch:
+    entry.iters_since_skill_manage = 0
+    entry.reviews_this_session = 0
+    entry.user_turns_since_review = new_cfg.hermes_cooldown_turns
+    entry.epoch = self._hermes_epoch
+  return entry
+
+_run_skill_review(snapshot, review_epoch=...):
+  if not hermes_enabled: return        # disabled → abort
+  if review_epoch != current_epoch: return  # stale → abort
+  ... proceed with review ...
+```
+
+### 配置更新 API 响应示例
+
+```json
+{
+  "ok": true,
+  "saved": true,
+  "reloaded": true,
+  "runtime_applied": true,
+  "effective_from": "next_turn",
+  "requires_restart": false,
+  "skills_auto_applied": true,
+  "current_model": "qwen3-235b-a22b",
+  "current_provider": "custom"
+}
+```
+
+### Review-now 设计（未实现，预留）
+
+```
+POST /api/sessions/{id}/hermes/review-now
+
+语义：
+- 显式对当前 session snapshot 触发一次 review
+- 可以绕过 nudge_interval
+- 仍遵守 pending_count / blacklist / existing coverage / create-only
+- 计入 reviews_this_session
+```
+
+### 测试覆盖
+
+| 测试 | 说明 |
+|------|------|
+| `test_reload_skills_auto_config_updates_enabled_without_restart` | reload 后 hermes_enabled 更新，tool 注册 |
+| `test_enable_hermes_mid_session_starts_counting_from_zero` | off→on 后计数器从 0 开始 |
+| `test_enable_hermes_does_not_retroactively_trigger_review` | 不追溯历史 tool call |
+| `test_enable_hermes_initializes_cooldown_as_satisfied` | user_turns_since_review=cooldown_turns |
+| `test_disable_hermes_stops_future_triggers` | off 后 tool 注销、不触发 |
+| `test_disable_hermes_prevents_inflight_review_write` | epoch guard 阻止 stale write |
+| `test_reload_skills_auto_config_increments_epoch_on_toggle` | epoch 在 toggle 时递增 |
+| `test_reload_skills_auto_config_rebuilds_tools_for_next_turn` | tool registry 正确重建 |
+| `test_config_update_api_reports_runtime_applied` | API 返回新字段 |
+| `test_pending_survives_disable` | pending 不受 disable 影响 |
+| `test_epoch_bumps_on_gating_config_change` | nudge_interval 等变化也触发 epoch |
+| `test_lazy_epoch_reset_resets_all_counters` | epoch reset 时所有计数器归零 |
+
+---
+
 ## 十、待改进方向
 
 1. **LLM judge 成本控制** — 高频场景加 debounce（同 session 30s 内不重复调 judge）
 2. **Judge prompt A/B 测试** — 对比不同 prompt 版本的 merge 准确率
 3. **黑名单半自动提升** — 多次被 judge 标记 blacklist_hit 但 confidence 不足的 pattern 可自动升级
 4. **前端批量操作** — maybe_duplicate_ids 积累多个关联 pending 时支持一键合并
-5. **Metrics 采集** — judge 调用次数/耗时/decision 分布写入日志，便于调优 threshold
+5. ~~**Metrics 采集**~~ → 已由 P1 audit events 部分覆盖，可通过 `list_audit_events` 查询 decision 分布
 6. **Thinking 模型适配** — 当前仅处理 `<think` 标签，可进一步支持 reasoning_content 字段直接取值
 7. **apply_delete 非原子** — 当前使用 `shutil.rmtree`，可改为 rename-to-trash 作为 P2 安全改进
 8. **reviews_this_session 生命周期** — 当前按 session 生命周期累计上限，未随时间重置（已知限制）
-9. **origin/source 字段** — 区分 Hermes / 主 agent / manual 来源，便于审计和权限控制
-10. **edit/patch/delete file_hash** — 非 create action 的 approve 一致性保护
-11. **approve handler 传递 replace_all** — 当前缺失导致多次 old_string 匹配的 patch 必定失败
-12. **Existing skill coverage cache** — 大量 skill 时避免每次扫描文件系统
+9. **Audit TTL** — `hermes_audit_events` 表无清理机制，持续增长，需加 `DELETE WHERE created_at < ?`
+10. **`approve_request()` store-level 审计** — 直接调用 `approve_request()` 不走 routes.py 时不产生审计事件
+11. **Existing skill coverage cache** — 大量 skill 时避免每次扫描文件系统

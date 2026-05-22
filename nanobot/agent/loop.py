@@ -9,8 +9,9 @@ import os
 import time
 from contextlib import AsyncExitStack, nullcontext, suppress
 from contextvars import ContextVar, Token
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Awaitable, Callable
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, Literal
 
 from loguru import logger
 
@@ -71,6 +72,44 @@ _SKILL_UI_CHAT_CARD_EMITTER: ContextVar[SkillUiChatCardEmitter | None] = Context
 )
 
 _CURRENT_THREAD_ID: ContextVar[str | None] = ContextVar("nanobot_current_thread_id", default=None)
+
+
+# ── Hermes flow boundary detection constants ───────────────────────────
+
+_HERMES_FLOW_START_ACTIONS = {
+    "guide", "start", "init", "open",
+    "choose_strategy", "choose_standard",
+}
+
+_HERMES_FLOW_END_ACTIONS = {
+    "finish", "done", "complete", "completed",
+    "submit", "close", "end",
+}
+
+_HERMES_FLOW_WAITING_HINTS = {
+    "upload", "confirm", "choose", "hitl", "wait",
+}
+
+
+@dataclass
+class HermesReviewScope:
+    """Result of flow-aware scope analysis for a Hermes review trigger."""
+
+    status: Literal["complete", "expanded_complete", "partial_deferred"]
+    session_key: str
+    start_idx: int
+    end_idx: int
+    trigger_idx: int
+    messages: list[dict]
+    module_id: str | None = None
+    flow_key: str | None = None
+    partial_reason: str | None = None
+    open_action: str | None = None
+    close_action: str | None = None
+    expanded_backward: int = 0
+    expanded_forward: int = 0
+    marker_id: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 # Web chat: optional PendingHitlStore for agent-driven HITL (request_user_upload).
 _PENDING_HITL_STORE: ContextVar[Any | None] = ContextVar("nanobot_pending_hitl_store", default=None)
@@ -676,10 +715,14 @@ class AgentLoop:
 
     def _set_tool_context(self, channel: str, chat_id: str, message_id: str | None = None) -> None:
         """Update context for all tools that need routing info."""
+        session_key = f"{channel}:{chat_id}"
         for name in ("message", "spawn", "cron"):
             if tool := self.tools.get(name):
                 if hasattr(tool, "set_context"):
                     tool.set_context(channel, chat_id, *([message_id] if name == "message" else []))
+        if recall := self.tools.get("recall_context"):
+            if hasattr(recall, "set_context"):
+                recall.set_context(session_key)
 
     @staticmethod
     def _strip_think(text: str | None) -> str | None:
@@ -1339,6 +1382,254 @@ class AgentLoop:
 
         return result
 
+    # ── Hermes scope expansion helpers ─────────────────────────────────────
+
+    @staticmethod
+    def _extract_module_skill_runtime_call(msg: dict) -> dict[str, str] | None:
+        """Extract module_id and action from a module_skill_runtime tool call."""
+        if msg.get("role") != "assistant":
+            return None
+        tool_calls = msg.get("tool_calls")
+        if not tool_calls:
+            return None
+        for tc in tool_calls:
+            func = tc.get("function", {})
+            if func.get("name") == "module_skill_runtime":
+                args = func.get("arguments", {})
+                if isinstance(args, str):
+                    try:
+                        args = json.loads(args)
+                    except (json.JSONDecodeError, TypeError):
+                        return None
+                if not isinstance(args, dict):
+                    return None
+                module_id = args.get("module_id")
+                action = args.get("action")
+                if module_id and action:
+                    return {"module_id": module_id, "action": action}
+        return None
+
+    @staticmethod
+    def _is_flow_start_action(action: str) -> bool:
+        lower = action.lower()
+        return lower in _HERMES_FLOW_START_ACTIONS or lower.endswith("_start")
+
+    @staticmethod
+    def _is_flow_end_action(action: str) -> bool:
+        lower = action.lower()
+        return lower in _HERMES_FLOW_END_ACTIONS or lower.endswith("_finish") or lower.endswith("_complete")
+
+    @staticmethod
+    def _is_flow_waiting_action(action: str) -> bool:
+        lower = action.lower()
+        return any(h in lower for h in _HERMES_FLOW_WAITING_HINTS)
+
+    def _build_hermes_review_scope(
+        self,
+        *,
+        session: Session,
+        session_key: str,
+        trigger_idx: int | None = None,
+        marker: Any = None,
+    ) -> HermesReviewScope:
+        """Analyze session messages to determine if Hermes should defer review
+        due to an incomplete module_skill_runtime flow."""
+        messages = session.messages
+        if trigger_idx is None:
+            trigger_idx = len(messages) - 1
+
+        cfg = self._skills_auto_config
+
+        # Logic A: if scope expand not enabled, return full session
+        if not cfg or not getattr(cfg, "hermes_scope_expand_enabled", False):
+            return HermesReviewScope(
+                status="complete",
+                session_key=session_key,
+                start_idx=0,
+                end_idx=len(messages) - 1,
+                trigger_idx=trigger_idx,
+                messages=messages,
+            )
+
+        back_limit = getattr(cfg, "hermes_scope_expand_back_messages", 40)
+        back_user_turns = getattr(cfg, "hermes_scope_expand_back_user_turns", 4)
+        forward_limit = getattr(cfg, "hermes_scope_expand_forward_messages", 40)
+
+        # Logic B: marker resume path
+        if marker is not None:
+            start_idx = marker.start_msg_idx
+            module_id = marker.module_id
+            # Scan from start_idx to end for same module_id end action
+            scan_end = min(len(messages), marker.last_seen_msg_idx + forward_limit + 1)
+            end_idx = None
+            for i in range(start_idx, scan_end):
+                parsed = self._extract_module_skill_runtime_call(messages[i])
+                if parsed and parsed["module_id"] == module_id:
+                    if self._is_flow_end_action(parsed["action"]):
+                        end_idx = i
+                        break
+
+            if end_idx is not None:
+                scope_msgs = messages[start_idx:end_idx + 1]
+                flow_key = f"{session_key}:{module_id}:{start_idx}"
+                return HermesReviewScope(
+                    status="expanded_complete",
+                    session_key=session_key,
+                    start_idx=start_idx,
+                    end_idx=end_idx,
+                    trigger_idx=trigger_idx,
+                    messages=scope_msgs,
+                    module_id=module_id,
+                    flow_key=flow_key,
+                    close_action="finish",
+                    expanded_backward=0,
+                    expanded_forward=end_idx - marker.last_seen_msg_idx,
+                    marker_id=marker.id if hasattr(marker, "id") else None,
+                )
+            else:
+                # Still incomplete, update marker
+                flow_key = getattr(marker, "flow_key", None) or f"{session_key}:{module_id}:unknown:{trigger_idx}"
+                return HermesReviewScope(
+                    status="partial_deferred",
+                    session_key=session_key,
+                    start_idx=start_idx,
+                    end_idx=trigger_idx,
+                    trigger_idx=trigger_idx,
+                    messages=[],
+                    module_id=module_id,
+                    flow_key=flow_key,
+                    partial_reason="missing_end",
+                    marker_id=marker.id if hasattr(marker, "id") else None,
+                )
+
+        # Logic C: normal trigger — scan backward for module_skill_runtime calls
+        scan_start = max(0, trigger_idx - back_limit)
+        # Also count user turns in the scan range
+        user_turn_count = 0
+        recent_module_calls: list[tuple[int, str, str]] = []  # (idx, module_id, action)
+
+        for i in range(trigger_idx, max(-1, scan_start - 1), -1):
+            if i < 0:
+                break
+            msg = messages[i]
+            if msg.get("role") == "user":
+                user_turn_count += 1
+                if user_turn_count > back_user_turns:
+                    break
+            parsed = self._extract_module_skill_runtime_call(msg)
+            if parsed:
+                recent_module_calls.append((i, parsed["module_id"], parsed["action"]))
+
+        if not recent_module_calls:
+            # No module calls found, proceed with full session
+            return HermesReviewScope(
+                status="complete",
+                session_key=session_key,
+                start_idx=0,
+                end_idx=len(messages) - 1,
+                trigger_idx=trigger_idx,
+                messages=messages,
+            )
+
+        # Analyze the most recent module call
+        nearest_idx, module_id, action = recent_module_calls[0]
+
+        # Count total calls for this module_id in range
+        module_call_count = sum(1 for _, mid, _ in recent_module_calls if mid == module_id)
+
+        # Find start and end for this module_id
+        start_idx = None
+        end_idx = None
+
+        for i, mid, act in reversed(recent_module_calls):
+            if mid == module_id and self._is_flow_start_action(act):
+                start_idx = i
+                break
+
+        # Look forward from nearest_idx for end action
+        if start_idx is not None:
+            for i in range(start_idx, len(messages)):
+                parsed = self._extract_module_skill_runtime_call(messages[i])
+                if parsed and parsed["module_id"] == module_id:
+                    if self._is_flow_end_action(parsed["action"]):
+                        end_idx = i
+                        break
+
+        # Determine status
+        if end_idx is not None:
+            # Complete flow found
+            actual_start = start_idx if start_idx is not None else nearest_idx
+            scope_msgs = messages[actual_start:end_idx + 1]
+            flow_key = f"{session_key}:{module_id}:{actual_start}"
+            return HermesReviewScope(
+                status="expanded_complete",
+                session_key=session_key,
+                start_idx=actual_start,
+                end_idx=end_idx,
+                trigger_idx=trigger_idx,
+                messages=scope_msgs,
+                module_id=module_id,
+                flow_key=flow_key,
+                open_action=action if start_idx is None else None,
+                close_action="finish",
+                expanded_backward=trigger_idx - actual_start,
+                expanded_forward=0,
+            )
+
+        # No end found — check if this is a genuine partial flow
+        if start_idx is not None:
+            # Have start but no end
+            if self._is_flow_waiting_action(action) or module_call_count >= 2:
+                flow_key = f"{session_key}:{module_id}:{start_idx}"
+                return HermesReviewScope(
+                    status="partial_deferred",
+                    session_key=session_key,
+                    start_idx=start_idx,
+                    end_idx=trigger_idx,
+                    trigger_idx=trigger_idx,
+                    messages=[],
+                    module_id=module_id,
+                    flow_key=flow_key,
+                    partial_reason="missing_end",
+                    open_action=action,
+                )
+            else:
+                # Single non-waiting call — don't defer
+                return HermesReviewScope(
+                    status="complete",
+                    session_key=session_key,
+                    start_idx=0,
+                    end_idx=len(messages) - 1,
+                    trigger_idx=trigger_idx,
+                    messages=messages,
+                )
+        else:
+            # No start found
+            if self._is_flow_waiting_action(action) or module_call_count >= 2:
+                flow_key = f"{session_key}:{module_id}:unknown:{trigger_idx}"
+                return HermesReviewScope(
+                    status="partial_deferred",
+                    session_key=session_key,
+                    start_idx=nearest_idx,
+                    end_idx=trigger_idx,
+                    trigger_idx=trigger_idx,
+                    messages=[],
+                    module_id=module_id,
+                    flow_key=flow_key,
+                    partial_reason="missing_start",
+                    open_action=action,
+                )
+            else:
+                # Single non-waiting, non-start module call — don't defer
+                return HermesReviewScope(
+                    status="complete",
+                    session_key=session_key,
+                    start_idx=0,
+                    end_idx=len(messages) - 1,
+                    trigger_idx=trigger_idx,
+                    messages=messages,
+                )
+
     def _schedule_background(self, coro) -> None:
         """Schedule a coroutine as a tracked background task (drained on shutdown)."""
         task = asyncio.create_task(coro)
@@ -1521,8 +1812,15 @@ class AgentLoop:
                 except Exception:
                     debt = None
 
+                # Check for open flow marker (scope expansion)
+                open_marker = None
+                try:
+                    open_marker = self.skill_change_store.find_open_flow_marker(key)
+                except Exception:
+                    open_marker = None
+
                 if debt is not None and hs.get("active_review_run_id") is None:
-                    # Retry the oldest unconsumed debt
+                    # Priority 1: Retry the oldest unconsumed debt
                     new_run_id = ""
                     try:
                         new_run_id = self.skill_change_store.create_review_run(
@@ -1576,50 +1874,227 @@ class AgentLoop:
                             original_chars=original_chars,
                             _consume_on_complete=(debt.trigger_iters, debt.trigger_user_turns),
                         ))
-                elif should_trigger:
-                    trigger_iters = hs["iters_since_skill_manage"]
-                    trigger_user_turns = hs["user_turns_since_review"]
-                    if cfg.hermes_distill_snapshot:
-                        review_snapshot = self._distill_for_review(session.messages)
+                elif open_marker is not None and hs.get("active_review_run_id") is None and pending < cfg.hermes_max_pending:
+                    # Priority 2: Resume partial flow marker
+                    scope = self._build_hermes_review_scope(
+                        session=session,
+                        session_key=key,
+                        marker=open_marker,
+                    )
+                    if scope.status == "partial_deferred":
+                        # Still incomplete, update marker
+                        self.skill_change_store.create_or_update_flow_marker(
+                            session_key=key,
+                            module_id=scope.module_id,
+                            flow_key=scope.flow_key,
+                            start_msg_idx=scope.start_idx,
+                            last_seen_msg_idx=len(session.messages) - 1,
+                            trigger_msg_idx=scope.trigger_idx,
+                            reason=scope.partial_reason or "partial_flow",
+                            open_action=scope.open_action,
+                        )
+                        hs["user_turns_since_review"] += 1
                     else:
-                        import copy
-                        review_snapshot = copy.deepcopy(session.messages)
-                    # Create run-level audit record
-                    run_id = ""
-                    original_msg_count = len(session.messages)
-                    original_chars = 0
-                    try:
-                        for m in session.messages:
+                        # Flow completed — create resume review run
+                        scope_messages = scope.messages
+                        if cfg.hermes_distill_snapshot:
+                            review_snapshot = self._distill_for_review(scope_messages)
+                        else:
+                            import copy
+                            review_snapshot = copy.deepcopy(scope_messages)
+                        original_msg_count = len(scope_messages)
+                        original_chars = 0
+                        for m in scope_messages:
                             c = m.get("content", "")
                             original_chars += len(c) if isinstance(c, str) else len(json.dumps(c))
-                        run_id = self.skill_change_store.create_review_run(
-                            session_key=key,
-                            trigger_session=key,
-                            trigger_reason=f"nudge={trigger_iters}, pending={pending}, cooldown={trigger_user_turns}, reviews={hs['reviews_this_session']}",
-                            review_epoch=self._hermes_epoch,
-                            hermes_enabled=True,
-                            iters_since_skill_manage=trigger_iters,
-                            user_turns_since_review=trigger_user_turns,
-                            reviews_this_session=hs["reviews_this_session"],
-                            pending_count=pending,
-                            nudge_interval=cfg.hermes_nudge_interval,
-                            cooldown_turns=cfg.hermes_cooldown_turns,
-                            max_pending=cfg.hermes_max_pending,
-                            max_reviews_per_session=cfg.hermes_max_reviews_per_session,
-                            distill_enabled=cfg.hermes_distill_snapshot,
-                            reject_feedback_enabled=cfg.hermes_use_reject_feedback,
-                        )
-                    except Exception:
+
                         run_id = ""
-                        logger.warning("Hermes: failed to create review run, continuing without tracking")
-                    hs["active_review_run_id"] = run_id or None
-                    self._schedule_background(self._run_skill_review(
-                        review_snapshot, review_epoch=self._hermes_epoch,
-                        run_id=run_id, original_message_count=original_msg_count,
-                        original_chars=original_chars,
-                        _consume_on_complete=(trigger_iters, trigger_user_turns),
-                    ))
-                    # Do NOT reset counters — consumption deferred to _run_skill_review completion
+                        try:
+                            run_id = self.skill_change_store.create_review_run(
+                                session_key=key,
+                                trigger_session=key,
+                                trigger_type="resume_partial_flow",
+                                trigger_reason=f"resume marker {open_marker.id}, module={scope.module_id}",
+                                review_epoch=self._hermes_epoch,
+                                hermes_enabled=True,
+                                iters_since_skill_manage=hs["iters_since_skill_manage"],
+                                user_turns_since_review=hs["user_turns_since_review"],
+                                reviews_this_session=hs["reviews_this_session"],
+                                pending_count=pending,
+                                nudge_interval=cfg.hermes_nudge_interval,
+                                cooldown_turns=cfg.hermes_cooldown_turns,
+                                max_pending=cfg.hermes_max_pending,
+                                max_reviews_per_session=cfg.hermes_max_reviews_per_session,
+                                distill_enabled=cfg.hermes_distill_snapshot,
+                                reject_feedback_enabled=cfg.hermes_use_reject_feedback,
+                                metadata={
+                                    "scope_status": scope.status,
+                                    "scope_start_idx": scope.start_idx,
+                                    "scope_end_idx": scope.end_idx,
+                                    "module_id": scope.module_id,
+                                    "flow_key": scope.flow_key,
+                                    "flow_marker_id": scope.marker_id,
+                                    "expanded_backward": scope.expanded_backward,
+                                    "expanded_forward": scope.expanded_forward,
+                                },
+                            )
+                        except Exception:
+                            run_id = ""
+                            logger.warning("Hermes: failed to create resume review run")
+                        if run_id:
+                            self.skill_change_store.mark_flow_marker_reviewed(open_marker.id, run_id)
+                        hs["active_review_run_id"] = run_id or None
+                        scope_note = (
+                            "本次 Hermes review 的原始触发点位于 module_skill_runtime 流程附近，"
+                            "系统已按同 module_id 的流程边界进行有限扩展。"
+                            "请基于扩展后的完整流程判断是否存在可复用 skill；"
+                            "不要记录半截流程状态、一次性路径、临时 action 或未闭环步骤。"
+                        ) if scope.status == "expanded_complete" else None
+                        self._schedule_background(self._run_skill_review(
+                            review_snapshot, review_epoch=self._hermes_epoch,
+                            run_id=run_id, original_message_count=original_msg_count,
+                            original_chars=original_chars,
+                            scope_note=scope_note,
+                            _consume_on_complete=(hs["iters_since_skill_manage"], hs["user_turns_since_review"]),
+                        ))
+                        logger.info(
+                            "Hermes: resumed partial module flow | marker={} session={} module={} start={} end={}",
+                            open_marker.id, key, scope.module_id, scope.start_idx, scope.end_idx,
+                        )
+                elif should_trigger:
+                    # Priority 3: Normal trigger — check scope before reviewing
+                    trigger_iters = hs["iters_since_skill_manage"]
+                    trigger_user_turns = hs["user_turns_since_review"]
+                    trigger_idx = len(session.messages) - 1
+
+                    scope = self._build_hermes_review_scope(
+                        session=session,
+                        session_key=key,
+                        trigger_idx=trigger_idx,
+                    )
+
+                    if scope.status == "partial_deferred":
+                        # Defer: create marker and deferred run, but don't start review
+                        marker_id = ""
+                        try:
+                            marker_id = self.skill_change_store.create_or_update_flow_marker(
+                                session_key=key,
+                                module_id=scope.module_id,
+                                flow_key=scope.flow_key,
+                                start_msg_idx=scope.start_idx,
+                                last_seen_msg_idx=scope.end_idx,
+                                trigger_msg_idx=trigger_idx,
+                                reason=scope.partial_reason or "partial_flow",
+                                open_action=scope.open_action,
+                            )
+                        except Exception:
+                            marker_id = ""
+
+                        run_id = ""
+                        try:
+                            run_id = self.skill_change_store.create_review_run(
+                                session_key=key,
+                                trigger_session=key,
+                                trigger_type="deferred_partial_flow",
+                                trigger_reason=f"partial_flow:{scope.partial_reason}",
+                                review_epoch=self._hermes_epoch,
+                                hermes_enabled=True,
+                                iters_since_skill_manage=trigger_iters,
+                                user_turns_since_review=trigger_user_turns,
+                                reviews_this_session=hs["reviews_this_session"],
+                                pending_count=pending,
+                                nudge_interval=cfg.hermes_nudge_interval,
+                                cooldown_turns=cfg.hermes_cooldown_turns,
+                                max_pending=cfg.hermes_max_pending,
+                                max_reviews_per_session=cfg.hermes_max_reviews_per_session,
+                                distill_enabled=cfg.hermes_distill_snapshot,
+                                reject_feedback_enabled=cfg.hermes_use_reject_feedback,
+                                metadata={
+                                    "flow_marker_id": marker_id,
+                                    "scope_status": scope.status,
+                                    "module_id": scope.module_id,
+                                    "flow_key": scope.flow_key,
+                                    "partial_reason": scope.partial_reason,
+                                    "scope_start_idx": scope.start_idx,
+                                    "scope_end_idx": scope.end_idx,
+                                    "scope_trigger_idx": trigger_idx,
+                                },
+                                trigger_iters=trigger_iters,
+                                trigger_user_turns=trigger_user_turns,
+                            )
+                        except Exception:
+                            run_id = ""
+                        if run_id:
+                            self.skill_change_store.finish_review_run(
+                                run_id,
+                                status="deferred_partial_flow",
+                                skip_reason=scope.partial_reason or "partial_flow",
+                                result_summary_zh="检测到 Hermes 触发点位于未完成的模块流程中，已记录流程起点，等待后续消息补齐后再审核。",
+                            )
+                        hs["user_turns_since_review"] = 0
+                        logger.info(
+                            "Hermes: deferred partial module flow | session={} module={} reason={} start={} trigger={} end={}",
+                            key, scope.module_id, scope.partial_reason, scope.start_idx, trigger_idx, scope.end_idx,
+                        )
+                    else:
+                        # Complete or expanded_complete — proceed with review
+                        scope_messages = scope.messages
+                        if cfg.hermes_distill_snapshot:
+                            review_snapshot = self._distill_for_review(scope_messages)
+                        else:
+                            import copy
+                            review_snapshot = copy.deepcopy(scope_messages)
+                        run_id = ""
+                        original_msg_count = len(scope_messages)
+                        original_chars = 0
+                        try:
+                            for m in scope_messages:
+                                c = m.get("content", "")
+                                original_chars += len(c) if isinstance(c, str) else len(json.dumps(c))
+                            run_id = self.skill_change_store.create_review_run(
+                                session_key=key,
+                                trigger_session=key,
+                                trigger_reason=f"nudge={trigger_iters}, pending={pending}, cooldown={trigger_user_turns}, reviews={hs['reviews_this_session']}",
+                                review_epoch=self._hermes_epoch,
+                                hermes_enabled=True,
+                                iters_since_skill_manage=trigger_iters,
+                                user_turns_since_review=trigger_user_turns,
+                                reviews_this_session=hs["reviews_this_session"],
+                                pending_count=pending,
+                                nudge_interval=cfg.hermes_nudge_interval,
+                                cooldown_turns=cfg.hermes_cooldown_turns,
+                                max_pending=cfg.hermes_max_pending,
+                                max_reviews_per_session=cfg.hermes_max_reviews_per_session,
+                                distill_enabled=cfg.hermes_distill_snapshot,
+                                reject_feedback_enabled=cfg.hermes_use_reject_feedback,
+                                metadata={
+                                    "scope_status": scope.status,
+                                    "scope_start_idx": scope.start_idx,
+                                    "scope_end_idx": scope.end_idx,
+                                    "scope_trigger_idx": trigger_idx,
+                                    "module_id": scope.module_id,
+                                    "flow_key": scope.flow_key,
+                                    "expanded_backward": scope.expanded_backward,
+                                    "expanded_forward": scope.expanded_forward,
+                                },
+                            )
+                        except Exception:
+                            run_id = ""
+                            logger.warning("Hermes: failed to create review run, continuing without tracking")
+                        hs["active_review_run_id"] = run_id or None
+                        scope_note = (
+                            "本次 Hermes review 的原始触发点位于 module_skill_runtime 流程附近，"
+                            "系统已按同 module_id 的流程边界进行有限扩展。"
+                            "请基于扩展后的完整流程判断是否存在可复用 skill；"
+                            "不要记录半截流程状态、一次性路径、临时 action 或未闭环步骤。"
+                        ) if scope.status == "expanded_complete" else None
+                        self._schedule_background(self._run_skill_review(
+                            review_snapshot, review_epoch=self._hermes_epoch,
+                            run_id=run_id, original_message_count=original_msg_count,
+                            original_chars=original_chars,
+                            scope_note=scope_note,
+                            _consume_on_complete=(trigger_iters, trigger_user_turns),
+                        ))
                 else:
                     hs["user_turns_since_review"] += 1
 
@@ -1627,6 +2102,8 @@ class AgentLoop:
         async def _expire_bg():
             self.skill_change_store.expire_requests()
             self.skill_change_store.cleanup_stale_review_runs(max_running_minutes=30)
+            max_age = getattr(cfg, "hermes_partial_flow_max_age_hours", 24) if self._skills_auto_config else 24
+            self.skill_change_store.cleanup_stale_flow_markers(max_age_hours=max_age)
         self._schedule_background(_expire_bg())
 
         if (mt := self.tools.get("message")) and isinstance(mt, MessageTool) and mt._sent_in_turn:
@@ -1725,6 +2202,7 @@ class AgentLoop:
     async def _run_skill_review(self, messages_snapshot: list[dict], *, review_epoch: int | None = None,
                                    run_id: str = "", original_message_count: int = 0,
                                    original_chars: int = 0,
+                                   scope_note: str | None = None,
                                    _consume_on_complete: tuple[int, int] | None = None) -> None:
         """Background Hermes skill review: analyze conversation and create/update skills."""
         # Stale-write guard: if Hermes was disabled or config changed after this
@@ -1856,6 +2334,8 @@ class AgentLoop:
             role = msg.get("role")
             if role in ("user", "assistant", "tool"):
                 review_messages.append(msg)
+        if scope_note:
+            review_messages.append({"role": "user", "content": f"[Hermes scope note]\n{scope_note}"})
         review_messages.append({"role": "user", "content": _SKILL_REVIEW_PROMPT})
 
         finished = False

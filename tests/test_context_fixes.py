@@ -128,3 +128,44 @@ class TestSessionMemoryDisabledByDefault:
         from nanobot.config.schema import ContextConfig
         cfg = ContextConfig()
         assert cfg.session_memory.enabled is False
+
+
+class TestRecallContextConversationId:
+    """RecallContextTool must know the current session key."""
+
+    def test_set_context_stores_conversation_id(self) -> None:
+        from nanobot.agent.tools.recall import RecallContextTool
+
+        archive = MagicMock()
+        archive.search_by_keyword = MagicMock(return_value=[])
+
+        tool = RecallContextTool(archive)
+        tool.set_context("web:abc123")
+
+        tool._keyword_search({"query": "test", "limit": 5})
+
+        archive.search_by_keyword.assert_called_once_with("web:abc123", "test", 5)
+
+    def test_keyword_uses_injected_id_over_kwargs(self) -> None:
+        from nanobot.agent.tools.recall import RecallContextTool
+
+        archive = MagicMock()
+        archive.search_by_keyword = MagicMock(return_value=[])
+
+        tool = RecallContextTool(archive)
+        tool.set_context("web:correct")
+        tool._keyword_search({"query": "test", "_conversation_id": "web:wrong"})
+
+        archive.search_by_keyword.assert_called_once_with("web:correct", "test", 10)
+
+    def test_no_injected_id_falls_back_to_kwargs(self) -> None:
+        from nanobot.agent.tools.recall import RecallContextTool
+
+        archive = MagicMock()
+        archive.search_by_keyword = MagicMock(return_value=[])
+
+        tool = RecallContextTool(archive)
+        # No set_context call — should fall back to kwargs
+        tool._keyword_search({"query": "test", "_conversation_id": "web:fallback"})
+
+        archive.search_by_keyword.assert_called_once_with("web:fallback", "test", 10)

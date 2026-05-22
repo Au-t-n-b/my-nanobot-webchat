@@ -14,6 +14,11 @@ class RecallContextTool(Tool):
 
     def __init__(self, archive: Any):
         self._archive = archive
+        self._conversation_id: str | None = None
+
+    def set_context(self, conversation_id: str) -> None:
+        """Set the current conversation_id for session-scoped searches."""
+        self._conversation_id = conversation_id
 
     @property
     def name(self) -> str:
@@ -65,7 +70,7 @@ class RecallContextTool(Tool):
         query = kwargs.get("query", "")
         limit = kwargs.get("limit", 10)
         # conversation_id comes from the session — injected at integration time
-        conv_id = kwargs.get("_conversation_id", "")
+        conv_id = self._conversation_id or kwargs.get("_conversation_id", "")
         if not query:
             return "错误: keyword 模式需要提供 query 参数"
 

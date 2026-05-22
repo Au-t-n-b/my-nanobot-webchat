@@ -984,17 +984,9 @@ class AgentLoop:
                             result += _EXCEL_ERROR_HINT
 
                     # ── Tool result handling (PersistedOutput) ─────────────────
-                    # Persist large outputs to disk with reference tags,
-                    # or simple truncation for exempt tools.
                     inline_result = result
                     if isinstance(inline_result, str):
-                        _is_md_read = (
-                            tool_call.name == "read_file"
-                            and str(tool_call.arguments.get("path", "")).lower().endswith(".md")
-                        )
-                        if _is_md_read:
-                            pass  # .md reads always exempt from truncation/persistence
-                        elif self.persisted_output.should_persist(
+                        if self.persisted_output.should_persist(
                             inline_result, tool_call.name, tool_call.id
                         ):
                             inline_result = self.persisted_output.persist(

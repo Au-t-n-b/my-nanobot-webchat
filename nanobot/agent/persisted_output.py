@@ -55,7 +55,13 @@ class PersistedOutputManager:
             f" size='{len(content)}' tool='{tool_name}'"
             f" tool_call_id='{tool_call_id}'/>"
         )
-        preview = f"{head}\n{tag}\n{tail}"
+        hint = (
+            "\n[提示] 该工具输出已持久化，仅显示预览。"
+            "若需要更细粒度阅读，请优先使用 grep/rg 搜索关键词定位，"
+            "再用 read_file(path, offset, limit) 分段读取相关片段，"
+            "避免一次性读取大文件撑爆上下文。\n"
+        )
+        preview = f"{head}\n{tag}{hint}\n{tail}"
         logger.debug("Persisted tool result: {} ({} chars) → {}", tool_call_id[:8], len(content), filename)
         return preview
 

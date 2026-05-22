@@ -169,3 +169,54 @@ class TestRecallContextConversationId:
         tool._keyword_search({"query": "test", "_conversation_id": "web:fallback"})
 
         archive.search_by_keyword.assert_called_once_with("web:fallback", "test", 10)
+
+
+class TestReadFilePersistedOutput:
+    """Large read_file results should be persisted, not blindly exempted."""
+
+    def test_large_read_file_is_persisted(self, tmp_path: Path) -> None:
+        from nanobot.agent.persisted_output import PersistedOutputManager
+        from nanobot.config.schema import PersistedOutputConfig
+
+        cfg = PersistedOutputConfig(size_threshold=500)
+        mgr = PersistedOutputManager(tmp_path, cfg)
+
+        large_content = "x" * 1000
+        assert mgr.should_persist(large_content, "read_file", "call_123") is True
+
+    def test_small_read_file_stays_inline(self, tmp_path: Path) -> None:
+        from nanobot.agent.persisted_output import PersistedOutputManager
+        from nanobot.config.schema import PersistedOutputConfig
+
+        cfg = PersistedOutputConfig(size_threshold=500)
+        mgr = PersistedOutputManager(tmp_path, cfg)
+
+        small_content = "x" * 100
+        assert mgr.should_persist(small_content, "read_file", "call_456") is False
+
+    def test_persisted_output_contains_hint(self, tmp_path: Path) -> None:
+        from nanobot.agent.persisted_output import PersistedOutputManager
+        from nanobot.config.schema import PersistedOutputConfig
+
+        cfg = PersistedOutputConfig(size_threshold=100, preview_head=50, preview_tail=50)
+        mgr = PersistedOutputManager(tmp_path, cfg)
+
+        content = "A" * 500
+        preview = mgr.persist(content, "call_789", "read_file")
+
+        assert "<persisted-output" in preview
+        assert "grep/rg" in preview
+        assert "read_file" in preview
+        assert "offset" in preview
+        assert "limit" in preview
+
+    def test_read_file_not_in_exempt_tools_default(self) -> None:
+        from nanobot.config.schema import PersistedOutputConfig
+        cfg = PersistedOutputConfig()
+        assert "read_file" not in cfg.exempt_tools
+
+    def test_web_tools_still_exempt(self) -> None:
+        from nanobot.config.schema import PersistedOutputConfig
+        cfg = PersistedOutputConfig()
+        assert "web_search" in cfg.exempt_tools
+        assert "web_fetch" in cfg.exempt_tools

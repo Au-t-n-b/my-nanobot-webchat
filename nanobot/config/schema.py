@@ -205,7 +205,7 @@ class PersistedOutputConfig(Base):
     preview_head: int = 2000
     preview_tail: int = 1000
     results_dir: str = "tool-results"
-    exempt_tools: list[str] = Field(default_factory=lambda: ["read_file", "web_search", "web_fetch"])
+    exempt_tools: list[str] = Field(default_factory=lambda: ["web_search", "web_fetch"])
     aggregate_budget: int = 100_000
     retention_days: int = 30
 

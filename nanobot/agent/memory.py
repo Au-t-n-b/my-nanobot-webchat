@@ -500,16 +500,8 @@ class MemoryConsolidator:
                 logger.exception("SQLite archive store failed")
                 range_id = None
 
-        # 4. Generate leaf summary (fast path: use session memory summary.md)
-        leaf_text: str | None = None
-        if self.session_memory:
-            try:
-                leaf_text = self.session_memory.read_summary(session.key)
-            except Exception:
-                leaf_text = None
-
-        if not leaf_text:
-            leaf_text = await self._generate_leaf(chunk, extra_instructions)
+        # 4. Generate leaf summary (always range-bound from archived chunk)
+        leaf_text = await self._generate_leaf(chunk, extra_instructions)
 
         # 5. Build compact message
         now = datetime.now().isoformat()
@@ -557,7 +549,14 @@ class MemoryConsolidator:
             })
 
         self._consecutive_failures = 0
-        return True
+        return CompactResult(
+            success=True,
+            messages_archived=len(chunk),
+            tokens_before=0,
+            tokens_after=0,
+            summary_preview=leaf_text[:500],
+            range_id=range_id,
+        )
 
     async def maybe_consolidate_by_tokens(self, session: Session) -> None:
         """Loop: archive old messages until prompt fits within safe budget.
@@ -627,7 +626,8 @@ class MemoryConsolidator:
                 )
                 # Use new compact() if archive is available, else old consolidation
                 if self.archive:
-                    if not await self.compact(session, trigger="auto", boundary_override=end_idx):
+                    compact_result = await self.compact(session, trigger="auto", boundary_override=end_idx)
+                    if not compact_result.success:
                         return
                     # compact() already saved session and reset last_consolidated
                     # Re-estimate from the new state

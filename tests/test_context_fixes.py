@@ -270,3 +270,50 @@ class TestCompactTiming:
         last_dt = dt.fromisoformat(last_asst_ts)
         gap_hours = (dt.now() - last_dt).total_seconds() / 3600
         assert gap_hours >= 24
+
+
+class TestConsolidationConfigWired:
+    """Custom consolidation config should control compact behavior."""
+
+    @pytest.mark.asyncio
+    async def test_custom_max_rounds_respected(self, tmp_path: Path) -> None:
+        from nanobot.config.schema import ConsolidationConfig
+        cfg = ConsolidationConfig(max_rounds=1)
+        consolidator = _make_consolidator(tmp_path, max_rounds=1)
+        assert consolidator._consolidation_config.max_rounds == 1
+
+    @pytest.mark.asyncio
+    async def test_custom_trigger_percent(self, tmp_path: Path) -> None:
+        consolidator = _make_consolidator(tmp_path, trigger_percent=80)
+        assert consolidator._consolidation_config.trigger_percent == 80
+
+
+class TestGetHistoryUnlimited:
+    """get_history(max_messages=None) should return all unconsolidated legal history."""
+
+    def test_none_returns_all(self) -> None:
+        session = Session(key="test:unlimited")
+        for i in range(10):
+            session.add_message("user", f"q{i}")
+            session.add_message("assistant", f"a{i}")
+
+        history = session.get_history(max_messages=None)
+        assert len(history) == 20
+
+    def test_zero_returns_all_backward_compat(self) -> None:
+        session = Session(key="test:zero")
+        for i in range(10):
+            session.add_message("user", f"q{i}")
+            session.add_message("assistant", f"a{i}")
+
+        history = session.get_history(max_messages=0)
+        assert len(history) == 20
+
+    def test_positive_limits(self) -> None:
+        session = Session(key="test:limited")
+        for i in range(10):
+            session.add_message("user", f"q{i}")
+            session.add_message("assistant", f"a{i}")
+
+        history = session.get_history(max_messages=5)
+        assert len(history) <= 5

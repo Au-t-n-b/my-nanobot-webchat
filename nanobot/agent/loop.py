@@ -397,20 +397,7 @@ class AgentLoop:
         self._concurrency_gate: asyncio.Semaphore | None = (
             asyncio.Semaphore(_max) if _max > 0 else None
         )
-        self.memory_consolidator = MemoryConsolidator(
-            workspace=workspace,
-            provider=provider,
-            model=self.model,
-            sessions=self.sessions,
-            context_window_tokens=context_window_tokens,
-            build_messages=self.context.build_messages,
-            get_tool_definitions=self.tools.get_definitions,
-            max_completion_tokens=provider.generation.max_tokens,
-        )
-
-        # --- New context management subsystems ---
-        from nanobot.config.schema import Config
-        # Try to load context config from nanobot config if available
+        # --- Load context config first for subsystem wiring ---
         self._context_config = None
         self._skills_auto_config = None
         try:
@@ -423,6 +410,18 @@ class AgentLoop:
 
         from nanobot.config.schema import ContextConfig
         ctx_cfg = self._context_config or ContextConfig()
+
+        self.memory_consolidator = MemoryConsolidator(
+            workspace=workspace,
+            provider=provider,
+            model=self.model,
+            sessions=self.sessions,
+            context_window_tokens=context_window_tokens,
+            build_messages=self.context.build_messages,
+            get_tool_definitions=self.tools.get_definitions,
+            max_completion_tokens=provider.generation.max_tokens,
+            consolidation_config=ctx_cfg.consolidation,
+        )
 
         # PersistedOutputManager (tool result persistence)
         from nanobot.agent.persisted_output import PersistedOutputManager
@@ -1695,7 +1694,7 @@ class AgentLoop:
 
             await self.memory_consolidator.maybe_consolidate_by_tokens(session)
             self._set_tool_context(channel, chat_id, msg.metadata.get("message_id"))
-            history = session.get_history(max_messages=0)
+            history = session.get_history(max_messages=None)
             current_role = "assistant" if msg.sender_id == "subagent" else "user"
             messages = self.context.build_messages(
                 history=history,
@@ -1750,7 +1749,7 @@ class AgentLoop:
             if isinstance(message_tool, MessageTool):
                 message_tool.start_turn()
 
-        history = session.get_history(max_messages=0)
+        history = session.get_history(max_messages=None)
         initial_messages = self.context.build_messages(
             history=history,
             current_message=msg.content,

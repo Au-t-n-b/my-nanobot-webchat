@@ -114,3 +114,17 @@ class TestCompactReturnType:
         assert isinstance(result, CompactResult)
         assert result.success is True
         assert result.range_id == 42
+
+
+class TestSessionMemoryDisabledByDefault:
+    """SessionMemoryConfig.enabled should default to False."""
+
+    def test_default_enabled_is_false(self) -> None:
+        from nanobot.config.schema import SessionMemoryConfig
+        cfg = SessionMemoryConfig()
+        assert cfg.enabled is False
+
+    def test_context_config_inherits_disabled(self) -> None:
+        from nanobot.config.schema import ContextConfig
+        cfg = ContextConfig()
+        assert cfg.session_memory.enabled is False

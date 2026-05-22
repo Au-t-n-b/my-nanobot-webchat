@@ -222,7 +222,7 @@ class TimeBasedGraduatedCompactConfig(Base):
 class SessionMemoryConfig(Base):
     """Session memory extractor (single-file summary.md per session)."""
 
-    enabled: bool = True
+    enabled: bool = False
     auxiliary_model: str | None = None
     memory_dir: str = "session-memory"
 
@@ -275,6 +275,11 @@ class SkillsAutoConfig(Base):
     hermes_distill_snapshot: bool = True  # Use distilled snapshot instead of raw deepcopy
     hermes_use_reject_feedback: bool = True  # Inject recent rejected notes into review prompt
     hermes_duplicate_grace_days: int = 14  # Grace period extension when similar pending is re-matched
+    hermes_scope_expand_enabled: bool = True  # Enable flow boundary expansion and partial deferral
+    hermes_scope_expand_back_messages: int = 40  # Max messages to scan backward for flow start
+    hermes_scope_expand_forward_messages: int = 40  # Max messages to scan forward for flow end (marker resume)
+    hermes_scope_expand_back_user_turns: int = 4  # Max user turns to cross backward
+    hermes_partial_flow_max_age_hours: int = 24  # Partial marker timeout before abandoned
 
 
 class BridgeSdkConfig(Base):

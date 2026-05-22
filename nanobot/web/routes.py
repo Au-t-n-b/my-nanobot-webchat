@@ -2762,6 +2762,57 @@ async def handle_skill_requests_generate_enhanced(request: web.Request) -> web.R
         return _error("internal_error", "Failed to generate enhanced candidate", detail=str(e), status=500)
 
 
+# ── Hermes review runs ──────────────────────────────────────────────────
+
+
+async def handle_hermes_review_runs_list(request: web.Request) -> web.Response:
+    """GET /api/hermes/review-runs — list review runs."""
+    agent: AgentLoop | None = request.app.get(AGENT_LOOP_KEY)
+    if agent is None:
+        return _error("no_agent", "Agent not running", status=503)
+    try:
+        limit = min(int(request.rel_url.query.get("limit", "50")), 200)
+        session_key = request.rel_url.query.get("session_key", "").strip() or None
+        status = request.rel_url.query.get("status", "").strip() or None
+        runs = agent.skill_change_store.list_review_runs(
+            session_key=session_key, status=status, limit=limit,
+        )
+        return web.json_response({
+            "items": [r.to_dict() for r in runs],
+            "count": len(runs),
+        })
+    except Exception as e:
+        return _error("internal_error", "Failed to list review runs", detail=str(e), status=500)
+
+
+async def handle_hermes_review_runs_get(request: web.Request) -> web.Response:
+    """GET /api/hermes/review-runs/{id} — get single review run."""
+    agent: AgentLoop | None = request.app.get(AGENT_LOOP_KEY)
+    if agent is None:
+        return _error("no_agent", "Agent not running", status=503)
+    run_id = request.match_info.get("id", "")
+    run = agent.skill_change_store.get_review_run(run_id)
+    if not run:
+        return _error("not_found", "Review run not found", status=404)
+    return web.json_response(run.to_dict())
+
+
+async def handle_hermes_review_runs_events(request: web.Request) -> web.Response:
+    """GET /api/hermes/review-runs/{id}/events — list audit events for a run."""
+    agent: AgentLoop | None = request.app.get(AGENT_LOOP_KEY)
+    if agent is None:
+        return _error("no_agent", "Agent not running", status=503)
+    run_id = request.match_info.get("id", "")
+    run = agent.skill_change_store.get_review_run(run_id)
+    if not run:
+        return _error("not_found", "Review run not found", status=404)
+    events = agent.skill_change_store.list_audit_events(run_id=run_id)
+    return web.json_response({
+        "items": [e.to_dict() for e in events],
+        "count": len(events),
+    })
+
+
 def setup_routes(app: web.Application) -> None:
     app.router.add_post("/api/auth/login", handle_auth_login)
     app.router.add_get("/api/auth/me", handle_auth_me)
@@ -2845,6 +2896,10 @@ def setup_routes(app: web.Application) -> None:
     app.router.add_post("/api/skill-blacklist/{id}/disable", handle_blacklist_disable)
     app.router.add_get("/api/skill-requests/{id}/duplicate-events", handle_skill_requests_duplicate_events)
     app.router.add_post("/api/skill-requests/{id}/generate-enhanced", handle_skill_requests_generate_enhanced)
+    # Hermes review runs
+    app.router.add_get("/api/hermes/review-runs", handle_hermes_review_runs_list)
+    app.router.add_get("/api/hermes/review-runs/{id}", handle_hermes_review_runs_get)
+    app.router.add_get("/api/hermes/review-runs/{id}/events", handle_hermes_review_runs_events)
     app.router.add_options("/api/skill-requests", handle_options)
     app.router.add_options("/api/skill-requests/{id}", handle_options)
     app.router.add_options("/api/skill-requests/{id}/approve", handle_options)
@@ -2853,3 +2908,6 @@ def setup_routes(app: web.Application) -> None:
     app.router.add_options("/api/skill-blacklist/{id}/disable", handle_options)
     app.router.add_options("/api/skill-requests/{id}/duplicate-events", handle_options)
     app.router.add_options("/api/skill-requests/{id}/generate-enhanced", handle_options)
+    app.router.add_options("/api/hermes/review-runs", handle_options)
+    app.router.add_options("/api/hermes/review-runs/{id}", handle_options)
+    app.router.add_options("/api/hermes/review-runs/{id}/events", handle_options)

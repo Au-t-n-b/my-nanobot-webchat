@@ -6,6 +6,7 @@ import asyncio
 import copy
 import json
 import weakref
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
@@ -71,6 +72,18 @@ def _is_tool_choice_unsupported(content: str | None) -> bool:
     """Detect provider errors caused by forced tool_choice being unsupported."""
     text = (content or "").lower()
     return any(m in text for m in _TOOL_CHOICE_ERROR_MARKERS)
+
+
+@dataclass
+class CompactResult:
+    """Result of a compact() call — carries statistics for the caller to display."""
+
+    success: bool
+    messages_archived: int = 0
+    tokens_before: int = 0
+    tokens_after: int = 0
+    summary_preview: str = ""
+    range_id: int | None = None
 
 
 class MemoryStore:
@@ -431,13 +444,14 @@ class MemoryConsolidator:
         self,
         session: Session,
         trigger: str = "auto",
+        extra_instructions: str = "",
         *,
         boundary_override: int | None = None,
         keep_recent: int | None = None,
-    ) -> bool:
+    ) -> CompactResult:
         """Unified compact: archive old messages, generate leaf, replace session.messages."""
         if not session.messages:
-            return True
+            return CompactResult(success=True)
 
         # 1. PreCompact hooks
         extra_instructions = ""
@@ -449,7 +463,7 @@ class MemoryConsolidator:
             })
             if not hook_result.proceed:
                 logger.info("Compact aborted by pre-compact hook for {}", session.key)
-                return False
+                return CompactResult(success=False)
             extra_instructions = hook_result.extra_instructions
 
         # 2. Determine compression range
@@ -463,13 +477,13 @@ class MemoryConsolidator:
             target = budget // 2
             boundary = self.pick_consolidation_boundary(session, max(1, estimated - target))
             if boundary is None:
-                return False
+                return CompactResult(success=False)
             end_idx = boundary[0]
 
         chunk = session.messages[:end_idx]
         retained = session.messages[end_idx:]
         if not chunk:
-            return False
+            return CompactResult(success=False)
 
         # 3. Store in SQLite archive
         range_id: int | None = None

@@ -181,7 +181,35 @@ class AuditEvent:
         "id", "created_at", "event_type", "request_id", "skill_name",
         "session_key", "decision", "confidence", "target_id", "effect",
         "reason_zh", "error_code", "error_message", "input_hash",
-        "metadata_json",
+        "metadata_json", "run_id",
+    )
+
+    def __init__(self, **kwargs: Any) -> None:
+        for slot in self.__slots__:
+            setattr(self, slot, kwargs.get(slot))
+
+    def to_dict(self) -> dict[str, Any]:
+        return {slot: getattr(self, slot) for slot in self.__slots__}
+
+
+class ReviewRun:
+    """Tracks a single Hermes background review invocation."""
+
+    __slots__ = (
+        "id", "session_key", "trigger_session", "trigger_type", "trigger_reason",
+        "trigger_snapshot_json", "status", "skip_reason", "error_message",
+        "started_at", "ended_at", "duration_ms", "review_epoch", "hermes_enabled",
+        "iters_since_skill_manage", "user_turns_since_review", "reviews_this_session",
+        "pending_count", "nudge_interval", "cooldown_turns", "max_pending",
+        "max_reviews_per_session", "original_message_count", "distilled_message_count",
+        "original_chars", "distilled_chars", "evidence_chars", "distill_enabled",
+        "reject_feedback_enabled", "reject_feedback_count", "subagent_iterations",
+        "subagent_tool_calls", "skill_manage_calls", "requests_created",
+        "requests_merged", "requests_blocked", "requests_related",
+        "requests_covered", "result_summary_zh", "metadata_json",
+        "trigger_consumed", "retry_count", "replay_of_run_id", "replayed_by_run_id",
+        "trigger_iters", "trigger_user_turns", "abandoned_reason",
+        "created_at",
     )
 
     def __init__(self, **kwargs: Any) -> None:
@@ -539,6 +567,77 @@ class SkillChangeStore:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_ae_request_id ON hermes_audit_events(request_id)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_ae_skill_name ON hermes_audit_events(skill_name)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_ae_created_at ON hermes_audit_events(created_at)")
+
+            # Migration: add run_id column to hermes_audit_events
+            try:
+                conn.execute("ALTER TABLE hermes_audit_events ADD COLUMN run_id TEXT")
+            except sqlite3.OperationalError:
+                pass
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_ae_run_id ON hermes_audit_events(run_id)")
+
+            # ── Review runs table ─────────────────────────────────────
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS hermes_review_runs (
+                    id TEXT PRIMARY KEY,
+                    session_key TEXT NOT NULL,
+                    trigger_session TEXT,
+                    trigger_type TEXT NOT NULL DEFAULT 'auto_nudge',
+                    trigger_reason TEXT,
+                    trigger_snapshot_json TEXT,
+                    status TEXT NOT NULL DEFAULT 'created',
+                    skip_reason TEXT,
+                    error_message TEXT,
+                    started_at TEXT,
+                    ended_at TEXT,
+                    duration_ms INTEGER,
+                    review_epoch INTEGER,
+                    hermes_enabled INTEGER DEFAULT 1,
+                    iters_since_skill_manage INTEGER DEFAULT 0,
+                    user_turns_since_review INTEGER DEFAULT 0,
+                    reviews_this_session INTEGER DEFAULT 0,
+                    pending_count INTEGER DEFAULT 0,
+                    nudge_interval INTEGER,
+                    cooldown_turns INTEGER,
+                    max_pending INTEGER,
+                    max_reviews_per_session INTEGER,
+                    original_message_count INTEGER DEFAULT 0,
+                    distilled_message_count INTEGER DEFAULT 0,
+                    original_chars INTEGER DEFAULT 0,
+                    distilled_chars INTEGER DEFAULT 0,
+                    evidence_chars INTEGER DEFAULT 0,
+                    distill_enabled INTEGER DEFAULT 1,
+                    reject_feedback_enabled INTEGER DEFAULT 1,
+                    reject_feedback_count INTEGER DEFAULT 0,
+                    subagent_iterations INTEGER DEFAULT 0,
+                    subagent_tool_calls INTEGER DEFAULT 0,
+                    skill_manage_calls INTEGER DEFAULT 0,
+                    requests_created INTEGER DEFAULT 0,
+                    requests_merged INTEGER DEFAULT 0,
+                    requests_blocked INTEGER DEFAULT 0,
+                    requests_related INTEGER DEFAULT 0,
+                    requests_covered INTEGER DEFAULT 0,
+                    result_summary_zh TEXT,
+                    metadata_json TEXT,
+                    created_at TEXT NOT NULL
+                )
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_rr_session_key ON hermes_review_runs(session_key)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_rr_status ON hermes_review_runs(status)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_rr_created_at ON hermes_review_runs(created_at)")
+            # P1.1 migration: trigger debt recovery columns
+            for col_spec in [
+                "trigger_consumed INTEGER DEFAULT 0",
+                "retry_count INTEGER DEFAULT 0",
+                "replay_of_run_id TEXT",
+                "replayed_by_run_id TEXT",
+                "trigger_iters INTEGER DEFAULT 0",
+                "trigger_user_turns INTEGER DEFAULT 0",
+                "abandoned_reason TEXT",
+            ]:
+                try:
+                    conn.execute(f"ALTER TABLE hermes_review_runs ADD COLUMN {col_spec}")
+                except sqlite3.OperationalError:
+                    pass
 
     def create_request(
         self,
@@ -1058,6 +1157,7 @@ class SkillChangeStore:
         error_message: str | None = None,
         input_hash: str | None = None,
         metadata: dict[str, Any] | None = None,
+        run_id: str | None = None,
     ) -> None:
         """Record a structured audit event. Write failure is silently swallowed."""
         try:
@@ -1075,11 +1175,11 @@ class SkillChangeStore:
                     """INSERT INTO hermes_audit_events
                        (id, created_at, event_type, request_id, skill_name,
                         session_key, decision, confidence, target_id, effect,
-                        reason_zh, error_code, error_message, input_hash, metadata_json)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        reason_zh, error_code, error_message, input_hash, metadata_json, run_id)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (event_id, created_at, event_type, request_id, skill_name,
                      session_key, decision, confidence, target_id, effect,
-                     safe_reason, error_code, safe_error, input_hash, metadata_json),
+                     safe_reason, error_code, safe_error, input_hash, metadata_json, run_id),
                 )
         except Exception as exc:
             logger.warning("AuditEvent write failed (type={}, req={}): {}", event_type, request_id, exc)
@@ -1090,6 +1190,7 @@ class SkillChangeStore:
         request_id: str | None = None,
         skill_name: str | None = None,
         event_type: str | None = None,
+        run_id: str | None = None,
         limit: int = 50,
     ) -> list[AuditEvent]:
         """Query audit events with optional filters."""
@@ -1104,6 +1205,9 @@ class SkillChangeStore:
         if event_type is not None:
             clauses.append("event_type = ?")
             params.append(event_type)
+        if run_id is not None:
+            clauses.append("run_id = ?")
+            params.append(run_id)
         where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
         params.append(limit)
         with self._conn() as conn:
@@ -1112,6 +1216,302 @@ class SkillChangeStore:
                 params,
             ).fetchall()
         return [AuditEvent(**dict(r)) for r in rows]
+
+    # ── Review runs ────────────────────────────────────────────────────────
+
+    _INCREMENT_FIELDS = frozenset({
+        "subagent_iterations", "subagent_tool_calls", "skill_manage_calls",
+        "requests_created", "requests_merged", "requests_blocked",
+        "requests_related", "requests_covered",
+    })
+
+    def create_review_run(
+        self,
+        *,
+        session_key: str,
+        trigger_session: str = "",
+        trigger_type: str = "auto_nudge",
+        trigger_reason: str = "",
+        trigger_snapshot_json: str | None = None,
+        review_epoch: int | None = None,
+        hermes_enabled: bool = True,
+        iters_since_skill_manage: int = 0,
+        user_turns_since_review: int = 0,
+        reviews_this_session: int = 0,
+        pending_count: int = 0,
+        nudge_interval: int | None = None,
+        cooldown_turns: int | None = None,
+        max_pending: int | None = None,
+        max_reviews_per_session: int | None = None,
+        distill_enabled: bool = True,
+        reject_feedback_enabled: bool = True,
+        metadata: dict[str, Any] | None = None,
+        trigger_consumed: int = 0,
+        retry_count: int = 0,
+        replay_of_run_id: str | None = None,
+        trigger_iters: int | None = None,
+        trigger_user_turns: int | None = None,
+    ) -> str:
+        try:
+            run_id = uuid.uuid4().hex[:16]
+            created_at = datetime.now(timezone.utc).isoformat()
+            safe_reason = _redact(trigger_reason[:500]) if trigger_reason else None
+            safe_snapshot = _redact(trigger_snapshot_json[:10000]) if trigger_snapshot_json else None
+            metadata_json = _redact(json.dumps(metadata, ensure_ascii=False)[:2000]) if metadata else None
+            with self._conn() as conn:
+                conn.execute(
+                    """INSERT INTO hermes_review_runs
+                       (id, session_key, trigger_session, trigger_type, trigger_reason,
+                        trigger_snapshot_json, status, review_epoch, hermes_enabled,
+                        iters_since_skill_manage, user_turns_since_review,
+                        reviews_this_session, pending_count, nudge_interval,
+                        cooldown_turns, max_pending, max_reviews_per_session,
+                        distill_enabled, reject_feedback_enabled, metadata_json, created_at,
+                        trigger_consumed, retry_count, replay_of_run_id,
+                        trigger_iters, trigger_user_turns)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, ?,?,?,?,?)""",
+                    (run_id, session_key, trigger_session or None, trigger_type, safe_reason,
+                     safe_snapshot, "created", review_epoch, int(hermes_enabled),
+                     iters_since_skill_manage, user_turns_since_review,
+                     reviews_this_session, pending_count, nudge_interval,
+                     cooldown_turns, max_pending, max_reviews_per_session,
+                     int(distill_enabled), int(reject_feedback_enabled), metadata_json, created_at,
+                     trigger_consumed, retry_count, replay_of_run_id,
+                     trigger_iters if trigger_iters is not None else iters_since_skill_manage,
+                     trigger_user_turns if trigger_user_turns is not None else user_turns_since_review),
+                )
+            return run_id
+        except Exception as exc:
+            logger.warning("create_review_run failed: {}", exc)
+            return ""
+
+    def mark_review_run_running(self, run_id: str) -> None:
+        try:
+            with self._conn() as conn:
+                conn.execute(
+                    "UPDATE hermes_review_runs SET status = ?, started_at = ? WHERE id = ?",
+                    ("running", datetime.now(timezone.utc).isoformat(), run_id),
+                )
+        except Exception as exc:
+            logger.warning("mark_review_run_running failed: {}", exc)
+
+    def update_review_run_scope(
+        self,
+        run_id: str,
+        *,
+        original_message_count: int,
+        distilled_message_count: int,
+        original_chars: int,
+        distilled_chars: int,
+        evidence_chars: int,
+        reject_feedback_count: int = 0,
+    ) -> None:
+        try:
+            with self._conn() as conn:
+                conn.execute(
+                    """UPDATE hermes_review_runs
+                       SET original_message_count=?, distilled_message_count=?,
+                           original_chars=?, distilled_chars=?, evidence_chars=?,
+                           reject_feedback_count=?
+                       WHERE id = ?""",
+                    (original_message_count, distilled_message_count,
+                     original_chars, distilled_chars, evidence_chars,
+                     reject_feedback_count, run_id),
+                )
+        except Exception as exc:
+            logger.warning("update_review_run_scope failed: {}", exc)
+
+    def increment_review_run_counter(self, run_id: str, field: str, amount: int = 1) -> None:
+        if field not in self._INCREMENT_FIELDS:
+            return
+        try:
+            with self._conn() as conn:
+                conn.execute(
+                    f"UPDATE hermes_review_runs SET {field} = {field} + ? WHERE id = ?",
+                    (amount, run_id),
+                )
+        except Exception as exc:
+            logger.warning("increment_review_run_counter failed: {}", exc)
+
+    def finish_review_run(
+        self,
+        run_id: str,
+        status: str,
+        result_summary_zh: str | None = None,
+        error_message: str | None = None,
+        skip_reason: str | None = None,
+    ) -> None:
+        try:
+            ended_at = datetime.now(timezone.utc).isoformat()
+            safe_summary = _redact((result_summary_zh or "")[:1000]) if result_summary_zh else None
+            safe_error = _redact((error_message or "")[:500]) if error_message else None
+            safe_skip = (skip_reason or "")[:200] if skip_reason else None
+            # Compute duration_ms from started_at
+            duration_ms = None
+            try:
+                with self._conn() as conn_read:
+                    row = conn_read.execute(
+                        "SELECT started_at FROM hermes_review_runs WHERE id = ?",
+                        (run_id,),
+                    ).fetchone()
+                if row and row["started_at"]:
+                    started = datetime.fromisoformat(row["started_at"])
+                    ended = datetime.fromisoformat(ended_at)
+                    duration_ms = int((ended - started).total_seconds() * 1000)
+            except Exception:
+                pass
+            with self._conn() as conn:
+                conn.execute(
+                    """UPDATE hermes_review_runs
+                       SET status=?, ended_at=?, duration_ms=?, result_summary_zh=?,
+                           error_message=?, skip_reason=?
+                       WHERE id = ?""",
+                    (status, ended_at, duration_ms, safe_summary, safe_error, safe_skip, run_id),
+                )
+        except Exception as exc:
+            logger.warning("finish_review_run failed: {}", exc)
+
+    def list_review_runs(
+        self,
+        *,
+        session_key: str | None = None,
+        status: str | None = None,
+        limit: int = 50,
+    ) -> list[ReviewRun]:
+        clauses: list[str] = []
+        params: list[Any] = []
+        if session_key is not None:
+            clauses.append("session_key = ?")
+            params.append(session_key)
+        if status is not None:
+            clauses.append("status = ?")
+            params.append(status)
+        where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+        params.append(limit)
+        with self._conn() as conn:
+            rows = conn.execute(
+                f"SELECT * FROM hermes_review_runs{where} ORDER BY created_at DESC LIMIT ?",
+                params,
+            ).fetchall()
+        return [ReviewRun(**dict(r)) for r in rows]
+
+    def get_review_run(self, run_id: str) -> ReviewRun | None:
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM hermes_review_runs WHERE id = ?",
+                (run_id,),
+            ).fetchone()
+        return ReviewRun(**dict(row)) if row else None
+
+    # ── P1.1: Trigger debt recovery ────────────────────────────────────────
+
+    def mark_review_run_consumed(self, run_id: str) -> None:
+        """Mark a review run as trigger-consumed (review completed successfully)."""
+        try:
+            with self._conn() as conn:
+                conn.execute(
+                    "UPDATE hermes_review_runs SET trigger_consumed = 1 WHERE id = ?",
+                    (run_id,),
+                )
+        except Exception as exc:
+            logger.warning("mark_review_run_consumed failed: {}", exc)
+
+    def find_unconsumed_review_debt(
+        self, session_key: str, *, retry_limit: int = 3,
+    ) -> ReviewRun | None:
+        """Find the oldest unconsumed, un-replayed, non-abandoned debt for a session."""
+        try:
+            with self._conn() as conn:
+                row = conn.execute(
+                    """SELECT * FROM hermes_review_runs
+                       WHERE session_key = ?
+                         AND trigger_consumed = 0
+                         AND replayed_by_run_id IS NULL
+                         AND status IN ('interrupted', 'failed', 'stale_timeout', 'cancelled_by_epoch')
+                         AND retry_count < ?
+                       ORDER BY created_at ASC LIMIT 1""",
+                    (session_key, retry_limit),
+                ).fetchone()
+            if row is None:
+                return None
+            return ReviewRun(**dict(row))
+        except Exception as exc:
+            logger.warning("find_unconsumed_review_debt failed: {}", exc)
+            return None
+
+    def mark_review_run_replayed(self, old_run_id: str, new_run_id: str) -> None:
+        """Mark old run as replayed by new run; transfer debt."""
+        try:
+            summary = f"该未完成 Hermes review 已由 {new_run_id} 补跑接管。"
+            with self._conn() as conn:
+                conn.execute(
+                    """UPDATE hermes_review_runs
+                       SET replayed_by_run_id = ?, trigger_consumed = 1, result_summary_zh = ?
+                       WHERE id = ?""",
+                    (new_run_id, summary, old_run_id),
+                )
+        except Exception as exc:
+            logger.warning("mark_review_run_replayed failed: {}", exc)
+
+    def mark_review_run_abandoned(self, run_id: str, reason: str) -> None:
+        """Mark a run as abandoned after exhausting retries."""
+        try:
+            ended_at = datetime.now(timezone.utc).isoformat()
+            summary = "Hermes review 多次失败，已停止自动重试，需要人工查看。"
+            safe_reason = (reason or "")[:200]
+            with self._conn() as conn:
+                conn.execute(
+                    """UPDATE hermes_review_runs
+                       SET status = 'abandoned_after_retries', trigger_consumed = 0,
+                           abandoned_reason = ?, ended_at = ?, result_summary_zh = ?
+                       WHERE id = ?""",
+                    (safe_reason, ended_at, summary, run_id),
+                )
+        except Exception as exc:
+            logger.warning("mark_review_run_abandoned failed: {}", exc)
+
+    def recover_interrupted_review_runs_on_startup(self) -> int:
+        """Mark all scheduled/running review runs as interrupted (called at startup)."""
+        try:
+            now = datetime.now(timezone.utc).isoformat()
+            summary = "后端进程重启或后台任务中断，Hermes review 未完成，已标记为 interrupted，等待同 session 下次消息补跑。"
+            skip_reason = "process_restarted_or_task_lost"
+            with self._conn() as conn:
+                cursor = conn.execute(
+                    """UPDATE hermes_review_runs
+                       SET status = 'interrupted', ended_at = ?, skip_reason = ?,
+                           result_summary_zh = ?
+                       WHERE status IN ('created', 'running')""",
+                    (now, skip_reason, summary),
+                )
+                count = cursor.rowcount
+            if count > 0:
+                logger.info("Hermes: recovered {} interrupted review run(s) on startup", count)
+            return count
+        except Exception as exc:
+            logger.warning("recover_interrupted_review_runs_on_startup failed: {}", exc)
+            return 0
+
+    def cleanup_stale_review_runs(self, max_running_minutes: int = 30) -> int:
+        """Mark stale running/scheduled review runs as stale_timeout."""
+        try:
+            cutoff = (datetime.now(timezone.utc) - timedelta(minutes=max_running_minutes)).isoformat()
+            summary = "Hermes review 运行时间超过阈值，已自动标记为 stale_timeout，等待同 session 下次消息补跑。"
+            with self._conn() as conn:
+                cursor = conn.execute(
+                    """UPDATE hermes_review_runs
+                       SET status = 'stale_timeout', result_summary_zh = ?
+                       WHERE status IN ('created', 'running')
+                         AND COALESCE(started_at, created_at) < ?""",
+                    (summary, cutoff),
+                )
+                count = cursor.rowcount
+            if count > 0:
+                logger.info("Hermes: cleaned up {} stale review run(s)", count)
+            return count
+        except Exception as exc:
+            logger.warning("cleanup_stale_review_runs failed: {}", exc)
+            return 0
 
     # ── Prefilter: n-gram candidate retrieval ────────────────────────────
 

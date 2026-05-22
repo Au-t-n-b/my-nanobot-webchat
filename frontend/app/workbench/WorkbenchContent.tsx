@@ -48,6 +48,7 @@ import { getAuthUser } from "@/lib/authStore";
 import { useTheme } from "@/hooks/useTheme";
 import { DashboardNavigator } from "@/components/DashboardNavigator";
 import { ControlCenterPanel } from "@/components/ControlCenterPanel";
+import { SkillRequestPanel } from "@/components/SkillRequestPanel";
 import { ModuleStepper, ModuleStepperCompact } from "@/components/dashboard/ModuleStepper";
 import { useWorkbenchStepperView } from "@/hooks/useWorkbenchStepperView";
 import {
@@ -81,7 +82,7 @@ import {
   RIGHT_PANEL_MAX,
 } from "@/lib/workbenchChatLayout";
 
-type SystemModal = null | "controlCenter" | "remoteAssetDetail" | "remoteUpload";
+type SystemModal = null | "controlCenter" | "remoteAssetDetail" | "remoteUpload" | "skillRequests";
 type ControlCenterTab = "config" | "settings";
 type ControlCenterSettingsPane = "systemSettings" | "profile" | "members";
 
@@ -821,6 +822,10 @@ export default function WorkbenchContent() {
     openControlCenter({ tab: "settings", settingsPane: "systemSettings" });
   }, [openControlCenter]);
 
+  const openSkillRequests = useCallback(() => {
+    setSystemModal("skillRequests");
+  }, []);
+
   const openRemoteAssetDetail = useCallback((assetId: string) => {
     setSelectedOrgAssetId(assetId);
     setSystemModal("remoteAssetDetail");
@@ -1316,6 +1321,7 @@ export default function WorkbenchContent() {
     refreshNonce: sidebarRefreshNonce,
     onOpenArtifactsHub: openArtifactsHub,
     onOpenSkillsHub: openSkillsHub,
+    onOpenSkillRequests: openSkillRequests,
     trashedSessions,
     onRestoreTrashed: restoreFromTrash,
     onDismissTrashed: dismissTrashed,
@@ -1458,6 +1464,11 @@ export default function WorkbenchContent() {
               void refreshRuntimeMode();
             }}
           />
+        </SystemShellModal>
+      )}
+      {systemModal === "skillRequests" && (
+        <SystemShellModal onClose={closeSystemModal} title="Skill 变更审核">
+          <SkillRequestPanel />
         </SystemShellModal>
       )}
       {systemModal === "remoteAssetDetail" && (

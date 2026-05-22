@@ -34,6 +34,8 @@ type Props = {
   onOpenArtifactsHub?: () => void;
   /** 技能中心：展开侧栏展示技能列表 */
   onOpenSkillsHub?: () => void;
+  /** 打开 Skill 变更审核面板 */
+  onOpenSkillRequests?: () => void;
   /** Opens quick settings (e.g. control center settings tab). */
   onOpenQuickSettings?: () => void;
   /** Local demo auth: sign out and return to login. */
@@ -121,6 +123,7 @@ export function Sidebar({
   onToggleCollapse,
   onOpenArtifactsHub,
   onOpenSkillsHub,
+  onOpenSkillRequests,
   onOpenQuickSettings,
   // eslint-disable-next-line @typescript-eslint/no-unused-vars -- Logout 入口已迁入 SettingsHub，保留 prop 以维持外部签名兼容
   onLogout: _onLogout,
@@ -175,6 +178,7 @@ export function Sidebar({
   const [orgAssetsLoading, setOrgAssetsLoading] = useState(false);
   const [orgAssetsError, setOrgAssetsError] = useState<string | null>(null);
   const [orgAssetsConnected, setOrgAssetsConnected] = useState(true);
+  const [skillRequestPendingCount, setSkillRequestPendingCount] = useState(0);
   const stableIndexedFilesRef = useRef<ReturnType<typeof extractIndexedFiles>>([]);
   const indexedFiles = useMemo(() => {
     // During streaming, freeze file-index recomputation to avoid input lag.
@@ -240,6 +244,22 @@ export function Sidebar({
   useEffect(() => {
     void loadOrgAssets();
   }, [loadOrgAssets, refreshNonce]);
+
+  // Poll pending skill change request count
+  useEffect(() => {
+    let active = true;
+    const poll = async () => {
+      try {
+        const res = await fetch(apiPath("/api/skill-requests?status=pending", apiBase));
+        if (!res.ok) return;
+        const data = await res.json();
+        if (active) setSkillRequestPendingCount(data.pending_count ?? 0);
+      } catch { /* ignore */ }
+    };
+    void poll();
+    const interval = setInterval(() => void poll(), 30_000);
+    return () => { active = false; clearInterval(interval); };
+  }, [apiBase]);
 
   const copyPath = useCallback((path: string) => {
     void navigator.clipboard.writeText(path).then(() => {
@@ -380,18 +400,29 @@ export function Sidebar({
           )}
         </div>
 
-        <button
-          type="button"
-          title="技能中心"
-          onClick={() => {
-            if (onOpenSkillsHub) onOpenSkillsHub();
-            else onToggleCollapse?.();
-          }}
-          className={iconBtn}
-          aria-label="技能中心"
-        >
-          <Zap size={18} />
-        </button>
+        <div className="relative">
+          <button
+            type="button"
+            title="技能中心"
+            onClick={() => {
+              if (skillRequestPendingCount > 0 && onOpenSkillRequests) onOpenSkillRequests();
+              else if (onOpenSkillsHub) onOpenSkillsHub();
+              else onToggleCollapse?.();
+            }}
+            className={iconBtn}
+            aria-label="技能中心"
+          >
+            <Zap size={18} />
+          </button>
+          {skillRequestPendingCount > 0 && (
+            <span
+              className="pointer-events-none absolute right-1 top-1 flex h-3.5 min-w-3.5 items-center justify-center rounded-full text-[9px] font-bold text-white"
+              style={{ background: "var(--accent)" }}
+            >
+              {skillRequestPendingCount > 9 ? "9+" : skillRequestPendingCount}
+            </span>
+          )}
+        </div>
 
         <button type="button" title="组织资产，点击展开" onClick={onToggleCollapse} className={iconBtn}>
           <Building2 size={18} />
@@ -698,6 +729,23 @@ export function Sidebar({
                   <span className="ml-1 tabular-nums ui-text-eyebrow ui-text-secondary">{skills.length}</span>
                 </span>
                 <div className="flex items-center gap-1" onClick={(e) => e.preventDefault()}>
+            {onOpenSkillRequests && skillRequestPendingCount > 0 && (
+              <button
+                type="button"
+                onClick={onOpenSkillRequests}
+                className="relative inline-flex items-center rounded-lg p-1.5 ui-text-muted ui-hover-soft"
+                aria-label={`${skillRequestPendingCount} 个待审核的 Skill 变更`}
+                title={`${skillRequestPendingCount} 个待审核变更`}
+              >
+                <Zap size={18} className="text-[var(--accent)]" />
+                <span
+                  className="pointer-events-none absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full text-[9px] font-bold text-white"
+                  style={{ background: "var(--accent)" }}
+                >
+                  {skillRequestPendingCount > 9 ? "9+" : skillRequestPendingCount}
+                </span>
+              </button>
+            )}
             <button
               type="button"
               onClick={() => {

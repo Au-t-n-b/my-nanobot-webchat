@@ -424,6 +424,11 @@ class AgentLoop:
         expiry_days = self._skills_auto_config.request_expiry_days if self._skills_auto_config else 60
         grace_days = self._skills_auto_config.hermes_duplicate_grace_days if self._skills_auto_config else 14
         self.skill_change_store = SkillChangeStore(workspace, expiry_days, duplicate_grace_days=grace_days)
+        # P1.1: Recover interrupted review runs from previous process
+        try:
+            self.skill_change_store.recover_interrupted_review_runs_on_startup()
+        except Exception:
+            logger.warning("Hermes: startup recovery failed, continuing")
         # Wire LLM provider for semantic judge (updated on reload)
         self.skill_change_store.set_provider(provider, model)
 
@@ -1114,6 +1119,7 @@ class AgentLoop:
                 "iters_since_skill_manage": 0,
                 "user_turns_since_review": cooldown_turns,
                 "reviews_this_session": 0,
+                "active_review_run_id": None,
                 "last_seen_at": now,
                 "epoch": self._hermes_epoch,
             }
@@ -1127,6 +1133,34 @@ class AgentLoop:
                 entry["user_turns_since_review"] = cooldown_turns
                 entry["epoch"] = self._hermes_epoch
         return self._hermes_state[session_key]
+
+    def _consume_review_trigger(self, run_id: str, consume: tuple[int, int]) -> None:
+        """Consume the trigger debt: reset counters for the consumed amount."""
+        trigger_iters, trigger_user_turns = consume
+        try:
+            run = self.skill_change_store.get_review_run(run_id)
+            if not run:
+                return
+            hs = self._get_hermes_state(run.session_key)
+            hs["iters_since_skill_manage"] = max(0, hs["iters_since_skill_manage"] - trigger_iters)
+            hs["user_turns_since_review"] = 0
+            hs["reviews_this_session"] += 1
+        except Exception:
+            logger.warning("Hermes: failed to consume review trigger for run {}", run_id)
+
+    def _clear_active_review(self, run_id: str) -> None:
+        """Clear active_review_run_id for the session that owns this run."""
+        if not run_id:
+            return
+        try:
+            run = self.skill_change_store.get_review_run(run_id)
+            if not run:
+                return
+            hs = self._get_hermes_state(run.session_key)
+            if hs.get("active_review_run_id") == run_id:
+                hs["active_review_run_id"] = None
+        except Exception:
+            pass
 
     @staticmethod
     def _distill_for_review(messages: list[dict]) -> list[dict]:
@@ -1477,22 +1511,122 @@ class AgentLoop:
                     and hs["user_turns_since_review"] >= cfg.hermes_cooldown_turns
                     and hs["reviews_this_session"] < cfg.hermes_max_reviews_per_session
                 )
-                if should_trigger:
+
+                # P1.1: Check for unconsumed review debt (per-session)
+                debt = None
+                try:
+                    debt = self.skill_change_store.find_unconsumed_review_debt(
+                        key, retry_limit=3,
+                    )
+                except Exception:
+                    debt = None
+
+                if debt is not None and hs.get("active_review_run_id") is None:
+                    # Retry the oldest unconsumed debt
+                    new_run_id = ""
+                    try:
+                        new_run_id = self.skill_change_store.create_review_run(
+                            session_key=key,
+                            trigger_session=key,
+                            trigger_type="retry_unconsumed",
+                            trigger_reason=f"retry of {debt.id}, attempt={debt.retry_count + 1}",
+                            review_epoch=self._hermes_epoch,
+                            hermes_enabled=True,
+                            iters_since_skill_manage=hs["iters_since_skill_manage"],
+                            user_turns_since_review=hs["user_turns_since_review"],
+                            reviews_this_session=hs["reviews_this_session"],
+                            pending_count=pending,
+                            nudge_interval=cfg.hermes_nudge_interval,
+                            cooldown_turns=cfg.hermes_cooldown_turns,
+                            max_pending=cfg.hermes_max_pending,
+                            max_reviews_per_session=cfg.hermes_max_reviews_per_session,
+                            distill_enabled=cfg.hermes_distill_snapshot,
+                            reject_feedback_enabled=cfg.hermes_use_reject_feedback,
+                            replay_of_run_id=debt.id,
+                            retry_count=debt.retry_count + 1,
+                            trigger_iters=debt.trigger_iters,
+                            trigger_user_turns=debt.trigger_user_turns,
+                        )
+                        self.skill_change_store.mark_review_run_replayed(debt.id, new_run_id)
+                    except Exception:
+                        new_run_id = ""
+                        logger.warning("Hermes: failed to create retry run, marking debt abandoned")
+                        try:
+                            self.skill_change_store.mark_review_run_abandoned(debt.id, "retry_run_creation_failed")
+                        except Exception:
+                            pass
+
+                    if new_run_id:
+                        if cfg.hermes_distill_snapshot:
+                            review_snapshot = self._distill_for_review(session.messages)
+                        else:
+                            import copy
+                            review_snapshot = copy.deepcopy(session.messages)
+                        original_msg_count = len(session.messages)
+                        original_chars = 0
+                        for m in session.messages:
+                            c = m.get("content", "")
+                            original_chars += len(c) if isinstance(c, str) else len(json.dumps(c))
+                        hs["active_review_run_id"] = new_run_id
+                        self._schedule_background(self._run_skill_review(
+                            review_snapshot,
+                            review_epoch=self._hermes_epoch,
+                            run_id=new_run_id,
+                            original_message_count=original_msg_count,
+                            original_chars=original_chars,
+                            _consume_on_complete=(debt.trigger_iters, debt.trigger_user_turns),
+                        ))
+                elif should_trigger:
+                    trigger_iters = hs["iters_since_skill_manage"]
+                    trigger_user_turns = hs["user_turns_since_review"]
                     if cfg.hermes_distill_snapshot:
                         review_snapshot = self._distill_for_review(session.messages)
                     else:
                         import copy
                         review_snapshot = copy.deepcopy(session.messages)
-                    self._schedule_background(self._run_skill_review(review_snapshot, review_epoch=self._hermes_epoch))
-                    hs["iters_since_skill_manage"] = 0
-                    hs["user_turns_since_review"] = 0
-                    hs["reviews_this_session"] += 1
+                    # Create run-level audit record
+                    run_id = ""
+                    original_msg_count = len(session.messages)
+                    original_chars = 0
+                    try:
+                        for m in session.messages:
+                            c = m.get("content", "")
+                            original_chars += len(c) if isinstance(c, str) else len(json.dumps(c))
+                        run_id = self.skill_change_store.create_review_run(
+                            session_key=key,
+                            trigger_session=key,
+                            trigger_reason=f"nudge={trigger_iters}, pending={pending}, cooldown={trigger_user_turns}, reviews={hs['reviews_this_session']}",
+                            review_epoch=self._hermes_epoch,
+                            hermes_enabled=True,
+                            iters_since_skill_manage=trigger_iters,
+                            user_turns_since_review=trigger_user_turns,
+                            reviews_this_session=hs["reviews_this_session"],
+                            pending_count=pending,
+                            nudge_interval=cfg.hermes_nudge_interval,
+                            cooldown_turns=cfg.hermes_cooldown_turns,
+                            max_pending=cfg.hermes_max_pending,
+                            max_reviews_per_session=cfg.hermes_max_reviews_per_session,
+                            distill_enabled=cfg.hermes_distill_snapshot,
+                            reject_feedback_enabled=cfg.hermes_use_reject_feedback,
+                        )
+                    except Exception:
+                        run_id = ""
+                        logger.warning("Hermes: failed to create review run, continuing without tracking")
+                    hs["active_review_run_id"] = run_id or None
+                    self._schedule_background(self._run_skill_review(
+                        review_snapshot, review_epoch=self._hermes_epoch,
+                        run_id=run_id, original_message_count=original_msg_count,
+                        original_chars=original_chars,
+                        _consume_on_complete=(trigger_iters, trigger_user_turns),
+                    ))
+                    # Do NOT reset counters — consumption deferred to _run_skill_review completion
                 else:
                     hs["user_turns_since_review"] += 1
 
         # Background: expire stale skill change requests
         async def _expire_bg():
             self.skill_change_store.expire_requests()
+            self.skill_change_store.cleanup_stale_review_runs(max_running_minutes=30)
         self._schedule_background(_expire_bg())
 
         if (mt := self.tools.get("message")) and isinstance(mt, MessageTool) and mt._sent_in_turn:
@@ -1588,16 +1722,28 @@ class AgentLoop:
             session.messages.append(entry)
         session.updated_at = datetime.now()
 
-    async def _run_skill_review(self, messages_snapshot: list[dict], *, review_epoch: int | None = None) -> None:
+    async def _run_skill_review(self, messages_snapshot: list[dict], *, review_epoch: int | None = None,
+                                   run_id: str = "", original_message_count: int = 0,
+                                   original_chars: int = 0,
+                                   _consume_on_complete: tuple[int, int] | None = None) -> None:
         """Background Hermes skill review: analyze conversation and create/update skills."""
         # Stale-write guard: if Hermes was disabled or config changed after this
         # review was scheduled, abort without writing anything.
         if not self._skills_auto_config or not self._skills_auto_config.hermes_enabled:
             logger.info("Hermes: skipping in-flight review — Hermes disabled at runtime")
+            if run_id:
+                self.skill_change_store.finish_review_run(run_id, status="disabled", skip_reason="hermes_disabled")
+            self._clear_active_review(run_id)
             return
         if review_epoch is not None and review_epoch != self._hermes_epoch:
             logger.info("Hermes: skipping in-flight review — epoch mismatch (config changed)")
+            if run_id:
+                self.skill_change_store.finish_review_run(run_id, status="cancelled_by_epoch", skip_reason="epoch_mismatch")
+            self._clear_active_review(run_id)
             return
+
+        if run_id:
+            self.skill_change_store.mark_review_run_running(run_id)
 
         _SKILL_REVIEW_PROMPT = (
             "Review the conversation above and consider whether a new skill should be created.\n\n"
@@ -1637,6 +1783,30 @@ class AgentLoop:
         evidence_summary = self._build_review_evidence_summary(
             messages_snapshot, hermes_state=None, pending_count=pending_count,
         )
+
+        # Record scope after distill
+        if run_id:
+            try:
+                distilled_chars = sum(
+                    len(m.get("content", "")) for m in messages_snapshot if isinstance(m.get("content"), str)
+                )
+                fb_count = 0
+                if self._skills_auto_config and self._skills_auto_config.hermes_use_reject_feedback:
+                    try:
+                        fb_count = len(self.skill_change_store.list_recent_rejected_with_notes(limit=5))
+                    except Exception:
+                        pass
+                self.skill_change_store.update_review_run_scope(
+                    run_id,
+                    original_message_count=original_message_count,
+                    distilled_message_count=len(messages_snapshot),
+                    original_chars=original_chars,
+                    distilled_chars=distilled_chars,
+                    evidence_chars=len(evidence_summary),
+                    reject_feedback_count=fb_count,
+                )
+            except Exception:
+                pass
 
         review_tools = ToolRegistry()
         allowed_dir = self.workspace if self.restrict_to_workspace else None
@@ -1688,8 +1858,11 @@ class AgentLoop:
                 review_messages.append(msg)
         review_messages.append({"role": "user", "content": _SKILL_REVIEW_PROMPT})
 
+        finished = False
         try:
             for i in range(8):  # max 8 iterations
+                if run_id:
+                    self.skill_change_store.increment_review_run_counter(run_id, "subagent_iterations")
                 response = await self.provider.chat_with_retry(
                     messages=review_messages,
                     tools=tool_defs,
@@ -1700,25 +1873,68 @@ class AgentLoop:
                 tool_call_dicts = [tc.to_openai_tool_call() for tc in response.tool_calls]
                 review_messages.append({"role": "assistant", "content": response.content, "tool_calls": tool_call_dicts})
                 for tc in response.tool_calls:
+                    if run_id:
+                        self.skill_change_store.increment_review_run_counter(run_id, "subagent_tool_calls")
                     try:
                         result = await review_tools.execute(tc.name, tc.arguments)
                         if isinstance(result, dict):
                             result = json.dumps(result, ensure_ascii=False)
                     except Exception as e:
                         result = json.dumps({"success": False, "error": str(e)}, ensure_ascii=False)
+                    # Track skill_manage outcomes
+                    if run_id and tc.name == "skill_manage":
+                        self.skill_change_store.increment_review_run_counter(run_id, "skill_manage_calls")
+                        try:
+                            data = json.loads(result) if isinstance(result, str) else result
+                            status_val = data.get("status", "") if isinstance(data, dict) else ""
+                            _status_counter = {
+                                "pending_review": "requests_created",
+                                "merged_with_existing": "requests_merged",
+                                "blocked_by_blacklist": "requests_blocked",
+                                "covered_by_existing": "requests_covered",
+                            }
+                            if status_val in _status_counter:
+                                self.skill_change_store.increment_review_run_counter(run_id, _status_counter[status_val])
+                            if isinstance(data, dict) and data.get("related_existing_skill_ids"):
+                                self.skill_change_store.increment_review_run_counter(run_id, "requests_related")
+                        except Exception:
+                            pass
                     review_messages.append({"role": "tool", "tool_call_id": tc.id, "name": tc.name, "content": result})
 
             # Extract and log any successful actions
+            summary_parts: list[str] = []
             for msg in review_messages:
                 if msg.get("role") == "tool" and isinstance(msg.get("content"), str):
                     try:
                         data = json.loads(msg["content"])
                         if isinstance(data, dict) and data.get("success"):
                             logger.info("Hermes skill review: {}", data.get("message", "action completed"))
+                            summary_parts.append(data.get("message", "")[:100])
                     except (json.JSONDecodeError, TypeError):
                         pass
+            # Normal completion — consumed
+            if run_id:
+                summary_zh = "; ".join(summary_parts[:3]) if summary_parts else "审核完成"
+                self.skill_change_store.finish_review_run(run_id, status="completed", result_summary_zh=summary_zh)
+                self.skill_change_store.mark_review_run_consumed(run_id)
+            finished = True
+            if _consume_on_complete and run_id:
+                self._consume_review_trigger(run_id, _consume_on_complete)
+        except asyncio.CancelledError:
+            if run_id and not finished:
+                self.skill_change_store.finish_review_run(run_id, status="interrupted", skip_reason="task_cancelled")
+            raise
         except Exception as e:
             logger.warning("Hermes skill review failed: {}", e)
+            if run_id and not finished:
+                self.skill_change_store.finish_review_run(run_id, status="failed", error_message=str(e)[:500])
+        finally:
+            if run_id and not finished:
+                try:
+                    self.skill_change_store.finish_review_run(run_id, status="interrupted", skip_reason="unexpected_exit")
+                except Exception:
+                    pass
+            self._clear_active_review(run_id)
 
     async def process_direct(
         self,

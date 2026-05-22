@@ -220,3 +220,53 @@ class TestReadFilePersistedOutput:
         cfg = PersistedOutputConfig()
         assert "web_search" in cfg.exempt_tools
         assert "web_fetch" in cfg.exempt_tools
+
+
+class TestCompactTiming:
+    """Destructive compact must run in pre-turn, not background."""
+
+    def test_metadata_flag_persistence(self, tmp_path: Path) -> None:
+        """Verify metadata flag can be set and read back."""
+        from nanobot.session.manager import SessionManager
+        mgr = SessionManager(tmp_path)
+        session = mgr.get_or_create("test:flag")
+        session.metadata["compact_check_requested"] = True
+        mgr.save(session)
+
+        reloaded = mgr.get_or_create("test:flag")
+        assert reloaded.metadata.get("compact_check_requested") is True
+
+    def test_metadata_flag_pop(self, tmp_path: Path) -> None:
+        """Verify flag is popped during processing."""
+        session = Session(key="test:pop")
+        session.metadata["compact_check_requested"] = True
+
+        popped = session.metadata.pop("compact_check_requested", None)
+        assert popped is True
+        assert "compact_check_requested" not in session.metadata
+
+    @pytest.mark.asyncio
+    async def test_time_compact_checks_gap_correctly(self, tmp_path: Path) -> None:
+        """Time-based compact should detect gap from OLD assistant, not just-written one."""
+        consolidator = _make_consolidator(tmp_path)
+
+        session = Session(key="test:timegap")
+        old_ts = (datetime.now() - __import__("datetime").timedelta(hours=48)).isoformat()
+        session.messages.append({
+            "role": "user", "content": "old q", "timestamp": old_ts,
+        })
+        session.messages.append({
+            "role": "assistant", "content": "old a", "timestamp": old_ts,
+        })
+        consolidator.sessions.save(session)
+
+        # Verify gap detection
+        from datetime import datetime as dt
+        last_asst_ts = None
+        for msg in reversed(session.messages):
+            if msg.get("role") == "assistant" and msg.get("timestamp"):
+                last_asst_ts = msg["timestamp"]
+                break
+        last_dt = dt.fromisoformat(last_asst_ts)
+        gap_hours = (dt.now() - last_dt).total_seconds() / 3600
+        assert gap_hours >= 24

@@ -1684,6 +1684,15 @@ class AgentLoop:
             logger.info("Processing system message from {}", msg.sender_id)
             key = f"{channel}:{chat_id}"
             session = self.sessions.get_or_create(key)
+            # Pre-turn: run deferred compact check from previous turn
+            if session.metadata.pop("compact_check_requested", None):
+                await self.memory_consolidator.maybe_consolidate_by_tokens(session)
+                self.sessions.save(session)
+
+            # Pre-turn: time-based graduated compact
+            if self._context_config and self._context_config.time_based_graduated_compact.enabled:
+                await self._maybe_time_based_compact(session)
+
             await self.memory_consolidator.maybe_consolidate_by_tokens(session)
             self._set_tool_context(channel, chat_id, msg.metadata.get("message_id"))
             history = session.get_history(max_messages=0)
@@ -1700,7 +1709,9 @@ class AgentLoop:
             )
             self._save_turn(session, all_msgs, 1 + len(history))
             self.sessions.save(session)
-            self._schedule_background(self.memory_consolidator.maybe_consolidate_by_tokens(session))
+            # Signal pre-turn compact check for next message (non-destructive)
+            session.metadata["compact_check_requested"] = True
+            self.sessions.save(session)
             return OutboundMessage(channel=channel, chat_id=chat_id,
                                   content=final_content or "Background task completed.")
 
@@ -1722,6 +1733,16 @@ class AgentLoop:
         if result := await self.commands.dispatch(ctx):
             return result
 
+        # Pre-turn: run deferred compact check from previous turn's metadata flag
+        if session.metadata.pop("compact_check_requested", None):
+            await self.memory_consolidator.maybe_consolidate_by_tokens(session)
+            self.sessions.save(session)
+
+        # Pre-turn: time-based graduated compact (24h gap check)
+        if self._context_config and self._context_config.time_based_graduated_compact.enabled:
+            await self._maybe_time_based_compact(session)
+
+        # Preflight: check current token pressure
         await self.memory_consolidator.maybe_consolidate_by_tokens(session)
 
         self._set_tool_context(msg.channel, msg.chat_id, msg.metadata.get("message_id"))
@@ -1762,8 +1783,9 @@ class AgentLoop:
         self._save_turn(session, all_msgs, 1 + len(history))
         self.sessions.save(session)
 
-        # Background: token-based compact check
-        self._schedule_background(self.memory_consolidator.maybe_consolidate_by_tokens(session))
+        # Signal pre-turn compact check for next message (non-destructive)
+        session.metadata["compact_check_requested"] = True
+        self.sessions.save(session)
 
         # Background: session memory extraction (deepcopy snapshot)
         if self.session_memory:
@@ -1773,10 +1795,6 @@ class AgentLoop:
             self._schedule_background(
                 self.session_memory.extract_incremental(session.key, snapshot, self.provider, sm_model)
             )
-
-        # Background: time-based graduated compact (24h gap)
-        if self._context_config and self._context_config.time_based_graduated_compact.enabled:
-            self._schedule_background(self._maybe_time_based_compact(session))
 
         # Background: Hermes skill review (auto-create/update skills)
         if self._skills_auto_config and self._skills_auto_config.hermes_enabled:

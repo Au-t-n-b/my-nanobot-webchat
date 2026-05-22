@@ -317,3 +317,99 @@ class TestGetHistoryUnlimited:
 
         history = session.get_history(max_messages=5)
         assert len(history) <= 5
+
+
+class TestModuleFlowBoundary:
+    """Compact must not split open module_skill_runtime flows."""
+
+    def _make_module_tc(self, module_id: str, action: str) -> dict:
+        return {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [{
+                "id": f"tc_{module_id}_{action}",
+                "type": "function",
+                "function": {
+                    "name": "module_skill_runtime",
+                    "arguments": {
+                        "module_id": module_id,
+                        "action": action,
+                    },
+                },
+            }],
+        }
+
+    def test_open_flow_detected(self) -> None:
+        from nanobot.agent.memory import MemoryConsolidator
+
+        messages = [
+            {"role": "user", "content": "start module"},
+            self._make_module_tc("mod_123", "start"),
+            {"role": "tool", "tool_call_id": "tc_mod_123_start", "name": "module_skill_runtime", "content": "started"},
+            {"role": "user", "content": "continue"},
+            {"role": "assistant", "content": "working"},
+        ]
+
+        assert MemoryConsolidator._has_open_module_flow(messages) is True
+
+    def test_finished_flow_not_detected(self) -> None:
+        from nanobot.agent.memory import MemoryConsolidator
+
+        messages = [
+            {"role": "user", "content": "start module"},
+            self._make_module_tc("mod_123", "start"),
+            {"role": "tool", "tool_call_id": "tc_mod_123_start", "name": "module_skill_runtime", "content": "started"},
+            self._make_module_tc("mod_123", "finish"),
+            {"role": "tool", "tool_call_id": "tc_mod_123_finish", "name": "module_skill_runtime", "content": "done"},
+            {"role": "user", "content": "next"},
+        ]
+
+        assert MemoryConsolidator._has_open_module_flow(messages) is False
+
+    def test_normal_conversation_not_affected(self) -> None:
+        from nanobot.agent.memory import MemoryConsolidator
+
+        messages = [
+            {"role": "user", "content": "hello"},
+            {"role": "assistant", "content": "hi"},
+            {"role": "user", "content": "bye"},
+        ]
+
+        assert MemoryConsolidator._has_open_module_flow(messages) is False
+
+    def test_multiple_modules_one_open(self) -> None:
+        from nanobot.agent.memory import MemoryConsolidator
+
+        messages = [
+            self._make_module_tc("mod_1", "start"),
+            self._make_module_tc("mod_1", "finish"),
+            self._make_module_tc("mod_2", "start"),
+        ]
+
+        assert MemoryConsolidator._has_open_module_flow(messages) is True
+
+    @pytest.mark.asyncio
+    async def test_compact_skips_when_open_flow_at_boundary(self, tmp_path: Path) -> None:
+        consolidator = _make_consolidator(tmp_path)
+
+        session = Session(key="test:module_boundary")
+        # Pre-fill with normal messages
+        for i in range(4):
+            session.add_message("user", f"u{i}")
+            session.add_message("assistant", f"a{i}")
+        # Open module flow starts but doesn't finish (near the boundary)
+        session.messages.append(self._make_module_tc("mod_abc", "start"))
+        session.messages.append({
+            "role": "tool", "tool_call_id": "tc_mod_abc_start",
+            "name": "module_skill_runtime", "content": "started",
+        })
+        session.add_message("user", "continue")
+        session.add_message("assistant", "working")
+        consolidator.sessions.save(session)
+
+        # Compact with boundary that would split the open flow
+        result = await consolidator.compact(session, trigger="auto", boundary_override=8)
+
+        assert isinstance(result, CompactResult)
+        # Should be skipped because open flow detected near boundary
+        assert result.success is False

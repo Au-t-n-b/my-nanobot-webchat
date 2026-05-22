@@ -440,6 +440,41 @@ class MemoryConsolidator:
             logger.exception("Leaf generation failed")
             return "(leaf generation failed)"
 
+    _MODULE_START_ACTIONS = {
+        "start", "guide", "init", "open", "upload", "confirm",
+        "choose", "prepare", "run_step", "waiting", "hitl", "wait",
+    }
+
+    _MODULE_END_ACTIONS = {
+        "finish", "done", "complete", "completed", "close", "approval_pass",
+    }
+
+    @staticmethod
+    def _has_open_module_flow(messages: list[dict[str, Any]]) -> bool:
+        """Check if messages contain a module_skill_runtime flow that started but didn't finish."""
+        open_modules: set[str] = set()
+        for msg in messages:
+            for tc in msg.get("tool_calls") or []:
+                fn = tc.get("function", {})
+                if fn.get("name") != "module_skill_runtime":
+                    continue
+                args = fn.get("arguments", {})
+                if isinstance(args, str):
+                    try:
+                        import json
+                        args = json.loads(args)
+                    except Exception:
+                        continue
+                if not isinstance(args, dict):
+                    continue
+                mid = args.get("module_id", "")
+                action = str(args.get("action", "")).lower()
+                if action in MemoryConsolidator._MODULE_END_ACTIONS:
+                    open_modules.discard(mid)
+                else:
+                    open_modules.add(mid)
+        return len(open_modules) > 0
+
     async def compact(
         self,
         session: Session,
@@ -483,6 +518,15 @@ class MemoryConsolidator:
         chunk = session.messages[:end_idx]
         retained = session.messages[end_idx:]
         if not chunk:
+            return CompactResult(success=False)
+
+        # Skip compact if boundary would split an open module flow
+        combined = chunk[-5:] + retained[:5] if retained else chunk[-10:]
+        if self._has_open_module_flow(combined):
+            logger.info(
+                "Compact skipped for {}: open module_skill_runtime flow detected near boundary",
+                session.key,
+            )
             return CompactResult(success=False)
 
         # 3. Store in SQLite archive

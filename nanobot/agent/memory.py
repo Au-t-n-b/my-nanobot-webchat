@@ -471,7 +471,7 @@ class MemoryConsolidator:
                 action = str(args.get("action", "")).lower()
                 if action in MemoryConsolidator._MODULE_END_ACTIONS:
                     open_modules.discard(mid)
-                else:
+                elif action in MemoryConsolidator._MODULE_START_ACTIONS:
                     open_modules.add(mid)
         return len(open_modules) > 0
 

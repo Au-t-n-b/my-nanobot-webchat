@@ -170,6 +170,20 @@ class TestRecallContextConversationId:
 
         archive.search_by_keyword.assert_called_once_with("web:fallback", "test", 10)
 
+    def test_set_context_accepts_thread_override_key(self) -> None:
+        """Verify recall gets the real session key, not just channel:chat_id."""
+        from nanobot.agent.tools.recall import RecallContextTool
+
+        archive = MagicMock()
+        archive.search_by_keyword = MagicMock(return_value=[])
+
+        tool = RecallContextTool(archive)
+        tool.set_context("web:thread-123")
+
+        tool._keyword_search({"query": "test"})
+
+        archive.search_by_keyword.assert_called_once_with("web:thread-123", "test", 10)
+
 
 class TestReadFilePersistedOutput:
     """Large read_file results should be persisted, not blindly exempted."""
@@ -413,3 +427,33 @@ class TestModuleFlowBoundary:
         assert isinstance(result, CompactResult)
         # Should be skipped because open flow detected near boundary
         assert result.success is False
+
+    def test_status_action_not_treated_as_open(self) -> None:
+        """Non-start/waiting actions like 'status' should NOT mark open flow."""
+        from nanobot.agent.memory import MemoryConsolidator
+
+        messages = [
+            self._make_module_tc("mod_x", "status"),
+        ]
+
+        assert MemoryConsolidator._has_open_module_flow(messages) is False
+
+    def test_preview_action_not_treated_as_open(self) -> None:
+        """'preview' should NOT mark open flow."""
+        from nanobot.agent.memory import MemoryConsolidator
+
+        messages = [
+            self._make_module_tc("mod_x", "preview"),
+        ]
+
+        assert MemoryConsolidator._has_open_module_flow(messages) is False
+
+    def test_upload_treated_as_open(self) -> None:
+        """'upload' IS a start/waiting hint and should mark open flow."""
+        from nanobot.agent.memory import MemoryConsolidator
+
+        messages = [
+            self._make_module_tc("mod_x", "upload"),
+        ]
+
+        assert MemoryConsolidator._has_open_module_flow(messages) is True

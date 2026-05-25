@@ -712,16 +712,22 @@ class AgentLoop:
         finally:
             self._mcp_connecting = False
 
-    def _set_tool_context(self, channel: str, chat_id: str, message_id: str | None = None) -> None:
+    def _set_tool_context(
+        self,
+        channel: str,
+        chat_id: str,
+        message_id: str | None = None,
+        session_key: str | None = None,
+    ) -> None:
         """Update context for all tools that need routing info."""
-        session_key = f"{channel}:{chat_id}"
+        actual_session_key = session_key or f"{channel}:{chat_id}"
         for name in ("message", "spawn", "cron"):
             if tool := self.tools.get(name):
                 if hasattr(tool, "set_context"):
                     tool.set_context(channel, chat_id, *([message_id] if name == "message" else []))
         if recall := self.tools.get("recall_context"):
             if hasattr(recall, "set_context"):
-                recall.set_context(session_key)
+                recall.set_context(actual_session_key)
 
     @staticmethod
     def _strip_think(text: str | None) -> str | None:
@@ -911,7 +917,7 @@ class AgentLoop:
 
                 # Re-bind tool context right before execution so that
                 # concurrent sessions don't clobber each other's routing.
-                self._set_tool_context(channel, chat_id, message_id)
+                self._set_tool_context(channel, chat_id, message_id, session_key=session_key)
 
                 approval_cb = _APPROVAL_CALLBACK.get()
                 approved_calls = []
@@ -1693,7 +1699,7 @@ class AgentLoop:
                 await self._maybe_time_based_compact(session)
 
             await self.memory_consolidator.maybe_consolidate_by_tokens(session)
-            self._set_tool_context(channel, chat_id, msg.metadata.get("message_id"))
+            self._set_tool_context(channel, chat_id, msg.metadata.get("message_id"), session_key=key)
             history = session.get_history(max_messages=None)
             current_role = "assistant" if msg.sender_id == "subagent" else "user"
             messages = self.context.build_messages(
@@ -1744,7 +1750,7 @@ class AgentLoop:
         # Preflight: check current token pressure
         await self.memory_consolidator.maybe_consolidate_by_tokens(session)
 
-        self._set_tool_context(msg.channel, msg.chat_id, msg.metadata.get("message_id"))
+        self._set_tool_context(msg.channel, msg.chat_id, msg.metadata.get("message_id"), session_key=key)
         if message_tool := self.tools.get("message"):
             if isinstance(message_tool, MessageTool):
                 message_tool.start_turn()

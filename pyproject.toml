@@ -130,3 +130,8 @@ ignore = ["E501"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = [
+    "mixed_e2e: compact mocked but archive/recall/session path uses real implementation",
+    "llm_e2e: tests that call the project-configured real LLM",
+    "slow: slow integration tests",
+]

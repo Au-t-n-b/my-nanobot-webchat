@@ -59,7 +59,7 @@ export function PreviewPanel({
   return (
     <aside className="h-full min-h-0 flex flex-col gap-3 p-0 bg-transparent border-0 shadow-none text-[var(--text-primary)]">
       <div className="flex items-center justify-between gap-2 shrink-0">
-        <span className="text-[11px] font-semibold uppercase tracking-wider ui-text-secondary">
+        <span className="ui-text-eyebrow font-semibold ui-text-secondary">
           预览 <span className="font-normal normal-case tracking-normal ui-text-muted">Preview</span>
         </span>
         <div className="flex items-center gap-0.5 shrink-0">
@@ -67,7 +67,7 @@ export function PreviewPanel({
             <button
               type="button"
               onClick={onToggleImmersive}
-              className="rounded-md p-1 ui-text-muted hover:text-[var(--text-primary)] hover:bg-[var(--surface-3)] transition-colors"
+            className="rounded-lg p-1 ui-text-muted hover:text-[var(--text-primary)] hover:bg-[var(--surface-3)] transition-colors"
               title={previewImmersive ? "退出全屏" : "全屏预览"}
               aria-label={previewImmersive ? "退出全屏预览" : "全屏预览"}
             >
@@ -77,7 +77,7 @@ export function PreviewPanel({
           <button
             type="button"
             onClick={onClose}
-            className="rounded-md p-1 ui-text-muted hover:text-[var(--text-primary)] hover:bg-[var(--surface-3)] transition-colors"
+            className="rounded-lg p-1 ui-text-muted hover:text-[var(--text-primary)] hover:bg-[var(--surface-3)] transition-colors"
             aria-label="关闭预览栏"
           >
             <XIcon size={14} />
@@ -89,7 +89,7 @@ export function PreviewPanel({
 
       <div className="flex flex-col flex-1 min-h-0 overflow-hidden rounded-2xl bg-[var(--paper-card)] border border-[var(--border-subtle)] text-[var(--text-primary)] shadow-[var(--shadow-panel)]">
         <div
-          className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-[var(--border-subtle)] dark:border-white/10 bg-[var(--surface-3)]/80 dark:bg-black/25 px-1 py-1"
+          className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-[var(--border-subtle)] bg-[var(--surface-3)]/80 px-1 py-1"
           role="tablist"
           aria-label="右侧面板标签"
         >
@@ -99,7 +99,7 @@ export function PreviewPanel({
             return (
               <div
                 key={tab.id}
-                className={`group flex max-w-[12rem] shrink-0 items-center rounded-md border text-left text-[11px] transition-colors ${
+                className={`group flex max-w-[12rem] shrink-0 items-center rounded-lg border text-left ui-text-label transition-colors ${
                   selected
                     ? "border-[var(--accent)] bg-[var(--surface-2)] text-[var(--text-primary)]"
                     : "border-transparent bg-transparent ui-text-secondary hover:bg-[var(--surface-2)]"
@@ -146,7 +146,7 @@ export function PreviewPanel({
             />
           ) : (
             <div className="flex h-full items-center justify-center">
-              <div className="flex w-full max-w-md flex-col items-center justify-center rounded-2xl border-2 border-dashed border-white/10 bg-[color-mix(in_srgb,var(--surface-1)_85%,transparent)] px-8 py-10 text-center">
+              <div className="flex w-full max-w-md flex-col items-center justify-center rounded-2xl border-2 border-dashed border-[var(--border-subtle)] bg-[color-mix(in_srgb,var(--surface-1)_85%,transparent)] px-8 py-10 text-center">
                 <div className="mb-4 rounded-2xl bg-[color-mix(in_srgb,var(--surface-3)_72%,transparent)] p-4 text-[var(--accent)]">
                   <FileSearch size={30} strokeWidth={1.8} className="opacity-85" />
                 </div>

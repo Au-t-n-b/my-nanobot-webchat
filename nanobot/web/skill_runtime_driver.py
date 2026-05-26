@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -54,6 +55,10 @@ async def run_skill_runtime_driver(
     stdin_request["skill_name"] = canonical
 
     exe = python_executable or sys.executable
+    env = os.environ.copy()
+    # Force child Python stdio to UTF-8 across platforms (notably Windows cp936/gbk consoles).
+    env["PYTHONIOENCODING"] = "utf-8"
+    env["PYTHONUTF8"] = "1"
     proc = await asyncio.create_subprocess_exec(
         exe,
         str(driver),
@@ -61,6 +66,7 @@ async def run_skill_runtime_driver(
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
+        env=env,
     )
     assert proc.stdin is not None
     assert proc.stdout is not None
@@ -69,11 +75,11 @@ async def run_skill_runtime_driver(
     payload = json.dumps(stdin_request, ensure_ascii=False).encode("utf-8")
     stdout_b, stderr_b = await proc.communicate(input=payload)
     if proc.returncode != 0:
-        err = stderr_b.decode("utf-8", errors="ignore").strip()
+        err = stderr_b.decode("utf-8", errors="replace").strip()
         raise RuntimeError(f"skill driver failed (exit={proc.returncode}): {err}")
 
     out: list[dict[str, Any]] = []
-    text = stdout_b.decode("utf-8", errors="ignore")
+    text = stdout_b.decode("utf-8", errors="replace")
     for line in text.splitlines():
         line = line.strip()
         if not line:

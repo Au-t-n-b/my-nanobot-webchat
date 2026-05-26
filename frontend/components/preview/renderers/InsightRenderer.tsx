@@ -35,13 +35,13 @@ export function InsightRenderer(props: { path: string; report: FileInsightReport
           文件洞察
         </h3>
         <span
-          className={`rounded-full border px-2.5 py-0.5 text-[11px] font-medium uppercase tracking-wide ${riskBadgeClass(report.risk_level)}`}
+          className={`rounded-full border px-2.5 py-0.5 ui-text-label font-medium uppercase tracking-wide ${riskBadgeClass(report.risk_level)}`}
         >
           {riskLabel(report.risk_level)}
         </span>
       </div>
 
-      <div className="rounded-xl border border-white/5 bg-black/20 px-3 py-2 text-xs font-mono text-violet-200/90">
+      <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-2)]/60 px-3 py-2 text-xs font-mono text-violet-200/90">
         {report.file_type_guess}
       </div>
 
@@ -49,7 +49,7 @@ export function InsightRenderer(props: { path: string; report: FileInsightReport
 
       {snippets.length > 0 ? (
         <div className="space-y-2">
-          <p className="text-[11px] font-semibold uppercase tracking-wider ui-text-muted">提取片段</p>
+          <p className="ui-text-eyebrow font-semibold uppercase tracking-wider ui-text-muted">提取片段</p>
           <div className="space-y-3 max-h-[min(40vh,360px)] overflow-auto pr-1">
             {snippets.map((snippet, i) => (
               <div
@@ -69,7 +69,7 @@ export function InsightRenderer(props: { path: string; report: FileInsightReport
       ) : null}
 
       <div className="rounded-lg border border-[var(--accent)]/20 bg-[color-mix(in_srgb,var(--accent)_8%,transparent)] px-3 py-2 text-sm ui-text-primary">
-        <span className="text-[11px] font-semibold uppercase tracking-wider ui-text-muted mr-2">建议</span>
+        <span className="ui-text-eyebrow font-semibold uppercase tracking-wider ui-text-muted mr-2">建议</span>
         {report.next_action_suggestion}
       </div>
     </div>

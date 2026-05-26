@@ -47,6 +47,8 @@ type Props = {
   isAgentRunning?: boolean;
   /** open_preview 动作打开预览 */
   onOpenPreview?: (path: string) => void;
+  /** 模块大盘整体全屏（宿主提供，SDUI 通过 action 触发） */
+  toggleFullscreen?: () => void;
   /** v3：单条 patch（兼容旧调用方；与 incomingPatchQueue 二选一或并存时队列优先） */
   incomingPatchEvent?: SkillUiDataPatchEvent | null;
   /** v3：本会话内同一面板的连续 patch（避免 React state 只保留最后一条导致 Stepper 等丢失） */
@@ -71,9 +73,9 @@ function UnknownSkillUiPanel({ component, hint }: { component: string; hint?: st
         未在 <code className="px-1 rounded bg-[var(--surface-3)]">SKILL_UI_REGISTRY</code> 中注册，或不是 SDUI 顶层外壳。
       </p>
       {hint ? (
-        <p className="text-[11px] ui-text-muted leading-relaxed">{hint}</p>
+        <p className="ui-text-label ui-text-muted leading-relaxed">{hint}</p>
       ) : (
-        <p className="text-[11px] ui-text-muted">
+        <p className="ui-text-label ui-text-muted">
           SDUI 请使用{" "}
           <code className="ui-text-secondary">skill-ui://SduiView?dataFile=&lt;workspace 相对路径&gt;</code>，内容由 JSON 内{" "}
           <code className="ui-text-secondary">root</code> 递归渲染。
@@ -97,6 +99,7 @@ export function SkillUiWrapper({
   postToAgentSilently: postToAgentSilentlyProp,
   isAgentRunning = false,
   onOpenPreview,
+  toggleFullscreen,
   incomingPatchEvent = null,
   incomingPatchQueue = null,
 }: Props) {
@@ -457,6 +460,7 @@ export function SkillUiWrapper({
       postToAgentRaw={postToAgentRaw}
       postToAgentSilentlyRaw={postToAgentSilentlyRaw}
       onOpenPreview={onOpenPreview}
+      toggleFullscreenRaw={toggleFullscreen}
       docId={resolvedDocId}
       enableInternalSync
     >

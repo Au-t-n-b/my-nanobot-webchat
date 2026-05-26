@@ -299,12 +299,12 @@ def synthetic_path_for_data_file(data_file: str) -> str:
     return f"skill-ui://SduiView?dataFile={df}"
 
 
-# 与 ``templates/module_skill_demo``、``module_boilerplate`` 等大盘里 Stepper 的 ``id`` 一致。
+# 与 workspace 中各模块大盘（``~/.nanobot/workspace/skills/<module>/data/dashboard.json``）里 Stepper 的 ``id`` 一致。
 SDUI_STEPPER_MAIN_ID = "stepper-main"
 
 
 class BoilerplateDashboardIds:
-    """与 ``templates/module_boilerplate/data/dashboard.json`` 中节点 ``id`` 必须逐字一致，否则 merge Patch 不生效。"""
+    """与 ``module_boilerplate/data/dashboard.json`` 中节点 ``id`` 必须逐字一致，否则 merge Patch 不生效。"""
 
     CHART_DONUT = "chart-donut"
     CHART_BAR = "chart-bar"

@@ -196,9 +196,20 @@ export type SkillUiRuntimeContextValue = {
    * Used by present_choices inlined as ChoiceCard in the message stream.
    */
   onSendText?: (text: string, opts?: { cardId?: string; submittedValue?: string }) => void;
+  /** 当前聊天区 SkillUiChatCard 的 cardId（子节点未显式写 cardId 时用于回放锁定等） */
+  chatCardId?: string;
+  /**
+   * 单卡聚合：FilePicker `deferHitlSubmit` 时把已上传文件暂存到内存，待 ConfirmCard 一次性 `skill_runtime_result`。
+   * 按 `hitlRequestId` 分区，避免同线程多卡互相污染。
+   */
+  setDeferredHitlUploads?: (hitlRequestId: string, files: SduiUploadedFileRecord[]) => void;
+  getDeferredHitlUploads?: (hitlRequestId: string) => SduiUploadedFileRecord[];
+  clearDeferredHitlUploads?: (hitlRequestId: string) => void;
   getInputValue: (id: string) => string;
   setInputValue: (id: string, value: string) => void;
   openPreview: (path: string) => void;
+  /** 宿主可选提供：切换 SDUI 大盘整体全屏 */
+  toggleFullscreen?: () => void;
   syncState: (args: {
     key: string;
     value: unknown;
@@ -216,8 +227,11 @@ type Props = {
   lockHitlTextInputCardRaw?: (cardId: string, text: string) => void;
   onSendTextRaw?: (text: string, opts?: { cardId?: string; submittedValue?: string }) => void;
   onOpenPreview?: (path: string) => void;
+  toggleFullscreenRaw?: () => void;
   syncStateRaw?: (args: { key: string; value: unknown; behavior?: "debounce" | "immediate" }) => void;
   docId?: string;
+  /** 聊天区卡片 id（MessageList → ChatCardBubble 注入） */
+  chatCardId?: string;
   enableInternalSync?: boolean;
 };
 
@@ -229,11 +243,14 @@ export function SkillUiRuntimeProvider({
   lockHitlTextInputCardRaw,
   onSendTextRaw,
   onOpenPreview,
+  toggleFullscreenRaw,
   syncStateRaw,
   docId,
+  chatCardId,
   enableInternalSync,
 }: Props) {
   const inputsRef = useRef<Record<string, string>>({});
+  const deferredHitlUploadsRef = useRef<Record<string, SduiUploadedFileRecord[]>>({});
   const [, force] = useState(0);
   const legacyRegistry = useProjectOverviewStore((snapshot) => ({
     loaded: snapshot.registryLoaded,
@@ -329,6 +346,20 @@ export function SkillUiRuntimeProvider({
     [onOpenPreview],
   );
 
+  const setDeferredHitlUploads = useCallback((hitlRequestId: string, files: SduiUploadedFileRecord[]) => {
+    const rid = (hitlRequestId || "").trim();
+    if (!rid) return;
+    deferredHitlUploadsRef.current[rid] = files.slice();
+  }, []);
+
+  const getDeferredHitlUploads = useCallback((hitlRequestId: string) => {
+    return deferredHitlUploadsRef.current[(hitlRequestId || "").trim()] ?? [];
+  }, []);
+
+  const clearDeferredHitlUploads = useCallback((hitlRequestId: string) => {
+    delete deferredHitlUploadsRef.current[(hitlRequestId || "").trim()];
+  }, []);
+
   const value = useMemo<SkillUiRuntimeContextValue>(
     () => ({
       postToAgent,
@@ -336,9 +367,14 @@ export function SkillUiRuntimeProvider({
       lockFilePickerCard: lockFilePickerCardRaw,
       lockHitlTextInputCard: lockHitlTextInputCardRaw,
       onSendText: onSendTextRaw,
+      chatCardId: (chatCardId ?? "").trim() || undefined,
+      setDeferredHitlUploads,
+      getDeferredHitlUploads,
+      clearDeferredHitlUploads,
       getInputValue,
       setInputValue,
       openPreview,
+      toggleFullscreen: toggleFullscreenRaw,
       syncState: (args) => {
         if (syncStateRaw) {
           syncStateRaw(args);
@@ -355,9 +391,14 @@ export function SkillUiRuntimeProvider({
       lockFilePickerCardRaw,
       lockHitlTextInputCardRaw,
       onSendTextRaw,
+      chatCardId,
+      setDeferredHitlUploads,
+      getDeferredHitlUploads,
+      clearDeferredHitlUploads,
       getInputValue,
       setInputValue,
       openPreview,
+      toggleFullscreenRaw,
       syncStateRaw,
       canInternal,
       syncStateInternal,

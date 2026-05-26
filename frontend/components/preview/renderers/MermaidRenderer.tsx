@@ -107,7 +107,7 @@ function GanttView({ svg, source }: { svg: string; source: string }) {
           type="button"
           onClick={copySource}
           aria-label="复制源码"
-          className="inline-flex items-center gap-1 rounded-md border border-[var(--border-subtle)] px-2 py-0.5 text-[11px] ui-text-secondary hover:bg-[var(--surface-3)] transition-colors"
+          className="inline-flex items-center gap-1 rounded-lg border border-[var(--border-subtle)] px-2 py-0.5 ui-text-label ui-text-secondary hover:bg-[var(--surface-3)] transition-colors"
         >
           {copied ? <Check size={10} /> : <Copy size={10} />}
           {copied ? "已复制" : "复制源码"}
@@ -125,7 +125,7 @@ function GanttView({ svg, source }: { svg: string; source: string }) {
           className="fixed z-50 pointer-events-none"
           style={{ left: tooltip.x + 14, top: tooltip.y - 10 }}
         >
-          <div className="rounded-lg border border-white/10 bg-[var(--surface-elevated)]/90 backdrop-blur-md p-3 shadow-[var(--shadow-float)] text-xs text-[var(--text-primary)] max-w-[200px]">
+          <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-elevated)]/90 backdrop-blur-md p-3 shadow-[var(--shadow-float)] text-xs text-[var(--text-primary)] max-w-[200px]">
             <p className="font-semibold leading-snug">{tooltip.label}</p>
             {tooltip.detail && (
               <p className="mt-1 ui-text-secondary leading-snug">{tooltip.detail}</p>

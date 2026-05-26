@@ -40,8 +40,8 @@
   box-shadow:
     0 0 0 1px var(--g-border),
     0 25px 50px -12px rgba(0, 0, 0, 0.6);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   color: var(--g-label);
   opacity: 0;
   visibility: hidden;
@@ -178,7 +178,6 @@
   font-weight: 600;
   cursor: pointer;
   font-family: inherit;
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.2) inset;
   transition: background-color 0.1s linear, transform 0.08s linear, filter 0.1s linear;
 }
 

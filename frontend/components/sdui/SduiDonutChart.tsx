@@ -137,7 +137,7 @@ export function SduiDonutChart({ segments, centerLabel, centerValue }: Props) {
         </svg>
         <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-center">
           {centerLabel ? (
-            <span className="max-w-[80%] text-[10px] font-medium leading-tight text-[var(--text-muted)] sm:text-xs">
+            <span className="max-w-[80%] ui-text-eyebrow font-medium leading-tight text-[var(--text-muted)] sm:text-xs">
               {centerLabel}
             </span>
           ) : null}
@@ -146,7 +146,7 @@ export function SduiDonutChart({ segments, centerLabel, centerValue }: Props) {
           ) : null}
         </div>
       </div>
-      <ul className="flex min-w-0 flex-1 flex-col gap-1.5 text-xs sm:text-[13px]">
+      <ul className="flex min-w-0 flex-1 flex-col gap-1.5 text-xs sm:text-sm">
         {legend.map((seg, i) => {
           const pct = total > 0 ? Math.round((seg.value / total) * 1000) / 10 : 0;
           const raw = seg.color;
@@ -160,10 +160,13 @@ export function SduiDonutChart({ segments, centerLabel, centerValue }: Props) {
                 <svg className="h-3 w-3 shrink-0" viewBox="0 0 10 10" aria-hidden>
                   <rect x="1" y="1" width="8" height="8" rx="1.5" fill={c} stroke="var(--border-subtle)" strokeWidth="1" />
                 </svg>
-                <span className="truncate text-[var(--text-secondary)]">{seg.label}</span>
+                <span className="truncate text-[var(--text-secondary)]" title={seg.label}>
+                  {seg.label}
+                </span>
               </span>
-              <span className="shrink-0 tabular-nums text-[var(--text-primary)]">
-                {pct}%
+              <span className="shrink-0 tabular-nums text-[var(--text-primary)] flex items-baseline gap-2">
+                <span className="ui-text-eyebrow font-medium text-[var(--text-muted)]">{Number.isFinite(seg.value) ? seg.value : 0}</span>
+                <span className="font-semibold">{pct}%</span>
               </span>
             </li>
           );

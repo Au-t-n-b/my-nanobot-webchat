@@ -8,6 +8,7 @@ import type { AgentMessage, SessionSummary, TrashedSessionV1 } from "@/hooks/use
 import { extractIndexedFiles } from "@/lib/fileIndex";
 import { openLocation } from "@/lib/apiFile";
 import { SIDEBAR_SECTION_LABEL_CLASS } from "@/lib/sidebarTokens";
+import { SidebarStats } from "@/components/SidebarStats";
 type Props = {
   threadId: string;
   apiBase: string;
@@ -33,6 +34,8 @@ type Props = {
   onOpenArtifactsHub?: () => void;
   /** 技能中心：展开侧栏展示技能列表 */
   onOpenSkillsHub?: () => void;
+  /** 打开 Skill 变更审核面板 */
+  onOpenSkillRequests?: () => void;
   /** Opens quick settings (e.g. control center settings tab). */
   onOpenQuickSettings?: () => void;
   /** Local demo auth: sign out and return to login. */
@@ -57,6 +60,23 @@ type SkillItem = {
   remoteTitle?: string;
   organizationName?: string;
 };
+
+function SidebarMark({ collapsed }: { collapsed: boolean }) {
+  return (
+    <span
+      className={
+        "select-none font-semibold tracking-tight " +
+        (collapsed
+          ? "inline-flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-1)] ui-text-primary ui-text-label"
+          : "text-sm ui-text-primary")
+      }
+      aria-hidden="true"
+      title="Nanobot"
+    >
+      AI
+    </span>
+  );
+}
 
 type SkillsResp = { items: SkillItem[] };
 type OrgAssetItem = {
@@ -103,6 +123,7 @@ export function Sidebar({
   onToggleCollapse,
   onOpenArtifactsHub,
   onOpenSkillsHub,
+  onOpenSkillRequests,
   onOpenQuickSettings,
   // eslint-disable-next-line @typescript-eslint/no-unused-vars -- Logout 入口已迁入 SettingsHub，保留 prop 以维持外部签名兼容
   onLogout: _onLogout,
@@ -157,6 +178,7 @@ export function Sidebar({
   const [orgAssetsLoading, setOrgAssetsLoading] = useState(false);
   const [orgAssetsError, setOrgAssetsError] = useState<string | null>(null);
   const [orgAssetsConnected, setOrgAssetsConnected] = useState(true);
+  const [skillRequestPendingCount, setSkillRequestPendingCount] = useState(0);
   const stableIndexedFilesRef = useRef<ReturnType<typeof extractIndexedFiles>>([]);
   const indexedFiles = useMemo(() => {
     // During streaming, freeze file-index recomputation to avoid input lag.
@@ -222,6 +244,22 @@ export function Sidebar({
   useEffect(() => {
     void loadOrgAssets();
   }, [loadOrgAssets, refreshNonce]);
+
+  // Poll pending skill change request count
+  useEffect(() => {
+    let active = true;
+    const poll = async () => {
+      try {
+        const res = await fetch(apiPath("/api/skill-requests?status=pending", apiBase));
+        if (!res.ok) return;
+        const data = await res.json();
+        if (active) setSkillRequestPendingCount(data.pending_count ?? 0);
+      } catch { /* ignore */ }
+    };
+    void poll();
+    const interval = setInterval(() => void poll(), 30_000);
+    return () => { active = false; clearInterval(interval); };
+  }, [apiBase]);
 
   const copyPath = useCallback((path: string) => {
     void navigator.clipboard.writeText(path).then(() => {
@@ -325,9 +363,9 @@ export function Sidebar({
     const iconBtn = "nav-icon-btn";
     return (
       <aside className={`${asideFrameClass} flex-col items-center gap-1 py-3`}>
-        <span className="text-lg leading-none mb-0.5" aria-hidden="true">
-          🦞
-        </span>
+        <div className="mb-1">
+          <SidebarMark collapsed />
+        </div>
 
         <button type="button" onClick={onCreateSession} title="新建会话" className={iconBtn}>
           <Plus size={18} />
@@ -354,7 +392,7 @@ export function Sidebar({
           </button>
           {artifacts.length > 0 && (
             <span
-              className="pointer-events-none absolute right-1 top-1 flex h-3.5 min-w-3.5 items-center justify-center rounded-full text-[8px] font-bold text-white"
+              className="pointer-events-none absolute right-1 top-1 flex h-3.5 min-w-3.5 items-center justify-center rounded-full ui-text-eyebrow font-bold text-white"
               style={{ background: "color-mix(in oklab, var(--accent) 65%, transparent)" }}
             >
               {artifacts.length > 9 ? "9+" : artifacts.length}
@@ -362,18 +400,29 @@ export function Sidebar({
           )}
         </div>
 
-        <button
-          type="button"
-          title="技能中心"
-          onClick={() => {
-            if (onOpenSkillsHub) onOpenSkillsHub();
-            else onToggleCollapse?.();
-          }}
-          className={iconBtn}
-          aria-label="技能中心"
-        >
-          <Zap size={18} />
-        </button>
+        <div className="relative">
+          <button
+            type="button"
+            title="技能中心"
+            onClick={() => {
+              if (skillRequestPendingCount > 0 && onOpenSkillRequests) onOpenSkillRequests();
+              else if (onOpenSkillsHub) onOpenSkillsHub();
+              else onToggleCollapse?.();
+            }}
+            className={iconBtn}
+            aria-label="技能中心"
+          >
+            <Zap size={18} />
+          </button>
+          {skillRequestPendingCount > 0 && (
+            <span
+              className="pointer-events-none absolute right-1 top-1 flex h-3.5 min-w-3.5 items-center justify-center rounded-full text-[9px] font-bold text-white"
+              style={{ background: "var(--accent)" }}
+            >
+              {skillRequestPendingCount > 9 ? "9+" : skillRequestPendingCount}
+            </span>
+          )}
+        </div>
 
         <button type="button" title="组织资产，点击展开" onClick={onToggleCollapse} className={iconBtn}>
           <Building2 size={18} />
@@ -406,7 +455,7 @@ export function Sidebar({
   }
 
   const settingsBtnClass =
-    "w-full min-w-0 inline-flex items-center justify-start gap-2 rounded-lg border border-transparent bg-transparent px-3 py-2 text-[12px] font-medium ui-text-muted ui-hover-soft";
+    "w-full min-w-0 inline-flex items-center justify-start gap-2 rounded-lg border border-transparent bg-transparent px-3 py-2 ui-text-body font-medium ui-text-muted ui-hover-soft";
 
   const portalTrashModal = (
     <CenteredConfirmModal
@@ -444,8 +493,8 @@ export function Sidebar({
       disableDismiss={skillPublishBusy}
       panelClassName="w-full max-w-md"
     >
-      <div className="space-y-3 text-[12px]">
-        <p className="ui-text-muted break-all text-[10px]">{skillPublishModal.skill.name}</p>
+      <div className="space-y-3 ui-text-body">
+        <p className="ui-text-muted break-all ui-text-eyebrow">{skillPublishModal.skill.name}</p>
         <div className="flex flex-col gap-2">
           <label className="flex items-center gap-2">
             <input
@@ -476,13 +525,13 @@ export function Sidebar({
             {skillPublishModal.skill.organizationName ? ` / ${skillPublishModal.skill.organizationName}` : ""}
           </p>
         ) : null}
-        {skillPublishError ? <p className="text-[10px] text-[var(--danger)]">{skillPublishError}</p> : null}
+        {skillPublishError ? <p className="ui-text-eyebrow text-[var(--danger)]">{skillPublishError}</p> : null}
         <div className="flex gap-2 pt-1">
           <button
             type="button"
             disabled={skillPublishBusy}
             onClick={() => void submitSkillPublish()}
-            className="rounded-lg px-3 py-1.5 text-white text-[12px] disabled:opacity-50"
+            className="rounded-lg px-3 py-1.5 text-white ui-text-body disabled:opacity-50"
             style={{ background: "var(--accent)" }}
           >
             {skillPublishBusy ? "处理中..." : "确认"}
@@ -491,7 +540,7 @@ export function Sidebar({
             type="button"
             disabled={skillPublishBusy}
             onClick={() => setSkillPublishModal({ open: false, skill: null, target: "personal" })}
-            className="ui-btn-ghost rounded-lg px-3 py-1.5 text-[12px]"
+            className="ui-btn-ghost rounded-lg px-3 py-1.5 ui-text-body"
           >
             取消
           </button>
@@ -506,9 +555,7 @@ export function Sidebar({
         {/* ── SidebarHeader：logo + 主 CTA "新建会话"（accent，最高视觉权重） ── */}
         <div className="shrink-0">
           <div className="flex items-center gap-2.5 min-w-0">
-            <span className="text-xl leading-none shrink-0 select-none" aria-hidden="true">
-              🦞
-            </span>
+            <SidebarMark collapsed={false} />
             <span className="min-w-0 flex-1 truncate font-semibold text-sm leading-tight ui-text-primary">
               AI应用使能 <span className="ui-text-muted">交付claw</span>
             </span>
@@ -523,6 +570,13 @@ export function Sidebar({
           </button>
         </div>
 
+        <SidebarStats
+          sessionCount={sessions.length}
+          artifactCount={artifacts.length}
+          skillCount={skills.length}
+          orgAssetCount={orgAssets.length}
+        />
+
         <div className="min-h-0 flex-1 touch-pan-y overflow-y-auto overflow-x-hidden pr-0 [overscroll-behavior-y:auto] [scrollbar-gutter:stable]">
           <div className="flex flex-col gap-6 pb-2 pt-4">
             {/* ── SidebarPrimary：会话列表 + 最近清空 ── */}
@@ -536,13 +590,13 @@ export function Sidebar({
             />
 
             {trashedSessions.length > 0 && onRestoreTrashed && onDismissTrashed ? (
-              <section className="flex flex-col gap-2 rounded-xl border border-[var(--border-subtle)] bg-white/[0.02] px-3 py-2.5">
+              <section className="flex flex-col gap-2 rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-1)]/20 px-3 py-2.5">
                 <div className={`${SIDEBAR_SECTION_LABEL_CLASS} whitespace-nowrap`}>最近清空（30 天）</div>
                 <ul className="max-h-40 space-y-0 overflow-y-auto [scrollbar-width:thin]">
                   {trashedSessions.map((e) => (
                     <li
                       key={`${e.sessionId}-${e.trashedAt}`}
-                      className="flex min-w-0 items-center gap-2 rounded-lg px-2 py-1.5 text-[12px]"
+                      className="flex min-w-0 items-center gap-2 rounded-lg px-2 py-1.5 ui-text-body"
                     >
                       <span className="min-w-0 flex-1 truncate" title={e.title}>
                         {e.title} · {e.messageCount} 条
@@ -550,14 +604,14 @@ export function Sidebar({
                       <button
                         type="button"
                         onClick={() => onRestoreTrashed(e)}
-                        className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium text-[var(--accent)] hover:underline"
+                        className="shrink-0 rounded-lg px-1.5 py-0.5 ui-text-eyebrow font-medium text-[var(--accent)] hover:underline"
                       >
                         恢复
                       </button>
                       <button
                         type="button"
                         onClick={() => onDismissTrashed(e)}
-                        className="shrink-0 text-[10px] ui-text-muted hover:text-[var(--text-primary)]"
+                        className="shrink-0 ui-text-eyebrow ui-text-muted hover:text-[var(--text-primary)]"
                         title="从列表移除"
                         aria-label="从回收条移除"
                       >
@@ -571,11 +625,11 @@ export function Sidebar({
 
             {/* ── SidebarSecondary §产物：默认展开，最常用 ── */}
             <details className="group/details flex flex-col gap-2 min-h-0 [&_summary::-webkit-details-marker]:hidden" open>
-              <summary className="flex cursor-pointer list-none items-center justify-between gap-2 rounded-md px-1 py-1 ui-hover-soft">
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-2 rounded-lg px-1 py-1 ui-hover-soft">
                 <span className="flex items-center gap-1.5 min-w-0">
                   <ChevronRight size={12} strokeWidth={2.25} className="shrink-0 ui-text-muted ui-motion-fast group-open/details:rotate-90" aria-hidden />
                   <span className={`${SIDEBAR_SECTION_LABEL_CLASS} whitespace-nowrap`}>产物</span>
-                  <span className="ml-1 tabular-nums text-[10px] ui-text-secondary">{artifacts.length}</span>
+                  <span className="ml-1 tabular-nums ui-text-eyebrow ui-text-secondary">{artifacts.length}</span>
                 </span>
                 <button
                   type="button"
@@ -595,7 +649,7 @@ export function Sidebar({
 
         <div className="max-h-48 overflow-y-auto overflow-x-hidden space-y-0 [scrollbar-width:thin]">
           {artifacts.length === 0 ? (
-            <p className="text-[10px] text-[var(--text-muted)]/70">暂无产物，生成后可在右侧预览。</p>
+            <p className="ui-text-eyebrow ui-text-muted">暂无产物。在对话中让 Agent 生成文件后，产物会自动出现在这里。</p>
           ) : (
             artifacts.map((artifact, index) => (
               <div
@@ -618,9 +672,9 @@ export function Sidebar({
                   title={artifact.path}
                 >
                   <FileText size={18} strokeWidth={currentPreviewPath === artifact.path ? 2.25 : 1.75} className="ui-text-muted shrink-0" />
-                  <span className="truncate text-[12px] ui-text-primary">{artifact.fileName}</span>
+                  <span className="truncate ui-text-body ui-text-primary">{artifact.fileName}</span>
                   {index === 0 && (
-                    <span className="shrink-0 rounded px-1 py-0.5 text-[10px] font-medium tracking-[0.12em] border border-[var(--border-subtle)] ui-text-secondary">
+                    <span className="shrink-0 rounded-lg px-1 py-0.5 ui-text-eyebrow font-medium border border-[var(--border-subtle)] ui-text-secondary">
                       新
                     </span>
                   )}
@@ -668,13 +722,30 @@ export function Sidebar({
 
             {/* ── SidebarSecondary §技能：默认折叠 ── */}
             <details className="group/details flex flex-col gap-2 min-h-0 [&_summary::-webkit-details-marker]:hidden">
-              <summary className="flex cursor-pointer list-none items-center justify-between gap-2 rounded-md px-1 py-1 ui-hover-soft">
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-2 rounded-lg px-1 py-1 ui-hover-soft">
                 <span className="flex items-center gap-1.5 min-w-0">
                   <ChevronRight size={12} strokeWidth={2.25} className="shrink-0 ui-text-muted ui-motion-fast group-open/details:rotate-90" aria-hidden />
                   <span className={`${SIDEBAR_SECTION_LABEL_CLASS} whitespace-nowrap`}>技能</span>
-                  <span className="ml-1 tabular-nums text-[10px] ui-text-secondary">{skills.length}</span>
+                  <span className="ml-1 tabular-nums ui-text-eyebrow ui-text-secondary">{skills.length}</span>
                 </span>
                 <div className="flex items-center gap-1" onClick={(e) => e.preventDefault()}>
+            {onOpenSkillRequests && skillRequestPendingCount > 0 && (
+              <button
+                type="button"
+                onClick={onOpenSkillRequests}
+                className="relative inline-flex items-center rounded-lg p-1.5 ui-text-muted ui-hover-soft"
+                aria-label={`${skillRequestPendingCount} 个待审核的 Skill 变更`}
+                title={`${skillRequestPendingCount} 个待审核变更`}
+              >
+                <Zap size={18} className="text-[var(--accent)]" />
+                <span
+                  className="pointer-events-none absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full text-[9px] font-bold text-white"
+                  style={{ background: "var(--accent)" }}
+                >
+                  {skillRequestPendingCount > 9 ? "9+" : skillRequestPendingCount}
+                </span>
+              </button>
+            )}
             <button
               type="button"
               onClick={() => {
@@ -709,24 +780,29 @@ export function Sidebar({
         </summary>
 
         {skillsError && (
-          <p className="text-[10px] text-[var(--danger)] px-1">
+          <p className="ui-text-eyebrow text-[var(--danger)] px-1">
             {skillsError}
           </p>
         )}
         {skillPublishStatus && (
-          <p className="text-[10px] ui-text-secondary px-1">
+          <p className="ui-text-eyebrow ui-text-secondary px-1">
             {skillPublishStatus}
           </p>
         )}
         {skillPublishError && (
-          <p className="text-[10px] text-[var(--danger)] px-1">
+          <p className="ui-text-eyebrow text-[var(--danger)] px-1">
             {skillPublishError}
           </p>
         )}
 
           <div className="max-h-48 overflow-y-auto overflow-x-hidden space-y-0 [scrollbar-width:thin]" role="list">
           {!skillsLoading && skills.length === 0 && (
-            <p className="text-[10px] text-[var(--text-muted)]/70">暂无技能。</p>
+            <div className="flex flex-col items-center gap-1.5 py-3">
+              <p className="ui-text-eyebrow ui-text-muted text-center">暂无技能</p>
+              <p className="ui-text-eyebrow ui-text-muted text-center opacity-60">
+                将 SKILL.md 放入 workspace/skills/ 目录，然后点击刷新。
+              </p>
+            </div>
           )}
           {skills.map((s) => {
             const isActive = selectedSkillName === s.name;
@@ -775,11 +851,11 @@ export function Sidebar({
                 >
                   <span className="truncate">{s.name}</span>
                   {s.source === "remote-imported" ? (
-                    <span className="shrink-0 rounded px-1 py-0.5 text-[10px] font-medium leading-none border border-[var(--border-subtle)] ui-text-secondary tracking-[0.12em] uppercase">
+                    <span className="shrink-0 rounded-lg px-1 py-0.5 ui-text-eyebrow font-medium leading-none border border-[var(--border-subtle)] ui-text-secondary uppercase">
                       remote
                     </span>
                   ) : (
-                    <span className="shrink-0 rounded px-1 py-0.5 text-[10px] font-medium leading-none ui-text-muted border border-[var(--border-subtle)] tracking-[0.12em] uppercase">
+                    <span className="shrink-0 rounded-lg px-1 py-0.5 ui-text-eyebrow font-medium leading-none ui-text-muted border border-[var(--border-subtle)] uppercase">
                       local
                     </span>
                   )}
@@ -797,7 +873,7 @@ export function Sidebar({
                         target: s.source === "remote-imported" ? "backflow" : "personal",
                       });
                     }}
-                    className="rounded px-1.5 py-1 text-[10px] font-medium uppercase tracking-[0.12em] ui-text-muted ui-hover-soft"
+                    className="rounded-lg px-1.5 py-1 ui-text-eyebrow font-medium uppercase ui-text-muted ui-hover-soft"
                     aria-label={`${s.source === "remote-imported" ? "回收" : "上传"} ${s.name}`}
                     title={s.source === "remote-imported" ? "回收到远端" : "上传到远端"}
                   >
@@ -832,12 +908,12 @@ export function Sidebar({
             </details>
 
             {/* ── SidebarSecondary §组织资产：默认折叠 ── */}
-            <details className="group/details flex flex-col gap-2 min-h-0 rounded-xl border border-[var(--border-subtle)] bg-white/[0.03] p-3 [&_summary::-webkit-details-marker]:hidden">
-              <summary className="flex cursor-pointer list-none items-center justify-between gap-2 rounded-md px-1 py-1 ui-hover-soft">
+            <details className="group/details flex flex-col gap-2 min-h-0 rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-1)]/24 p-3 [&_summary::-webkit-details-marker]:hidden">
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-2 rounded-lg px-1 py-1 ui-hover-soft">
                 <span className="flex items-center gap-1.5 min-w-0">
                   <ChevronRight size={12} strokeWidth={2.25} className="shrink-0 ui-text-muted ui-motion-fast group-open/details:rotate-90" aria-hidden />
                   <span className={`${SIDEBAR_SECTION_LABEL_CLASS} whitespace-nowrap`}>组织资产</span>
-                  <span className="ml-1 tabular-nums text-[10px] ui-text-secondary">{orgAssets.length}</span>
+                  <span className="ml-1 tabular-nums ui-text-eyebrow ui-text-secondary">{orgAssets.length}</span>
                 </span>
                 <button
                   type="button"
@@ -857,19 +933,19 @@ export function Sidebar({
             <span className="text-lg opacity-70" aria-hidden="true">
               🏛️
             </span>
-            <p className="text-[10px] ui-text-muted text-center leading-snug px-2">
+            <p className="ui-text-eyebrow ui-text-muted text-center leading-snug px-2">
               未连接组织中心
             </p>
             <button
               type="button"
               onClick={onOpenSettings}
-              className="text-[10px] font-medium ui-text-muted hover:text-[var(--text-primary)] underline-offset-4 hover:underline ui-motion-fast py-1"
+              className="ui-text-eyebrow font-medium ui-text-muted hover:text-[var(--text-primary)] underline-offset-4 hover:underline ui-motion-fast py-1"
             >
               去连接
             </button>
           </div>
         ) : orgAssetsError ? (
-          <p className="text-[10px] text-[var(--danger)] px-1">
+          <p className="ui-text-eyebrow text-[var(--danger)] px-1">
             {orgAssetsError}
           </p>
         ) : (
@@ -879,24 +955,24 @@ export function Sidebar({
                 <span className="text-lg opacity-60" aria-hidden="true">
                   🏛️
                 </span>
-                <p className="text-[10px] ui-text-muted text-center leading-snug px-2">暂无组织资产。</p>
+                <p className="ui-text-eyebrow ui-text-muted text-center leading-snug px-2">暂无组织资产，请先在设置中连接组织中心。</p>
               </div>
             ) : (
               orgAssets.map((asset) => (
                 <div
                   key={asset.id}
-                  className="relative rounded-xl p-3 flex flex-col gap-2 ui-hover-soft border border-transparent"
+                  className="relative rounded-2xl p-3 flex flex-col gap-2 ui-hover-soft border border-transparent"
                 >
                   <div className="min-w-0">
-                    <p className="text-[12px] font-medium ui-text-primary truncate">{asset.title || asset.name}</p>
-                    <p className="text-[10px] ui-text-muted mt-1 line-clamp-2">{asset.description || asset.organizationName || "组织资产"}</p>
+                    <p className="ui-text-body font-medium ui-text-primary truncate">{asset.title || asset.name}</p>
+                    <p className="ui-text-eyebrow ui-text-muted mt-1 line-clamp-2">{asset.description || asset.organizationName || "组织资产"}</p>
                   </div>
                   <div className="flex items-center justify-between gap-2">
-                    <span className="font-mono text-[10px] opacity-50 ui-text-secondary">v{asset.version || "未标注"}</span>
+                    <span className="font-mono ui-text-eyebrow opacity-50 ui-text-secondary">v{asset.version || "未标注"}</span>
                     <button
                       type="button"
                       onClick={() => onOpenOrgAssetDetail?.(asset.id)}
-                      className="rounded-lg px-2 py-1 text-[10px] font-medium uppercase tracking-[0.12em] ui-text-muted ui-hover-soft"
+                      className="rounded-lg px-2 py-1 ui-text-eyebrow font-medium uppercase ui-text-muted ui-hover-soft"
                     >
                       查看详情
                     </button>
@@ -926,7 +1002,7 @@ export function Sidebar({
 
       {hoveredSkill?.description && tooltipPos && (
         <div
-          className="pointer-events-none fixed z-[9999] w-56 rounded-lg px-3 py-2 text-[10px] leading-snug shadow-xl animate-in fade-in duration-100"
+          className="pointer-events-none fixed z-[9999] w-56 rounded-lg px-3 py-2 ui-text-eyebrow leading-snug shadow-xl animate-in fade-in duration-100"
           style={{
             top: tooltipPos.top,
             left: tooltipPos.left,
@@ -936,7 +1012,7 @@ export function Sidebar({
           }}
           aria-hidden="true"
         >
-          <p className="font-semibold ui-text-primary mb-1 text-[10px]">{hoveredSkill.name}</p>
+          <p className="font-semibold ui-text-primary mb-1 ui-text-eyebrow">{hoveredSkill.name}</p>
           <p className="ui-text-secondary leading-snug">{hoveredSkill.description}</p>
         </div>
       )}

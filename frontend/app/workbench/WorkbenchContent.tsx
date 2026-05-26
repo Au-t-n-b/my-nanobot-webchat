@@ -26,6 +26,8 @@ import { SearchOverlay } from "@/components/SearchOverlay";
 import { SystemShellModal } from "@/components/SystemShellModal";
 import { CommandPalette } from "@/components/CommandPalette";
 import { Sidebar } from "@/components/Sidebar";
+import { CenteredConfirmModal } from "@/components/CenteredModal";
+import { SetupGuideDialog } from "@/components/SetupGuideDialog";
 import { ModelSelector } from "@/components/ModelSelector";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { SidebarPersonalInfo, type PersonalInfoMenuAction } from "@/components/SidebarPersonalInfo";
@@ -46,6 +48,7 @@ import { getAuthUser } from "@/lib/authStore";
 import { useTheme } from "@/hooks/useTheme";
 import { DashboardNavigator } from "@/components/DashboardNavigator";
 import { ControlCenterPanel } from "@/components/ControlCenterPanel";
+import { SkillRequestPanel } from "@/components/SkillRequestPanel";
 import { ModuleStepper, ModuleStepperCompact } from "@/components/dashboard/ModuleStepper";
 import { useWorkbenchStepperView } from "@/hooks/useWorkbenchStepperView";
 import {
@@ -54,6 +57,7 @@ import {
   selectProjectOverviewModules,
   useProjectOverviewStore,
 } from "@/lib/projectOverviewStore";
+import { canonicalModuleIdForMerge } from "@/lib/moduleDisplayLabels";
 import {
   isBaseLayerDashboardSkillUi,
   normalizeSyntheticSkillUiPath,
@@ -78,7 +82,7 @@ import {
   RIGHT_PANEL_MAX,
 } from "@/lib/workbenchChatLayout";
 
-type SystemModal = null | "controlCenter" | "remoteAssetDetail" | "remoteUpload";
+type SystemModal = null | "controlCenter" | "remoteAssetDetail" | "remoteUpload" | "skillRequests";
 type ControlCenterTab = "config" | "settings";
 type ControlCenterSettingsPane = "systemSettings" | "profile" | "members";
 
@@ -135,7 +139,7 @@ const headerIconButtonClass =
   "border-[var(--border-subtle)] bg-[var(--surface-1)] ui-text-secondary hover:bg-[var(--surface-3)] hover:ui-text-primary";
 
 const workbenchMenuItemClass =
-  "ui-motion flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm ui-text-primary transition-colors duration-[220ms] ease-out hover:bg-[var(--surface-3)]";
+  "ui-motion-fast flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm ui-text-primary hover:bg-[var(--surface-3)]";
 
 type WorkbenchToolsMenuItemsProps = {
   onPick: (action: () => void) => void;
@@ -169,18 +173,17 @@ function WorkbenchToolsMenuItems({
   return (
     <div
       className={
-        "w-64 max-h-[min(100vh,28rem)] overflow-y-auto rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-elevated)] p-1.5 text-sm text-[var(--text-primary)] " +
-        "shadow-xl shadow-black/15 ring-1 ring-black/[0.06] " +
-        "dark:border-white/10 dark:bg-[color-mix(in_oklab,var(--surface-elevated)_72%,transparent)] dark:shadow-2xl dark:shadow-black/60 dark:ring-1 dark:ring-white/10 " +
-        "supports-[backdrop-filter]:backdrop-blur-md supports-[backdrop-filter]:dark:backdrop-blur-xl"
+        "w-64 max-h-[min(100vh,28rem)] overflow-y-auto rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-elevated)] p-1.5 text-sm text-[var(--text-primary)] " +
+        "shadow-[var(--shadow-panel)] ring-1 ring-[var(--border-subtle)] " +
+        "supports-[backdrop-filter]:backdrop-blur-md"
       }
       role="menu"
     >
-      <div className="px-2 py-1 text-[10px] font-semibold tracking-wide text-slate-500">工作台与视图</div>
+      <div className="px-2 py-1 ui-text-eyebrow ui-text-muted">工作台与视图</div>
       <button type="button" role="menuitem" className={workbenchMenuItemClass} onClick={() => onPick(onToggleNav)}>
         <LayoutPanelLeft
           size={15}
-          className={navExpanded ? "shrink-0 text-emerald-400/90" : "shrink-0 ui-text-muted"}
+          className={navExpanded ? "shrink-0 ui-status-success" : "shrink-0 ui-text-muted"}
           strokeWidth={2.25}
           aria-hidden
         />
@@ -207,7 +210,7 @@ function WorkbenchToolsMenuItems({
       >
         <PanelRight
           size={15}
-          className={previewOpen ? "shrink-0 text-sky-400/90" : "shrink-0 ui-text-muted"}
+          className={previewOpen ? "shrink-0 text-[var(--accent)]" : "shrink-0 ui-text-muted"}
           strokeWidth={2.25}
           aria-hidden
         />
@@ -218,7 +221,7 @@ function WorkbenchToolsMenuItems({
         <span>账号与成员</span>
       </button>
       <div className="my-1.5 h-px bg-[var(--border-subtle)]" />
-      <div className="px-2 py-1 text-[10px] font-semibold tracking-wide text-slate-500">系统</div>
+      <div className="px-2 py-1 ui-text-eyebrow ui-text-muted">系统</div>
       <button type="button" role="menuitem" className={workbenchMenuItemClass} onClick={() => onPick(onOpenConfig)}>
         <span className="w-[15px] shrink-0 text-center text-sm" aria-hidden>
           ◎
@@ -230,15 +233,15 @@ function WorkbenchToolsMenuItems({
         <span>应用设置</span>
       </button>
       <div className="mt-2 rounded-lg border border-[var(--border-subtle)] border-dashed px-2 py-1.5">
-        <p className="mb-1 text-[10px] font-medium ui-text-muted">主题</p>
+        <p className="mb-1 ui-text-eyebrow ui-text-muted">主题</p>
         <ThemeToggle vertical />
       </div>
       <div className="my-2.5 h-px bg-[color-mix(in_oklab,var(--border-subtle)_85%,transparent)]" />
-      <p className="px-2 pb-1 text-[10px] font-medium uppercase tracking-wider text-red-300">危险操作</p>
+      <p className="px-2 pb-1 ui-text-eyebrow ui-status-danger">危险操作</p>
       <button
         type="button"
         role="menuitem"
-        className="w-full rounded-lg bg-red-500/10 px-2.5 py-2.5 text-left text-sm font-medium text-red-400 ring-1 ring-red-500/25 transition-colors hover:bg-red-500/20"
+        className="w-full rounded-lg border border-[var(--danger-border)] bg-[var(--danger-bg)] px-2.5 py-2.5 text-left text-sm font-medium text-[var(--danger-fg)] ring-1 ring-[var(--danger-border)] transition-colors hover:brightness-[1.03]"
         onClick={() => onPick(onClearSession)}
       >
         清空当前会话
@@ -325,7 +328,9 @@ export default function WorkbenchContent() {
     const done = mods.filter((m) => m.status === "completed").length;
     const progress = `${done}/${mods.length}`;
     const am = activeModuleId
-      ? mods.find((m) => m.moduleId === activeModuleId)
+      ? mods.find(
+          (m) => canonicalModuleIdForMerge(m.moduleId) === canonicalModuleIdForMerge(activeModuleId ?? ""),
+        )
       : mods.find((m) => m.status === "running") ?? mods.find((m) => m.status !== "completed");
     const pick = am ?? mods[0];
     let s = String(pick?.label ?? "").trim();
@@ -352,6 +357,7 @@ export default function WorkbenchContent() {
   const [searchQuery, setSearchQuery] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [clearSessionConfirmOpen, setClearSessionConfirmOpen] = useState(false);
   const [navExpanded, setNavExpanded] = useState(false);
   /** 右侧大盘：总览 vs Skill 模块视图（用于在模块大盘时隐藏顶栏项目区） */
   const [dashboardNavigatorView, setDashboardNavigatorView] = useState<"overview" | "module">("overview");
@@ -816,6 +822,10 @@ export default function WorkbenchContent() {
     openControlCenter({ tab: "settings", settingsPane: "systemSettings" });
   }, [openControlCenter]);
 
+  const openSkillRequests = useCallback(() => {
+    setSystemModal("skillRequests");
+  }, []);
+
   const openRemoteAssetDetail = useCallback((assetId: string) => {
     setSelectedOrgAssetId(assetId);
     setSystemModal("remoteAssetDetail");
@@ -1117,9 +1127,7 @@ export default function WorkbenchContent() {
       clearChat({ saveUndoSnapshot: true });
     };
     const onClearSession = () => {
-      const ok = window.confirm("确认清空当前会话？此操作不可撤销。");
-      if (!ok) return;
-      clearChat({ saveUndoSnapshot: true });
+      setClearSessionConfirmOpen(true);
     };
     const onOpenProjectSwitcher = () => {
       // Best-effort: show overview column and scroll into dashboard; project dropdown lives there.
@@ -1313,6 +1321,7 @@ export default function WorkbenchContent() {
     refreshNonce: sidebarRefreshNonce,
     onOpenArtifactsHub: openArtifactsHub,
     onOpenSkillsHub: openSkillsHub,
+    onOpenSkillRequests: openSkillRequests,
     trashedSessions,
     onRestoreTrashed: restoreFromTrash,
     onDismissTrashed: dismissTrashed,
@@ -1457,6 +1466,11 @@ export default function WorkbenchContent() {
           />
         </SystemShellModal>
       )}
+      {systemModal === "skillRequests" && (
+        <SystemShellModal onClose={closeSystemModal} title="Skill 变更审核">
+          <SkillRequestPanel />
+        </SystemShellModal>
+      )}
       {systemModal === "remoteAssetDetail" && (
         <SystemShellModal onClose={closeSystemModal} title="资源详情">
           <div className="max-h-[92vh] min-h-0 overflow-y-auto">
@@ -1554,7 +1568,7 @@ export default function WorkbenchContent() {
       {/* Mobile sidebar overlay */}
       {sidebarOpen && (
         <div
-          className="md:hidden fixed inset-0 z-30 bg-black/60"
+          className="md:hidden fixed inset-0 z-30 bg-[var(--surface-0)]/60"
           onClick={() => setSidebarOpen(false)}
           aria-hidden="true"
         />
@@ -1580,10 +1594,11 @@ export default function WorkbenchContent() {
         </div>
       )}
 
-      {/* Desktop layout: navigation + chat + overview, preview uses overlay drawer */}
-      <div className="hidden md:block h-full min-h-0 overflow-x-auto bg-[var(--paper-card)]">
+      {/* Desktop layout: navigation + chat + overview, preview uses overlay drawer
+       *  外壳不再铺 paper-card，让 body::before 的 Aurora 从 padding/gap 透出 */}
+      <div className="hidden md:block h-full min-h-0 overflow-x-auto">
         <div
-          className={`flex h-full min-h-0 bg-[var(--paper-card)] p-2 gap-2 lg:p-3 lg:gap-3 ${zenMode ? "min-w-0" : "min-w-max"}`}
+          className={`flex h-full min-h-0 p-2 gap-2 lg:p-3 lg:gap-3 ${zenMode ? "min-w-0" : "min-w-max"}`}
         >
 
           {/* Col 1: Nav strip (collapsed 44px) or full Sidebar */}
@@ -1597,7 +1612,7 @@ export default function WorkbenchContent() {
                 />
               </div>
             ) : (
-              <div className="w-11 shrink-0 min-h-0 rounded-l-2xl border-r border-white/5 bg-[var(--canvas-rail)] flex flex-col items-center py-3 gap-2">
+              <div className="w-12 shrink-0 min-h-0 rounded-l-2xl border-r border-[var(--border-subtle)] bg-[var(--canvas-rail)] flex flex-col items-center py-3 gap-2">
                 <button
                   type="button"
                   title="展开导航"
@@ -1605,11 +1620,16 @@ export default function WorkbenchContent() {
                   onClick={() => setNavExpanded(true)}
                   aria-label="展开侧边栏"
                 >
-                  🦞
+                  <span
+                    className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-1)] ui-text-label font-semibold tracking-tight ui-text-primary"
+                    aria-hidden="true"
+                  >
+                    AI
+                  </span>
                 </button>
                 <span className="w-1.5 h-1.5 rounded-full mb-2" style={{ background: "var(--success)" }} />
                 <button type="button" onClick={createSession} title="新建会话" className="nav-icon-btn">
-                  <Plus size={18} />
+                  <Plus size={20} />
                 </button>
                 <div className="relative" ref={workbenchToolsMenuRailRef}>
                   <button
@@ -1621,7 +1641,7 @@ export default function WorkbenchContent() {
                     aria-expanded={workbenchToolsOpen && !showChatWorkbenchTools}
                     aria-haspopup="menu"
                   >
-                    <SlidersHorizontal size={18} strokeWidth={2} />
+                    <SlidersHorizontal size={20} strokeWidth={2} />
                   </button>
                   {workbenchToolsOpen && !showChatWorkbenchTools ? (
                     <div className="absolute left-full top-0 z-[100] ml-1.5">
@@ -1653,11 +1673,11 @@ export default function WorkbenchContent() {
                     className="nav-icon-btn"
                     aria-label="产物中心"
                   >
-                    <FileText size={18} />
+                    <FileText size={20} />
                   </button>
                   {artifacts.length > 0 && (
                     <span
-                      className="pointer-events-none absolute right-0.5 top-0.5 flex h-3 min-w-3 items-center justify-center rounded-full px-0.5 text-[7px] font-bold text-white"
+                      className="pointer-events-none absolute right-0.5 top-0.5 flex h-3 min-w-3 items-center justify-center rounded-full px-0.5 ui-text-eyebrow font-bold text-white"
                       style={{ background: "var(--accent)" }}
                     >
                       {artifacts.length > 9 ? "9+" : artifacts.length}
@@ -1671,7 +1691,7 @@ export default function WorkbenchContent() {
                   className="nav-icon-btn"
                   aria-label="技能中心"
                 >
-                  <Zap size={18} />
+                  <Zap size={20} />
                 </button>
                 <div className="mt-auto" />
                 <button
@@ -1681,7 +1701,7 @@ export default function WorkbenchContent() {
                   className="nav-icon-btn"
                   aria-label="账号与资料"
                 >
-                  <UserRound size={18} />
+                  <UserRound size={20} />
                 </button>
               </div>
             ))}
@@ -1690,13 +1710,13 @@ export default function WorkbenchContent() {
           <div
             className={
               zenMode
-                ? "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-2xl border border-[var(--border-subtle)] bg-[var(--paper-chat)] shadow-[var(--shadow-panel)]"
-                : "flex min-h-0 min-w-0 shrink-0 flex-col overflow-hidden rounded-2xl border border-[var(--border-subtle)] bg-[var(--paper-chat)] shadow-[var(--shadow-panel)] dark:border-0 dark:shadow-[inset_1px_0_0_rgba(255,255,255,0.05),inset_-1px_0_0_rgba(255,255,255,0.05),inset_0_1px_0_rgba(255,255,255,0.03)]"
+                ? "ui-elevation-2 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-2xl bg-[var(--paper-chat)]"
+                : "ui-elevation-2 flex min-h-0 min-w-0 shrink-0 flex-col overflow-hidden rounded-2xl bg-[var(--paper-chat)]"
             }
             style={zenMode ? { minWidth: CHAT_MIN } : { width: chatWidth, minWidth: CHAT_MIN }}
           >
             {showChatWorkbenchTools ? (
-              <div className="flex min-w-0 shrink-0 items-center gap-2 border-b border-white/5 bg-[var(--paper-chat)] px-2 pb-1.5 pt-2">
+              <div className="flex min-w-0 shrink-0 items-center gap-2 border-b border-[var(--border-subtle)] bg-[var(--paper-chat)] px-2 pb-1.5 pt-2">
                 <div className="relative shrink-0" ref={workbenchToolsMenuChatRef}>
                   <button
                     type="button"
@@ -1787,7 +1807,7 @@ export default function WorkbenchContent() {
 
               {/* Col 3: 工作区项目（仅总览） + 大盘 */}
               <div
-                className="dashboard-container flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-2xl border-l border-white/5 bg-[var(--paper-card)] shadow-[var(--shadow-card)]"
+                className="dashboard-container flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-2xl border-l border-[var(--border-subtle)] bg-[var(--paper-card)] shadow-[var(--shadow-card)]"
                 style={{ containerType: "inline-size", containerName: "dashboard", minWidth: DASHBOARD_MIN } as React.CSSProperties}
               >
                 {dashboardNavigatorView === "overview" ? (
@@ -1841,14 +1861,14 @@ export default function WorkbenchContent() {
           {previewImmersive ? (
             <button
               type="button"
-              className="hidden md:block fixed inset-0 z-[45] bg-black/50 backdrop-blur-sm"
+              className="hidden md:block fixed inset-0 z-[45] bg-[var(--surface-0)]/50 backdrop-blur-sm"
               aria-label="退出全屏预览"
               onClick={() => setPreviewImmersive(false)}
             />
           ) : (
             <button
               type="button"
-              className="hidden md:block fixed inset-0 z-30 bg-black/42 backdrop-blur-[2px]"
+              className="hidden md:block fixed inset-0 z-30 bg-[var(--surface-0)]/42 backdrop-blur-[2px]"
               aria-label="关闭预览遮罩"
               onClick={closePreview}
             />
@@ -1856,8 +1876,8 @@ export default function WorkbenchContent() {
           <div
             className={
               previewImmersive
-                ? "ui-motion hidden md:flex flex-col fixed inset-3 z-50 min-h-0 min-w-0 overflow-hidden rounded-[1.4rem] border border-[var(--border-subtle)] bg-[var(--canvas-rail)] p-2 shadow-2xl"
-                : "ui-motion hidden md:flex flex-row fixed right-3 top-3 bottom-3 z-40 min-h-0 overflow-hidden rounded-[1.4rem] border border-[var(--border-subtle)] bg-[var(--canvas-rail)] p-2 shadow-2xl"
+                ? "ui-motion ui-sheet hidden md:flex flex-col fixed inset-3 z-50 min-h-0 min-w-0 overflow-hidden rounded-[1.4rem] bg-[var(--canvas-rail)] p-2"
+                : "ui-motion ui-sheet hidden md:flex flex-row fixed right-3 top-3 bottom-3 z-40 min-h-0 overflow-hidden rounded-[1.4rem] bg-[var(--canvas-rail)] p-2"
             }
             style={
               previewImmersive
@@ -1994,6 +2014,19 @@ export default function WorkbenchContent() {
       </div>
         </div>
       </div>
+      <SetupGuideDialog />
+      <CenteredConfirmModal
+        open={clearSessionConfirmOpen}
+        title="清空当前会话"
+        description="确认清空当前会话？此操作不可撤销。"
+        variant="warning"
+        confirmText="清空"
+        onCancel={() => setClearSessionConfirmOpen(false)}
+        onConfirm={() => {
+          setClearSessionConfirmOpen(false);
+          clearChat({ saveUndoSnapshot: true });
+        }}
+      />
     </main>
   );
 }

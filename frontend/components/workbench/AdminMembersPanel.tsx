@@ -465,7 +465,7 @@ export function AdminMembersPanel({ onBack, embedded = false }: { onBack?: () =>
       </div>
 
       {addOpen ? (
-        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/55 p-4" role="dialog" aria-modal="true">
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-[var(--surface-0)]/55 p-4" role="dialog" aria-modal="true">
           <div className="w-full max-w-lg overflow-hidden rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface-0)] shadow-2xl">
             <div className="flex items-center justify-between border-b border-[var(--border-subtle)] px-4 py-3">
               <div className="text-sm font-semibold ui-text-primary">新增账号</div>

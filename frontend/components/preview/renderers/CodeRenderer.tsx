@@ -34,7 +34,7 @@ export function CodeRenderer(
           onClick={copy}
           aria-label="复制代码"
           title="一键复制"
-          className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-white/80 hover:text-white bg-[var(--surface-3)]/80 hover:bg-[var(--surface-3)] backdrop-blur-sm ui-motion-fast"
+          className="inline-flex items-center gap-1 rounded-lg px-2 py-1 ui-text-label text-white/80 hover:text-white bg-[var(--surface-3)]/80 hover:bg-[var(--surface-3)] backdrop-blur-sm ui-motion-fast"
         >
           {copied ? <Check size={10} className="text-green-400" /> : <Copy size={10} />}
           {copied ? "已复制" : "复制"}
@@ -43,7 +43,7 @@ export function CodeRenderer(
           type="button"
           aria-label="运行（暂未实现）"
           title="运行（暂未实现）"
-          className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-white/50 bg-[var(--surface-3)]/60 backdrop-blur-sm cursor-not-allowed"
+          className="inline-flex items-center gap-1 rounded-lg px-2 py-1 ui-text-label text-white/50 bg-[var(--surface-3)]/60 backdrop-blur-sm cursor-not-allowed"
           disabled
         >
           <Play size={10} />
@@ -52,13 +52,13 @@ export function CodeRenderer(
       </div>
 
       <div
-        className="px-3 py-1.5 text-[10px] font-mono ui-text-muted border-b border-[var(--border-subtle)]"
+        className="px-3 py-1.5 ui-text-eyebrow font-mono ui-text-muted border-b border-[var(--border-subtle)]"
         style={{ background: "var(--surface-3)" }}
       >
         {props.path.replace(/\\/g, "/").split("/").pop()}
         {effectiveLang !== "text" && (
           <span
-            className="ml-2 rounded px-1.5 py-0.5 text-[9px]"
+            className="ml-2 rounded-lg px-1.5 py-0.5 ui-text-eyebrow"
             style={{ background: "var(--accent-soft)", color: "var(--accent)" }}
           >
             {effectiveLang}

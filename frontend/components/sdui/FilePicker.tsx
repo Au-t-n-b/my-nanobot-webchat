@@ -52,9 +52,11 @@ export function SduiFilePicker({
   stateNamespace,
   stepId,
   hitlRequestId,
+  deferHitlSubmit = false,
 }: Props) {
   void _label;
-  const { syncState, postToAgent, postToAgentSilently, lockFilePickerCard } = useSkillUiRuntime();
+  const runtime = useSkillUiRuntime();
+  const { syncState, postToAgent, postToAgentSilently, lockFilePickerCard, setDeferredHitlUploads } = runtime;
   const inputRef = useRef<HTMLInputElement | null>(null);
   const submitAnchorRef = useRef<HTMLDivElement | null>(null);
   const [state, setState] = useState<UploadState>({ status: "idle" });
@@ -63,9 +65,14 @@ export function SduiFilePicker({
   const [hitlSubmitted, setHitlSubmitted] = useState(false);
   const legacyGate = useLegacyModuleActionAllowed(moduleId);
 
+  const effectiveCardId = useMemo(
+    () => (cardId ?? "").trim() || (runtime.chatCardId ?? "").trim(),
+    [cardId, runtime.chatCardId],
+  );
+
   const pendingRequestId = useMemo(
-    () => (hitlRequestId ?? "").trim() || (cardId ?? "").trim(),
-    [hitlRequestId, cardId],
+    () => (hitlRequestId ?? "").trim() || effectiveCardId,
+    [hitlRequestId, effectiveCardId],
   );
   const isSkillHitl = Boolean((skillName ?? "").trim() && pendingRequestId);
 
@@ -186,7 +193,7 @@ export function SduiFilePicker({
       }),
     );
     setHitlSubmitted(true);
-    const cid = (cardId ?? "").trim();
+    const cid = effectiveCardId;
     if (cid && uploadedFiles.length) {
       lockFilePickerCard?.(cid, uploadedFiles);
     }
@@ -213,7 +220,7 @@ export function SduiFilePicker({
     lockFilePickerCard,
     moduleId,
     nextAction,
-    cardId,
+    effectiveCardId,
   ]);
 
   const finishUpload = useCallback(
@@ -251,9 +258,14 @@ export function SduiFilePicker({
         });
         const mid = (moduleId ?? "").trim();
         const na = (nextAction ?? "").trim();
-        const cid = (cardId ?? "").trim();
+        const cid = effectiveCardId;
         if (latest) {
           if (isSkillHitl) {
+            if (deferHitlSubmit) {
+              const deferKey = (hitlRequestId ?? "").trim() || pendingRequestId;
+              setDeferredHitlUploads?.(deferKey, nextUploads);
+              return;
+            }
             // Skill-first: 仅落盘 + 本地累积；由用户点击「完成上传并继续」一次性 resume。
             queueMicrotask(() => {
               requestAnimationFrame(() => {
@@ -314,6 +326,11 @@ export function SduiFilePicker({
       hitlSubmitted,
       legacyGate.allowed,
       legacyGate.reason,
+      deferHitlSubmit,
+      setDeferredHitlUploads,
+      effectiveCardId,
+      pendingRequestId,
+      hitlRequestId,
     ],
   );
 
@@ -388,7 +405,7 @@ export function SduiFilePicker({
                 "mt-3 min-h-[112px] rounded-xl border-2 border-dashed px-4 py-7 text-center transition-colors cursor-pointer select-none flex flex-col items-center justify-center gap-2",
                 dragOver
                   ? "border-[var(--accent)] bg-[color-mix(in_oklab,var(--accent)_10%,transparent)]"
-                  : "border-[var(--border-subtle)] bg-transparent hover:bg-white/5 hover:border-[var(--accent)]/50",
+                  : "border-[var(--border-subtle)] bg-transparent hover:bg-[var(--interactive-hover-bg)] hover:border-[var(--accent)]/50",
                 showUploading ? "pointer-events-none opacity-80" : "",
               ].join(" ")}
             >
@@ -470,7 +487,7 @@ export function SduiFilePicker({
             </div>
           ) : null}
 
-          {isSkillHitl && !hitlSubmitted ? (
+          {isSkillHitl && !hitlSubmitted && !deferHitlSubmit ? (
             <div ref={submitAnchorRef} className="mt-5">
               <button
                 type="button"

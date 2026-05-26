@@ -50,7 +50,7 @@ export function SearchOverlay({ query, onQueryChange, onClose, messages }: Props
         className="flex-1 bg-transparent text-sm ui-text-primary placeholder:text-[var(--text-muted)] outline-none"
       />
       {query && (
-        <span className="text-[11px] ui-text-muted shrink-0 tabular-nums">
+        <span className="ui-text-label ui-text-muted shrink-0 tabular-nums">
           {total} 处
         </span>
       )}

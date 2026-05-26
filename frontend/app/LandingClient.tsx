@@ -159,7 +159,6 @@ export default function LandingClient() {
       <header className="absolute top-0 z-10 flex w-full items-center justify-between px-6 py-6 md:px-12">
         <div className="flex items-center gap-2 font-medium tracking-wide ui-text-secondary">
           <Terminal size={18} className="shrink-0 text-[var(--accent)]" aria-hidden />
-          <span className="text-sm md:text-base">Nanobot Space</span>
         </div>
         <button
           type="button"
@@ -172,7 +171,7 @@ export default function LandingClient() {
 
       <main className="relative z-10 flex min-h-screen flex-col items-center justify-center px-4 pb-24 pt-20 text-center">
         <section className="flex w-full max-w-5xl flex-col items-center" aria-label="产品介绍">
-          <div className="mb-8 inline-flex max-w-full cursor-default items-center rounded-full border border-[var(--border-strong)] bg-[var(--surface-2)]/30 px-4 py-1.5 text-xs font-medium ui-text-secondary shadow-sm backdrop-blur-md ui-motion-fast hover:bg-[var(--surface-2)]/50 md:text-sm">
+          <div className="mb-8 inline-flex max-w-full cursor-default items-center rounded-full bg-[var(--surface-2)] px-4 py-1.5 ui-text-eyebrow ui-text-secondary ui-motion-fast hover:bg-[var(--surface-3)]">
             <span className="relative mr-2.5 flex h-2 w-2">
               <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[var(--accent)] opacity-75" />
               <span className="relative inline-flex h-2 w-2 rounded-full bg-[var(--accent)]" />
@@ -180,15 +179,14 @@ export default function LandingClient() {
             AI应用使能组
           </div>
 
-          <h1 className="mb-6 break-words bg-gradient-to-br from-[var(--text-primary)] via-[var(--text-secondary)] to-[var(--text-muted)] bg-clip-text text-5xl font-extrabold tracking-tight text-transparent drop-shadow-sm md:text-7xl lg:text-8xl xl:text-[8.5rem] leading-[1.05]">
-            <span className="font-light tracking-normal">交付</span>{" "}
-            <span className="font-extrabold">Claw</span>
+          <h1 className="mb-6 break-words bg-gradient-to-br from-[var(--text-primary)] via-[var(--text-secondary)] to-[var(--text-muted)] bg-clip-text text-5xl font-semibold tracking-tight text-transparent md:text-7xl lg:text-8xl leading-[1.05]">
+            交付 Claw
           </h1>
-          <p className="mb-12 max-w-2xl text-base font-medium tracking-[0.2em] ui-text-muted md:text-lg">数据驱动决策，行动引领未来。</p>
+          <p className="mb-10 max-w-2xl text-lg ui-text-secondary md:text-xl">数据驱动决策，行动引领未来。</p>
           <button
             type="button"
             onClick={openLogin}
-            className="group relative inline-flex items-center justify-center gap-2 overflow-hidden rounded-xl border border-[var(--border-strong)] bg-white/[0.03] px-8 py-3.5 text-sm font-medium ui-text-primary shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] backdrop-blur-md ui-motion hover:border-[var(--text-muted)] hover:bg-white/[0.06]"
+            className="ui-btn-accent ui-btn-sheen ui-motion group relative inline-flex items-center justify-center gap-2 overflow-hidden rounded-lg px-8 py-3.5 text-sm font-medium"
           >
             <span>进入系统</span>
             <ArrowRight size={16} className="transition-transform group-hover:translate-x-1" aria-hidden />
@@ -264,7 +262,7 @@ export default function LandingClient() {
           />
 
           {loginError ? (
-            <p className="mb-3 text-[13px] font-medium" style={{ color: "#f85149" }}>
+            <p className="mb-3 text-sm font-medium" style={{ color: "#f85149" }}>
               {loginError}
             </p>
           ) : null}

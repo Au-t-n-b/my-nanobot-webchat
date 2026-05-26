@@ -503,7 +503,7 @@ export function RemoteBrowser({ filePath, onClosePanel }: Props) {
 
         {/* URL text */}
         <span
-          className="flex-1 truncate font-mono text-[11px] select-all"
+          className="flex-1 truncate font-mono ui-text-label select-all"
           style={{ color: "var(--text-secondary, #a1a1aa)" }}
           title={currentUrl || undefined}
         >
@@ -517,7 +517,7 @@ export function RemoteBrowser({ filePath, onClosePanel }: Props) {
           disabled={status !== "connected"}
           title="剪贴板"
           aria-label="剪贴板"
-          className="shrink-0 rounded-md p-1 transition-colors disabled:opacity-40"
+          className="shrink-0 rounded-lg p-1 transition-colors disabled:opacity-40"
           style={{
             color: clipboardOpen ? "var(--accent, #3b82f6)" : "var(--text-secondary)",
             background: clipboardOpen ? "rgba(59,130,246,0.12)" : "transparent",
@@ -535,7 +535,7 @@ export function RemoteBrowser({ filePath, onClosePanel }: Props) {
           disabled={!currentUrl}
           title="本地分屏打开（在屏幕右半侧新窗口打开，关闭云端预览）"
           aria-label="本地分屏打开"
-          className="shrink-0 rounded-md p-1 transition-colors disabled:opacity-40"
+          className="shrink-0 rounded-lg p-1 transition-colors disabled:opacity-40"
           style={{ color: "var(--text-secondary)" }}
           onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.08)")}
           onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
@@ -550,7 +550,7 @@ export function RemoteBrowser({ filePath, onClosePanel }: Props) {
           disabled={!currentUrl}
           title="在本地浏览器中打开（新标签页）"
           aria-label="在本地浏览器中打开"
-          className="shrink-0 rounded-md p-1 transition-colors disabled:opacity-40"
+          className="shrink-0 rounded-lg p-1 transition-colors disabled:opacity-40"
           style={{ color: "var(--text-secondary)" }}
           onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.08)")}
           onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
@@ -565,7 +565,7 @@ export function RemoteBrowser({ filePath, onClosePanel }: Props) {
           disabled={status !== "connected"}
           title="刷新页面"
           aria-label="刷新页面"
-          className="shrink-0 rounded-md p-1 transition-colors disabled:opacity-40"
+          className="shrink-0 rounded-lg p-1 transition-colors disabled:opacity-40"
           style={{ color: "var(--text-secondary)" }}
           onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.08)")}
           onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
@@ -603,7 +603,7 @@ export function RemoteBrowser({ filePath, onClosePanel }: Props) {
               onChange={(e) => setClipText(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleSendClipText(); } }}
               placeholder="输入或粘贴文本 → 发送到远端"
-              className="flex-1 min-w-0 rounded-md px-2 py-1 text-[11px] font-mono bg-black/40 border border-white/10 ui-text-primary placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)]/50"
+              className="flex-1 min-w-0 rounded-lg px-2 py-1 ui-text-label font-mono bg-[var(--surface-0)]/40 border border-[var(--border-subtle)] ui-text-primary placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)]/50"
               aria-label="待发送到远端的文本"
             />
             <button
@@ -611,7 +611,7 @@ export function RemoteBrowser({ filePath, onClosePanel }: Props) {
               onClick={handleSendClipText}
               disabled={!clipText.trim() || status !== "connected"}
               title="发送到远端"
-              className="shrink-0 rounded-md px-2 py-1 flex items-center gap-1 text-[11px] font-medium text-white bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              className="shrink-0 rounded-lg px-2 py-1 flex items-center gap-1 ui-text-label font-medium text-white bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >
               <Send size={10} />
               发送
@@ -623,7 +623,7 @@ export function RemoteBrowser({ filePath, onClosePanel }: Props) {
             type="button"
             onClick={handleGetSelection}
             disabled={status !== "connected"}
-            className="flex items-center gap-1.5 text-[11px] ui-text-secondary ui-hover-soft disabled:opacity-40 disabled:cursor-not-allowed self-start"
+            className="flex items-center gap-1.5 ui-text-label ui-text-secondary ui-hover-soft disabled:opacity-40 disabled:cursor-not-allowed self-start"
             title="获取远端选中文本（自动复制到本地剪贴板）"
           >
             <ClipboardCopy size={11} />
@@ -635,7 +635,7 @@ export function RemoteBrowser({ filePath, onClosePanel }: Props) {
       {/* ── Viewport ── */}
       <div
         ref={containerRef}
-        className="relative flex-1 min-h-0 rounded-xl overflow-hidden shadow-inner dark:bg-black/40 ring-1 ring-black/[0.06] dark:ring-white/10"
+        className="relative flex-1 min-h-0 rounded-xl overflow-hidden shadow-inner bg-[var(--surface-0)]/40 ring-1 ring-[var(--border-subtle)]"
         style={{ background: "var(--surface-1, #111)" }}
         onMouseDownCapture={focusImeProxy}
         onTouchStartCapture={focusImeProxy}
@@ -695,7 +695,7 @@ export function RemoteBrowser({ filePath, onClosePanel }: Props) {
 
         {/* Non-connected state overlay */}
         {status !== "connected" && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/80 text-white">
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-[var(--surface-0)]/80 text-white">
             {status === "connecting" && (
               <>
                 <Loader2 size={28} className="animate-spin ui-text-secondary" />

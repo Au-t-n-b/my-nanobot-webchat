@@ -23,7 +23,15 @@ function formatUpdatedAt(ts: number): string {
 
 export function SessionList({ currentThreadId, sessions, onCreate, onSelect, onDelete, hideCreate }: Props) {
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
   const pendingSession = pendingDeleteId ? sessions.find((s) => s.id === pendingDeleteId) : null;
+
+  const filteredSessions = searchQuery.trim()
+    ? sessions.filter((s) => {
+        const q = searchQuery.trim().toLowerCase();
+        return (s.title?.toLowerCase().includes(q)) || (s.preview?.toLowerCase().includes(q));
+      })
+    : sessions;
 
   return (
     <>
@@ -34,7 +42,7 @@ export function SessionList({ currentThreadId, sessions, onCreate, onSelect, onD
             <button
               type="button"
               onClick={onCreate}
-              className="inline-flex items-center justify-center rounded-lg p-2 text-[10px] font-medium tracking-[0.12em] ui-text-muted ui-hover-soft"
+              className="inline-flex items-center justify-center rounded-lg p-2 ui-text-eyebrow font-medium ui-text-muted ui-hover-soft"
               aria-label="创建新会话"
               title="创建新会话"
             >
@@ -43,8 +51,23 @@ export function SessionList({ currentThreadId, sessions, onCreate, onSelect, onD
           )}
         </div>
 
+        {sessions.length > 3 && (
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="搜索会话..."
+            className="w-full h-7 px-2 text-xs rounded-md outline-none ui-motion-fast"
+            style={{
+              background: "var(--surface-0)",
+              border: "1px solid var(--border-subtle)",
+              color: "var(--text-primary)",
+            }}
+          />
+        )}
+
         <div className="max-h-[min(320px,44dvh)] min-h-0 overflow-y-auto space-y-0 pr-0 [overscroll-behavior-y:auto] [scrollbar-width:thin]">
-          {sessions.map((session) => {
+          {filteredSessions.map((session) => {
             const active = session.id === currentThreadId;
             return (
               <div
@@ -72,7 +95,7 @@ export function SessionList({ currentThreadId, sessions, onCreate, onSelect, onD
                 <div className="flex items-center justify-between gap-2">
                   <span
                     className={
-                      "truncate text-[12px] font-medium " +
+                      "truncate ui-text-body font-medium " +
                       (active ? "ui-text-primary" : "ui-text-secondary")
                     }
                   >
@@ -80,7 +103,7 @@ export function SessionList({ currentThreadId, sessions, onCreate, onSelect, onD
                   </span>
                   <span
                     className={
-                      "inline-flex items-center gap-1 font-mono text-[10px] shrink-0 " +
+                      "inline-flex items-center gap-1 font-mono ui-text-eyebrow shrink-0 " +
                       (active ? "opacity-70 ui-text-primary" : "opacity-40 ui-text-muted")
                     }
                   >
@@ -90,7 +113,7 @@ export function SessionList({ currentThreadId, sessions, onCreate, onSelect, onD
                 </div>
                 <p
                   className={
-                    "mt-1 truncate text-[10px] " +
+                    "mt-1 truncate ui-text-eyebrow " +
                     (active ? "ui-text-secondary" : "ui-text-muted")
                   }
                 >

@@ -35,12 +35,7 @@ export function SduiView({ data, loading, error, dataFilePath }: SkillUiComponen
   if (error) {
     return (
       <div
-        className="rounded-xl p-4 text-sm whitespace-pre-wrap"
-        style={{
-          border: "1px solid rgba(239,107,115,0.35)",
-          background: "rgba(239,107,115,0.08)",
-          color: "var(--danger)",
-        }}
+        className="ui-error-banner rounded-xl p-4 text-sm whitespace-pre-wrap"
       >
         {error}
       </div>
@@ -71,7 +66,7 @@ export function SduiView({ data, loading, error, dataFilePath }: SkillUiComponen
         <p className="font-medium">SDUI 文档无效</p>
         <p className="ui-text-secondary text-xs whitespace-pre-wrap">{parsed.error}</p>
         {dataFilePath ? (
-          <p className="text-[10px] ui-text-muted truncate" title={dataFilePath}>
+          <p className="ui-text-eyebrow ui-text-muted truncate" title={dataFilePath}>
             {dataFilePath}
           </p>
         ) : null}
@@ -86,19 +81,31 @@ export function SduiView({ data, loading, error, dataFilePath }: SkillUiComponen
     (meta as { role?: string }).role === "dashboard";
 
   return (
-    <div className="flex flex-col gap-3 min-h-0 min-w-0">
-      {!isDashboardChromeHidden ? (
-        <div className="flex items-center justify-between gap-2 flex-wrap shrink-0">
-          <h3 className="text-sm font-semibold ui-text-primary">Skill UI · SDUI</h3>
-          {dataFilePath ? (
-            <code className="text-[10px] px-2 py-1 rounded-md ui-text-muted truncate max-w-full" title={dataFilePath}>
-              {dataFilePath}
-            </code>
-          ) : null}
+    <div className="flex flex-col gap-3 min-h-0 min-w-0 h-full">
+      {!isDashboardChromeHidden && dataFilePath ? (
+        <div className="flex items-center justify-end gap-2 flex-wrap shrink-0">
+          <code className="ui-text-eyebrow px-2 py-1 rounded-lg ui-text-muted truncate max-w-full" title={dataFilePath}>
+            {dataFilePath}
+          </code>
         </div>
       ) : null}
-      <div className="sdui-layout-transition-hint min-h-0 min-w-0 flex-1 overflow-auto">
-        <SduiNodeView node={parsed.doc.root} />
+
+      {/* relative 包裹层：承载 mask overlay，不参与滚动 */}
+      <div className="relative flex-1 min-h-0 min-w-0">
+        <div className="sdui-layout-transition-hint absolute inset-0 overflow-auto">
+          <SduiNodeView node={parsed.doc.root} />
+        </div>
+        {/* 顶/底各一道 14px 渐变，z-index 1 低于 sticky 段头(z-2)，不会盖住段头 */}
+        <span
+          aria-hidden
+          className="pointer-events-none absolute inset-x-0 top-0 h-3.5 z-[1]"
+          style={{ background: "linear-gradient(to bottom, var(--paper-card) 0%, transparent 100%)" }}
+        />
+        <span
+          aria-hidden
+          className="pointer-events-none absolute inset-x-0 bottom-0 h-3.5 z-[1]"
+          style={{ background: "linear-gradient(to top, var(--paper-card) 0%, transparent 100%)" }}
+        />
       </div>
     </div>
   );

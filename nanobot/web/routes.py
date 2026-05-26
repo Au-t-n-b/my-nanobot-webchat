@@ -566,6 +566,26 @@ async def handle_skill_publish(request: web.Request) -> web.Response:
         return _error("upload_failed", "Failed to publish skill", detail=str(e), status=502)
 
 
+async def handle_clear_session(request: web.Request) -> web.Response:
+    """Clear server-side session messages for a given thread."""
+    try:
+        data = await request.json()
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return _error("bad_request", "Invalid JSON body", status=400)
+    thread_id = str(data.get("threadId") or "").strip()
+    if not thread_id:
+        return _error("bad_request", "threadId is required", status=400)
+    agent = request.app.get(AGENT_LOOP_KEY)
+    sessions = getattr(agent, "sessions", None) if agent is not None else None
+    if sessions is None:
+        return web.json_response({"ok": True, "note": "no_session_manager"})
+    session = sessions.get_or_create(thread_id)
+    session.clear()
+    sessions.save(session)
+    sessions.invalidate(thread_id)
+    return web.json_response({"ok": True})
+
+
 async def handle_open_folder(request: web.Request) -> web.Response:
     try:
         data = await request.json()
@@ -1722,7 +1742,7 @@ async def handle_config_get(request: web.Request) -> web.Response:
     cors = _cors_headers(request)
     from nanobot.config.loader import get_config_path  # local import to avoid circular deps
 
-    SENSITIVE_PATTERNS = ("password", "apikey", "api_key", "token", "secret", "passwd")
+    SENSITIVE_PATTERNS = ("password", "apikey", "api_key", "token", "secret", "passwd", "auth")
 
     def _is_sensitive(key: str) -> bool:
         k = (key or "").lower()
@@ -1799,7 +1819,7 @@ async def handle_config_post(request: web.Request) -> web.Response:
     from nanobot.web.run_registry import RunRegistry
     from nanobot.web.keys import AGENT_LOOP_KEY, CONFIG_KEY, RUN_REGISTRY_KEY
 
-    SENSITIVE_PATTERNS = ("password", "apikey", "api_key", "token", "secret", "passwd")
+    SENSITIVE_PATTERNS = ("password", "apikey", "api_key", "token", "secret", "passwd", "auth")
 
     def _is_sensitive(key: str) -> bool:
         k = (key or "").lower()
@@ -1865,6 +1885,7 @@ async def handle_config_post(request: web.Request) -> web.Response:
     # Update in-memory config and hot-reload the running AgentLoop (if present).
     request.app[CONFIG_KEY] = cfg
     agent = request.app[AGENT_LOOP_KEY]
+    skills_auto_applied = False
     if agent is None:
         # Bootstrap: if AGUI started in "unconfigured" mode (no AgentLoop),
         # create one now so the user does NOT need to restart `npm run dev`.
@@ -1895,6 +1916,8 @@ async def handle_config_post(request: web.Request) -> web.Response:
                 restrict_to_workspace=cfg.tools.restrict_to_workspace,
                 mcp_servers=cfg.tools.mcp_servers,
                 channels_config=cfg.channels,
+                email_config=cfg.tools.email,
+                welink_config=cfg.tools.welink,
             )
             request.app[AGENT_LOOP_KEY] = agent
             logger.info("config.json updated via API (AgentLoop bootstrapped)")
@@ -1920,12 +1943,31 @@ async def handle_config_post(request: web.Request) -> web.Response:
         except Exception as exc:
             logger.warning("Hot reload failed after config update: {}", exc)
             return web.json_response({"detail": f"hot reload failed: {exc}"}, status=500, headers=cors)
+        try:
+            await agent.reload_tool_config(
+                email_config=cfg.tools.email,
+                welink_config=cfg.tools.welink,
+            )
+        except Exception as exc:
+            logger.warning("Tool config hot reload failed: {}", exc)
+
+        # Hot-reload skills_auto config (hermes_enabled, nudge_interval, etc.)
+        skills_auto_applied = False
+        try:
+            skills_auto_applied = agent.reload_skills_auto_config()
+        except Exception as exc:
+            logger.warning("Skills auto config hot reload failed: {}", exc)
 
     logger.info("config.json updated via API (hot reload applied)")
     return web.json_response(
         {
             "ok": True,
+            "saved": True,
             "reloaded": agent is not None,
+            "runtime_applied": True,
+            "effective_from": "next_turn",
+            "requires_restart": False,
+            "skills_auto_applied": skills_auto_applied if agent is not None else False,
             "current_model": cfg.agents.defaults.model,
             "current_provider": cfg.agents.defaults.provider,
         },
@@ -1947,7 +1989,7 @@ async def handle_config_test(request: web.Request) -> web.Response:
     cors = _cors_headers(request)
     from nanobot.config.loader import get_config_path
 
-    SENSITIVE_PATTERNS = ("password", "apikey", "api_key", "token", "secret", "passwd")
+    SENSITIVE_PATTERNS = ("password", "apikey", "api_key", "token", "secret", "passwd", "auth")
 
     def _is_sensitive(key: str) -> bool:
         k = (key or "").lower()
@@ -1973,6 +2015,8 @@ async def handle_config_test(request: web.Request) -> web.Response:
     api_key = (body or {}).get("apiKey")
     api_base = (body or {}).get("apiBase")
     model = str((body or {}).get("model") or "").strip() or None
+    provider_proxy = str((body or {}).get("providerProxy") or "").strip() or None
+    ssl_verify_override = (body or {}).get("sslVerify")
     if not provider_name:
         return web.json_response({"detail": "providerName is required"}, status=400, headers=cors)
 
@@ -2001,6 +2045,8 @@ async def handle_config_test(request: web.Request) -> web.Response:
     }
     if model:
         patch["agents"]["defaults"]["model"] = model
+    if isinstance(ssl_verify_override, bool):
+        patch.setdefault("tools", {}).setdefault("web", {})["sslVerify"] = ssl_verify_override
 
     merged_body = _merge_with_original(patch, existing)
 
@@ -2011,6 +2057,101 @@ async def handle_config_test(request: web.Request) -> web.Response:
         cfg = Config.model_validate(merged_body)
     except Exception as exc:
         return web.json_response({"detail": f"invalid config: {exc}"}, status=400, headers=cors)
+
+    if provider_proxy:
+        import time
+
+        import httpx
+
+        from nanobot.providers.registry import find_by_name
+
+        model_for_test = cfg.agents.defaults.model
+        provider_cfg = cfg.get_provider(model_for_test)
+        effective_api_key = provider_cfg.api_key if provider_cfg else ""
+        effective_api_base = ""
+        try:
+            effective_api_base = (cfg.get_api_base(model_for_test) or "").strip()
+        except Exception:
+            effective_api_base = ""
+        if not effective_api_base and provider_cfg and provider_cfg.api_base:
+            effective_api_base = provider_cfg.api_base.strip()
+        if not effective_api_base:
+            spec = find_by_name(provider_name)
+            effective_api_base = (spec.default_api_base if spec else "").strip()
+        if not effective_api_base:
+            return web.json_response(
+                {"ok": False, "detail": "apiBase is required for one-shot proxy test"},
+                status=400,
+                headers=cors,
+            )
+        if not effective_api_key:
+            return web.json_response(
+                {"ok": False, "detail": "apiKey is required for one-shot proxy test"},
+                status=400,
+                headers=cors,
+            )
+
+        ssl_verify = cfg.tools.web.ssl_verify
+        url = f"{effective_api_base.rstrip('/')}/chat/completions"
+        payload = {
+            "model": model_for_test,
+            "messages": [{"role": "user", "content": "ping"}],
+            "max_tokens": 1,
+            "temperature": 0.0,
+        }
+        headers = {
+            "Authorization": f"Bearer {effective_api_key}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        }
+        start = time.perf_counter()
+        try:
+            async with httpx.AsyncClient(
+                proxy=provider_proxy,
+                verify=ssl_verify,
+                timeout=httpx.Timeout(12.0, connect=5.0),
+                follow_redirects=False,
+            ) as client:
+                resp = await client.post(url, json=payload, headers=headers)
+        except httpx.TimeoutException:
+            return web.json_response(
+                {"ok": False, "detail": "timeout after 12s", "mode": "one-shot-proxy"},
+                status=408,
+                headers=cors,
+            )
+        except Exception as exc:
+            return web.json_response(
+                {"ok": False, "detail": str(exc), "mode": "one-shot-proxy"},
+                status=500,
+                headers=cors,
+            )
+
+        elapsed_ms = int((time.perf_counter() - start) * 1000)
+        if resp.status_code >= 400:
+            text = (resp.text or "").strip()
+            return web.json_response(
+                {
+                    "ok": False,
+                    "detail": text[:1000] or f"HTTP {resp.status_code}",
+                    "provider": provider_name,
+                    "model": model_for_test,
+                    "latencyMs": elapsed_ms,
+                    "mode": "one-shot-proxy",
+                },
+                status=resp.status_code,
+                headers=cors,
+            )
+
+        return web.json_response(
+            {
+                "ok": True,
+                "provider": provider_name,
+                "model": model_for_test,
+                "latencyMs": elapsed_ms,
+                "mode": "one-shot-proxy",
+            },
+            headers=cors,
+        )
 
     try:
         from nanobot.providers.factory import make_provider
@@ -2402,6 +2543,276 @@ async def handle_browser(request: web.Request) -> web.WebSocketResponse:
     return ws
 
 
+# ── Skill change request endpoints ────────────────────────────────────
+
+
+async def handle_skill_requests_list(request: web.Request) -> web.Response:
+    """GET /api/skill-requests — list skill change requests."""
+    agent: AgentLoop | None = request.app.get(AGENT_LOOP_KEY)
+    if agent is None:
+        return _error("no_agent", "Agent not running", status=503)
+    status_filter = request.rel_url.query.get("status", "").strip() or None
+    try:
+        reqs = agent.skill_change_store.list_requests(status=status_filter)
+        return web.json_response({
+            "items": [r.to_dict() for r in reqs],
+            "pending_count": agent.skill_change_store.pending_count(),
+        })
+    except Exception as e:
+        return _error("internal_error", "Failed to list skill requests", detail=str(e), status=500)
+
+
+async def handle_skill_requests_get(request: web.Request) -> web.Response:
+    """GET /api/skill-requests/{id} — get single skill change request."""
+    agent: AgentLoop | None = request.app.get(AGENT_LOOP_KEY)
+    if agent is None:
+        return _error("no_agent", "Agent not running", status=503)
+    req_id = request.match_info.get("id", "")
+    req = agent.skill_change_store.get_request(req_id)
+    if not req:
+        return _error("not_found", "Request not found", status=404)
+    return web.json_response(req.to_dict())
+
+
+async def handle_skill_requests_approve(request: web.Request) -> web.Response:
+    """POST /api/skill-requests/{id}/approve — approve and apply a skill change."""
+    agent: AgentLoop | None = request.app.get(AGENT_LOOP_KEY)
+    if agent is None:
+        return _error("no_agent", "Agent not running", status=503)
+    req_id = request.match_info.get("id", "")
+    req = agent.skill_change_store.get_request(req_id)
+    if not req:
+        return _error("not_found", "Request not found", status=404)
+    if req.status != "pending":
+        return _error("bad_request", f"Request is {req.status}, not pending", status=400)
+
+    # TOCTOU check: verify target file hasn't changed since request creation
+    conflict = agent.skill_change_store.check_disk_conflict(req)
+    if conflict:
+        agent.skill_change_store.record_audit_event(
+            event_type="approve_disk_conflict", request_id=req_id,
+            skill_name=req.skill_name, effect="blocked",
+            error_message=conflict,
+        )
+        return _error("disk_conflict", conflict, status=409)
+
+    from nanobot.agent.tools.skill_manage import apply_create, apply_delete, apply_edit, apply_patch
+    skills_dir = agent.workspace / "skills"
+
+    try:
+        if req.action == "create":
+            result = apply_create(req.skill_name, req.proposed_content or "", skills_dir)
+        elif req.action == "edit":
+            result = apply_edit(req.skill_name, req.proposed_content or "", skills_dir)
+        elif req.action == "patch":
+            result = apply_patch(
+                req.skill_name,
+                req.old_string or "",
+                req.new_string or "",
+                skills_dir,
+                replace_all=bool(req.replace_all),
+            )
+        elif req.action == "delete":
+            result = apply_delete(req.skill_name, skills_dir)
+        else:
+            return _error("bad_request", f"Unknown action: {req.action}", status=400)
+    except Exception as e:
+        agent.skill_change_store.record_audit_event(
+            event_type="approve_apply_failed", request_id=req_id,
+            skill_name=req.skill_name, effect="error",
+            error_code="exception", error_message=str(e),
+        )
+        return _error("internal_error", f"Failed to apply change: {e}", status=500)
+
+    if not result.get("success"):
+        agent.skill_change_store.record_audit_event(
+            event_type="approve_apply_failed", request_id=req_id,
+            skill_name=req.skill_name, effect="error",
+            error_code="apply_failed", error_message=result.get("error", ""),
+        )
+        return _error("apply_failed", result.get("error", "Unknown error"), status=500)
+
+    agent.skill_change_store.approve_request(req_id)
+    agent.skill_change_store.record_audit_event(
+        event_type="approve_apply_success", request_id=req_id,
+        skill_name=req.skill_name, effect="approved",
+    )
+    return web.json_response({"ok": True, "result": result})
+
+
+async def handle_skill_requests_reject(request: web.Request) -> web.Response:
+    """POST /api/skill-requests/{id}/reject — reject a skill change request."""
+    agent: AgentLoop | None = request.app.get(AGENT_LOOP_KEY)
+    if agent is None:
+        return _error("no_agent", "Agent not running", status=503)
+    req_id = request.match_info.get("id", "")
+    req = agent.skill_change_store.get_request(req_id)
+    if not req:
+        return _error("not_found", "Request not found", status=404)
+    if req.status != "pending":
+        return _error("bad_request", f"Request is {req.status}, not pending", status=400)
+
+    note = ""
+    add_to_blacklist = False
+    try:
+        data = await request.json()
+        note = str(data.get("note", "")).strip()
+        add_to_blacklist = bool(data.get("blacklist", False))
+    except (json.JSONDecodeError, TypeError, ValueError):
+        pass
+
+    agent.skill_change_store.reject_request(req_id, note)
+
+    if add_to_blacklist:
+        try:
+            agent.skill_change_store.create_blacklist_from_request(req, note)
+        except Exception as e:
+            logger.warning("Failed to create blacklist entry: {}", e)
+
+    return web.json_response({"ok": True})
+
+
+async def handle_blacklist_list(request: web.Request) -> web.Response:
+    """GET /api/skill-blacklist — list blacklist entries."""
+    agent: AgentLoop | None = request.app.get(AGENT_LOOP_KEY)
+    if agent is None:
+        return _error("no_agent", "Agent not running", status=503)
+    try:
+        entries = agent.skill_change_store.list_blacklist_entries()
+        return web.json_response({"items": [e.to_dict() for e in entries]})
+    except Exception as e:
+        return _error("internal_error", "Failed to list blacklist", detail=str(e), status=500)
+
+
+async def handle_blacklist_disable(request: web.Request) -> web.Response:
+    """POST /api/skill-blacklist/{id}/disable — disable a blacklist entry."""
+    agent: AgentLoop | None = request.app.get(AGENT_LOOP_KEY)
+    if agent is None:
+        return _error("no_agent", "Agent not running", status=503)
+    entry_id = request.match_info.get("id", "")
+    entry = agent.skill_change_store.disable_blacklist_entry(entry_id)
+    if not entry:
+        return _error("not_found", "Blacklist entry not found", status=404)
+    return web.json_response({"ok": True})
+
+
+async def handle_skill_requests_duplicate_events(request: web.Request) -> web.Response:
+    """GET /api/skill-requests/{id}/duplicate-events — lazy-load events for a request."""
+    agent: AgentLoop | None = request.app.get(AGENT_LOOP_KEY)
+    if agent is None:
+        return _error("no_agent", "Agent not running", status=503)
+    req_id = request.match_info.get("id", "")
+    req = agent.skill_change_store.get_request(req_id)
+    if not req:
+        return _error("not_found", "Request not found", status=404)
+    try:
+        events = agent.skill_change_store.list_duplicate_events(req_id)
+        return web.json_response({"items": [e.to_dict() for e in events]})
+    except Exception as e:
+        return _error("internal_error", "Failed to list duplicate events", detail=str(e), status=500)
+
+
+async def handle_skill_requests_generate_enhanced(request: web.Request) -> web.Response:
+    """POST /api/skill-requests/{id}/generate-enhanced — two-stage LLM pipeline."""
+    agent: AgentLoop | None = request.app.get(AGENT_LOOP_KEY)
+    if agent is None:
+        return _error("no_agent", "Agent not running", status=503)
+    req_id = request.match_info.get("id", "")
+    try:
+        body = await request.json()
+    except Exception:
+        return _error("bad_request", "Invalid JSON body", status=400)
+
+    selected_ids = body.get("selected_duplicate_event_ids", [])
+    other_extra = body.get("other_extra", "")
+
+    # Validate types
+    if not isinstance(selected_ids, list):
+        return _error("bad_request", "selected_duplicate_event_ids must be a list", status=400)
+    if not isinstance(other_extra, str):
+        return _error("bad_request", "other_extra must be a string", status=400)
+
+    # Validate counts
+    if len(selected_ids) > 3:
+        return _error("bad_request", "Cannot select more than 3 duplicate events", status=400)
+    if len(other_extra) > 1000:
+        return _error("bad_request", "other_extra exceeds 1000 characters", status=400)
+    if not selected_ids and not other_extra.strip():
+        return _error("bad_request", "Must select at least one event or provide other_extra", status=400)
+
+    # Validate event ownership
+    if selected_ids:
+        found = agent.skill_change_store.get_duplicate_events_by_ids(req_id, selected_ids)
+        if len(found) != len(selected_ids):
+            return _error("bad_request", "Some events not found or do not belong to this request", status=400)
+
+    try:
+        result = await agent.skill_change_store.generate_enhanced_candidate(
+            target_request_id=req_id,
+            selected_event_ids=selected_ids,
+            other_extra=other_extra,
+        )
+        status_code = 200
+        if result.get("status") == "error":
+            status_code = 422
+        elif result.get("status") == "needs_human_resolution":
+            status_code = 409
+        return web.json_response(result, status=status_code)
+    except Exception as e:
+        return _error("internal_error", "Failed to generate enhanced candidate", detail=str(e), status=500)
+
+
+# ── Hermes review runs ──────────────────────────────────────────────────
+
+
+async def handle_hermes_review_runs_list(request: web.Request) -> web.Response:
+    """GET /api/hermes/review-runs — list review runs."""
+    agent: AgentLoop | None = request.app.get(AGENT_LOOP_KEY)
+    if agent is None:
+        return _error("no_agent", "Agent not running", status=503)
+    try:
+        limit = min(int(request.rel_url.query.get("limit", "50")), 200)
+        session_key = request.rel_url.query.get("session_key", "").strip() or None
+        status = request.rel_url.query.get("status", "").strip() or None
+        runs = agent.skill_change_store.list_review_runs(
+            session_key=session_key, status=status, limit=limit,
+        )
+        return web.json_response({
+            "items": [r.to_dict() for r in runs],
+            "count": len(runs),
+        })
+    except Exception as e:
+        return _error("internal_error", "Failed to list review runs", detail=str(e), status=500)
+
+
+async def handle_hermes_review_runs_get(request: web.Request) -> web.Response:
+    """GET /api/hermes/review-runs/{id} — get single review run."""
+    agent: AgentLoop | None = request.app.get(AGENT_LOOP_KEY)
+    if agent is None:
+        return _error("no_agent", "Agent not running", status=503)
+    run_id = request.match_info.get("id", "")
+    run = agent.skill_change_store.get_review_run(run_id)
+    if not run:
+        return _error("not_found", "Review run not found", status=404)
+    return web.json_response(run.to_dict())
+
+
+async def handle_hermes_review_runs_events(request: web.Request) -> web.Response:
+    """GET /api/hermes/review-runs/{id}/events — list audit events for a run."""
+    agent: AgentLoop | None = request.app.get(AGENT_LOOP_KEY)
+    if agent is None:
+        return _error("no_agent", "Agent not running", status=503)
+    run_id = request.match_info.get("id", "")
+    run = agent.skill_change_store.get_review_run(run_id)
+    if not run:
+        return _error("not_found", "Review run not found", status=404)
+    events = agent.skill_change_store.list_audit_events(run_id=run_id)
+    return web.json_response({
+        "items": [e.to_dict() for e in events],
+        "count": len(events),
+    })
+
+
 def setup_routes(app: web.Application) -> None:
     app.router.add_post("/api/auth/login", handle_auth_login)
     app.router.add_get("/api/auth/me", handle_auth_me)
@@ -2412,6 +2823,7 @@ def setup_routes(app: web.Application) -> None:
     app.router.add_patch("/api/admin/members/{user_id}", handle_admin_member_patch)
     app.router.add_post("/api/chat", handle_chat)
     app.router.add_post("/api/upload", handle_workspace_upload)
+    app.router.add_post("/api/session/clear", handle_clear_session)
     app.router.add_post("/api/skill/state/sync", handle_skill_state_sync)
     app.router.add_post("/api/approve-tool", handle_approve)
     app.router.add_get("/api/task-status", handle_task_status)
@@ -2476,3 +2888,26 @@ def setup_routes(app: web.Application) -> None:
     app.router.add_options("/api/runtime", handle_options)
     app.router.add_options("/api/providers", handle_options)
     app.router.add_options("/welink/chat/stream", handle_options)
+    app.router.add_get("/api/skill-requests", handle_skill_requests_list)
+    app.router.add_get("/api/skill-requests/{id}", handle_skill_requests_get)
+    app.router.add_post("/api/skill-requests/{id}/approve", handle_skill_requests_approve)
+    app.router.add_post("/api/skill-requests/{id}/reject", handle_skill_requests_reject)
+    app.router.add_get("/api/skill-blacklist", handle_blacklist_list)
+    app.router.add_post("/api/skill-blacklist/{id}/disable", handle_blacklist_disable)
+    app.router.add_get("/api/skill-requests/{id}/duplicate-events", handle_skill_requests_duplicate_events)
+    app.router.add_post("/api/skill-requests/{id}/generate-enhanced", handle_skill_requests_generate_enhanced)
+    # Hermes review runs
+    app.router.add_get("/api/hermes/review-runs", handle_hermes_review_runs_list)
+    app.router.add_get("/api/hermes/review-runs/{id}", handle_hermes_review_runs_get)
+    app.router.add_get("/api/hermes/review-runs/{id}/events", handle_hermes_review_runs_events)
+    app.router.add_options("/api/skill-requests", handle_options)
+    app.router.add_options("/api/skill-requests/{id}", handle_options)
+    app.router.add_options("/api/skill-requests/{id}/approve", handle_options)
+    app.router.add_options("/api/skill-requests/{id}/reject", handle_options)
+    app.router.add_options("/api/skill-blacklist", handle_options)
+    app.router.add_options("/api/skill-blacklist/{id}/disable", handle_options)
+    app.router.add_options("/api/skill-requests/{id}/duplicate-events", handle_options)
+    app.router.add_options("/api/skill-requests/{id}/generate-enhanced", handle_options)
+    app.router.add_options("/api/hermes/review-runs", handle_options)
+    app.router.add_options("/api/hermes/review-runs/{id}", handle_options)
+    app.router.add_options("/api/hermes/review-runs/{id}/events", handle_options)

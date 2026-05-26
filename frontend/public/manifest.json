@@ -1,0 +1,22 @@
+{
+  "name": "交付claw AGUI",
+  "short_name": "交付claw",
+  "description": "交付claw AI Agent 工作台",
+  "start_url": "/workbench",
+  "display": "standalone",
+  "orientation": "portrait",
+  "theme_color": "#f59e0b",
+  "background_color": "#0c0c0e",
+  "icons": [
+    {
+      "src": "/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

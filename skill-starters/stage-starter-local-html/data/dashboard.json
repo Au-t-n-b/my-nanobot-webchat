@@ -1,0 +1,60 @@
+{
+  "schemaVersion": 1,
+  "type": "SduiDocument",
+  "meta": {
+    "docId": "dashboard:stage-starter-local-html",
+    "provenance": "stage_starter_local_html",
+    "role": "dashboard"
+  },
+  "root": {
+    "type": "Stack",
+    "gap": "lg",
+    "children": [
+      {
+        "type": "Stepper",
+        "id": "stepper-main",
+        "orientation": "horizontal",
+        "steps": [
+          { "id": "s0", "title": "初始化", "status": "running" },
+          { "id": "s1", "title": "工作台编辑", "status": "waiting" },
+          { "id": "s2", "title": "发布产物", "status": "waiting" }
+        ]
+      },
+      {
+        "type": "StatisticRow",
+        "id": "stats-row",
+        "items": [
+          { "id": "stat-progress", "title": "阶段进度", "value": "0%" },
+          { "id": "stat-artifacts", "title": "已发布产物", "value": 0 },
+          { "id": "stat-status", "title": "状态", "value": "running" }
+        ]
+      },
+      {
+        "type": "EmbeddedWeb",
+        "id": "workbench-web",
+        "src": "/api/file?path=workspace/skills/stage_starter_local_html/ui/workbench.html",
+        "minHeight": "min(60vh, 720px)",
+        "state": {
+          "title": "本地 HTML 工作台 Starter",
+          "hint": "点击工作台内按钮将通过 postMessage 回传 intent（skill_web_intent）。"
+        }
+      },
+      {
+        "type": "Card",
+        "id": "artifacts-card",
+        "title": "产物",
+        "density": "compact",
+        "children": [
+          {
+            "type": "ArtifactGrid",
+            "id": "artifacts",
+            "title": "已发布产物",
+            "mode": "output",
+            "artifacts": []
+          }
+        ]
+      }
+    ]
+  }
+}
+

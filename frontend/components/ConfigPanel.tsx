@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertCircle, CheckCircle2, Plus, RotateCcw, Save, Settings, Wifi, X } from "lucide-react";
+import { AlertCircle, CheckCircle2, Mail, MessageSquare, Plus, RotateCcw, Save, Settings, Wifi, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { PROVIDER_MODEL_SUGGESTIONS } from "@/lib/providerModelSuggestions";
 
@@ -66,6 +66,13 @@ export function ConfigPanel({
     proxyUrl: "",
     sslVerify: true,
     syncModelProxy: false,
+    emailEnabled: false,
+    emailAllowedDomains: "huawei.com",
+    welinkEnabled: false,
+    welinkAuth: "",
+    welinkAuthConfigured: false,
+    welinkRateLimitPerMinute: 20,
+    welinkRateLimitPerDay: 200,
   });
   const [testStatus, setTestStatus] = useState<Status>("idle");
   const [testMsg, setTestMsg] = useState<string>("");
@@ -94,7 +101,11 @@ export function ConfigPanel({
       const cfg = json as {
         agents?: { defaults?: { model?: string; provider?: string }; models?: string[]; profiles?: AgentProfile[] };
         providers?: Record<string, { apiKey?: string; api_key?: string; apiBase?: string; api_base?: string; proxy?: string | null }>;
-        tools?: { web?: { proxy?: string | null; sslVerify?: boolean } };
+        tools?: {
+          web?: { proxy?: string | null; sslVerify?: boolean };
+          email?: { enable?: boolean; allowedDomains?: string[] };
+          welink?: { enable?: boolean; xiaolubanAuth?: string; rateLimitPerMinute?: number; rateLimitPerDay?: number };
+        };
       };
       if (Array.isArray(cfg?.agents?.profiles)) {
         const cleaned = cfg.agents.profiles
@@ -145,6 +156,10 @@ export function ConfigPanel({
         const webSslVerify = typeof web.sslVerify === "boolean" ? web.sslVerify : true;
         const providerProxyRaw = p?.proxy;
         const providerProxy = typeof providerProxyRaw === "string" ? providerProxyRaw.trim() : "";
+        const emailCfg = cfg?.tools?.email;
+        const welinkCfg = cfg?.tools?.welink;
+        const welinkAuthRaw = welinkCfg?.xiaolubanAuth;
+        const welinkAuthConfigured = typeof welinkAuthRaw === "string" && welinkAuthRaw.length > 0;
         return {
           ...prev,
           providerName: effectiveProviderName,
@@ -161,6 +176,13 @@ export function ConfigPanel({
           proxyUrl: webProxy || prev.proxyUrl,
           sslVerify: webSslVerify,
           syncModelProxy: Boolean(webProxy && providerProxy && webProxy === providerProxy),
+          emailEnabled: emailCfg?.enable ?? prev.emailEnabled,
+          emailAllowedDomains: Array.isArray(emailCfg?.allowedDomains) ? emailCfg.allowedDomains.join("\n") : prev.emailAllowedDomains,
+          welinkEnabled: welinkCfg?.enable ?? prev.welinkEnabled,
+          welinkAuth: "",
+          welinkAuthConfigured,
+          welinkRateLimitPerMinute: welinkCfg?.rateLimitPerMinute ?? prev.welinkRateLimitPerMinute,
+          welinkRateLimitPerDay: welinkCfg?.rateLimitPerDay ?? prev.welinkRateLimitPerDay,
         };
       });
       setStatus("idle");
@@ -289,19 +311,39 @@ export function ConfigPanel({
         ...profiles.filter((p) => p.name !== providerName),
         { name: providerName, provider: providerName, model, models },
       ];
+      const emailDomains = form.emailAllowedDomains
+        .split(/\r?\n|,/g)
+        .map((x) => x.trim())
+        .filter((x) => x);
+      const welinkAuthToSend =
+        form.welinkAuth.trim()
+          ? form.welinkAuth.trim()
+          : form.welinkAuthConfigured
+            ? "******"
+            : "";
       const patch = {
         agents: { defaults: { model, provider: providerName }, models, profiles: nextProfiles },
         providers: {
           [providerName]: {
             apiKey: apiKeyToSend,
             apiBase: form.apiBase.trim() ? form.apiBase.trim() : undefined,
-            proxy: form.syncModelProxy ? proxyValue : null,
+            proxy: proxyValue,
           },
         },
         tools: {
           web: {
             proxy: proxyValue,
             sslVerify: form.sslVerify,
+          },
+          email: {
+            enable: form.emailEnabled,
+            allowedDomains: emailDomains.length > 0 ? emailDomains : ["huawei.com"],
+          },
+          welink: {
+            enable: form.welinkEnabled,
+            ...(welinkAuthToSend ? { xiaolubanAuth: welinkAuthToSend } : {}),
+            rateLimitPerMinute: form.welinkRateLimitPerMinute,
+            rateLimitPerDay: form.welinkRateLimitPerDay,
           },
         },
       };
@@ -319,7 +361,13 @@ export function ConfigPanel({
         throw new Error(body.detail ?? `HTTP ${res.status}`);
       }
       const out = (await res.json().catch(() => ({}))) as { reloaded?: boolean; current_model?: string; current_provider?: string };
-      setForm((prev) => ({ ...prev, apiKey: "", apiKeyConfigured: true }));
+      setForm((prev) => ({
+        ...prev,
+        apiKey: "",
+        apiKeyConfigured: true,
+        welinkAuth: "",
+        welinkAuthConfigured: prev.welinkEnabled && welinkAuthToSend ? true : prev.welinkAuthConfigured,
+      }));
       setProfiles(nextProfiles);
       setSelectedProfile(providerName);
       setStatus("success");
@@ -359,6 +407,7 @@ export function ConfigPanel({
       setTestMsg("请填写 API Key（首次测试必须填写）");
       return;
     }
+    const providerProxy = form.proxyEnabled && form.proxyUrl.trim() ? form.proxyUrl.trim() : undefined;
     setTestStatus("saving");
     try {
       const res = await fetch(aguiRequestPath("/api/config/test"), {
@@ -369,13 +418,15 @@ export function ConfigPanel({
           apiKey: apiKeyToSend,
           apiBase: form.apiBase.trim() ? form.apiBase.trim() : undefined,
           model: model || undefined,
+          providerProxy,
+          sslVerify: form.sslVerify,
         }),
       });
       if (res.status === 409) {
         const body = (await res.json().catch(() => ({}))) as { detail?: string };
         throw new Error(body.detail ?? "当前 AI 正在运行任务，请稍后再试");
       }
-      const body = (await res.json().catch(() => ({}))) as { ok?: boolean; detail?: string; latencyMs?: number; model?: string };
+      const body = (await res.json().catch(() => ({}))) as { ok?: boolean; detail?: string; latencyMs?: number; model?: string; mode?: string };
       if (!res.ok || body.ok === false) {
         throw new Error(body.detail ?? `HTTP ${res.status}`);
       }
@@ -415,6 +466,7 @@ export function ConfigPanel({
     const p = cfg?.providers?.[providerName];
     const apiKey = String((p?.apiKey ?? p?.api_key) ?? "").trim();
     const apiBase = String((p?.apiBase ?? p?.api_base) ?? "").trim();
+    const providerProxy = String((p as any)?.proxy ?? "").trim();
     if (!apiKey) {
       setTestStatus("error");
       setTestMsg(`请在 JSON 中设置 providers.${providerName}.apiKey（或 api_key）`);
@@ -430,13 +482,14 @@ export function ConfigPanel({
           apiKey,
           apiBase: apiBase ? apiBase : undefined,
           model: model ? model : undefined,
+          providerProxy: providerProxy ? providerProxy : undefined,
         }),
       });
       if (res.status === 409) {
         const body = (await res.json().catch(() => ({}))) as { detail?: string };
         throw new Error(body.detail ?? "当前 AI 正在运行任务，请稍后再试");
       }
-      const body = (await res.json().catch(() => ({}))) as { ok?: boolean; detail?: string; latencyMs?: number; model?: string };
+      const body = (await res.json().catch(() => ({}))) as { ok?: boolean; detail?: string; latencyMs?: number; model?: string; mode?: string };
       if (!res.ok || body.ok === false) {
         throw new Error(body.detail ?? `HTTP ${res.status}`);
       }
@@ -845,7 +898,7 @@ export function ConfigPanel({
                   onClick={() => {
                     setForm((prev) => {
                       const nextEnabled = !prev.proxyEnabled;
-                      const proxyExample = "http://工号:密码@proxyhk.huawei.com:8088";
+                      const proxyExample = "http://工号:密码@proxy.huawei.com:8080";
                       const nextProxyUrl =
                         nextEnabled && !prev.proxyUrl.trim()
                           ? proxyExample
@@ -879,12 +932,12 @@ export function ConfigPanel({
                       type="text"
                       value={form.proxyUrl}
                       onChange={(e) => setForm((prev) => ({ ...prev, proxyUrl: e.target.value }))}
-                      placeholder="http://工号:密码@proxyhk.huawei.com:8088"
+                      placeholder="http://工号:密码@proxy.huawei.com:8080"
                       className="rounded-lg px-2.5 py-1.5 text-xs ui-input ui-input-focusable"
                     />
                   </label>
                   <div className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>
-                    示例：<code className="font-mono">http://工号:密码@proxyhk.huawei.com:8088</code>
+                    示例：<code className="font-mono">http://工号:密码@proxy.huawei.com:8080</code>
                   </div>
 
                   <div className="flex items-center justify-between gap-2">
@@ -917,31 +970,162 @@ export function ConfigPanel({
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex flex-col gap-0.5">
                       <span className="text-[11px]" style={{ color: "var(--text-secondary)" }}>
-                        全局模型 API 走相同代理
+                        模型 API 走相同代理
                       </span>
                       <span className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>
-                        写入 providers[{form.providerName || "…"}].proxy
+                        保存配置时自动写入 providers[{form.providerName || "…"}].proxy
                       </span>
                     </div>
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-checked={form.syncModelProxy}
-                      onClick={() => setForm((prev) => ({ ...prev, syncModelProxy: !prev.syncModelProxy }))}
-                      className="relative inline-flex h-5 w-9 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none"
+                    <span
+                      className="rounded-full px-2 py-1 text-[10px] font-semibold"
                       style={{
-                        background: form.syncModelProxy ? "var(--accent)" : "var(--surface-3)",
-                        boxShadow: "inset 0 0 0 1px var(--border-subtle)",
+                        background: "rgba(16,185,129,0.12)",
+                        color: "rgb(110,231,183)",
+                        border: "1px solid rgba(16,185,129,0.25)",
                       }}
                     >
-                      <span
-                        className="pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow transition duration-200"
-                        style={{ transform: form.syncModelProxy ? "translateX(16px)" : "translateX(0)" }}
-                      />
-                    </button>
+                      将保存
+                    </span>
                   </div>
                 </div>
               )}
+            </section>
+
+            {/* ── 工具设置 ── */}
+            <section
+              className="rounded-xl p-4 flex flex-col gap-4"
+              style={{ background: "var(--surface-2)", border: "1px solid var(--border-subtle)" }}
+            >
+              <div className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+                工具设置
+              </div>
+
+              {/* Email */}
+              <div className="flex flex-col gap-3 rounded-lg p-3" style={{ background: "var(--surface-1)", border: "1px solid var(--border-subtle)" }}>
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <Mail size={14} style={{ color: "var(--text-secondary)" }} />
+                    <div>
+                      <div className="text-xs font-semibold" style={{ color: "var(--text-primary)" }}>邮件发送</div>
+                      <div className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>tools.email — Outlook COM</div>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={form.emailEnabled}
+                    onClick={() => setForm((prev) => ({ ...prev, emailEnabled: !prev.emailEnabled }))}
+                    className="relative inline-flex h-5 w-9 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none"
+                    style={{
+                      background: form.emailEnabled ? "var(--accent)" : "var(--surface-3)",
+                      boxShadow: "inset 0 0 0 1px var(--border-subtle)",
+                    }}
+                  >
+                    <span
+                      className="pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow transition duration-200"
+                      style={{ transform: form.emailEnabled ? "translateX(16px)" : "translateX(0)" }}
+                    />
+                  </button>
+                </div>
+                {form.emailEnabled && (
+                  <label className="flex flex-col gap-1 text-xs ui-text-secondary">
+                    <span>允许发送的域名（每行一个）</span>
+                    <textarea
+                      value={form.emailAllowedDomains}
+                      onChange={(e) => setForm((prev) => ({ ...prev, emailAllowedDomains: e.target.value }))}
+                      className="rounded-lg border px-2 py-1.5 text-xs font-mono min-h-[48px] resize-y"
+                      style={{ borderColor: "var(--border-subtle)", background: "var(--surface-2)", color: "var(--text-primary)" }}
+                      placeholder="huawei.com"
+                    />
+                    <span className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>
+                      仅允许向这些域名后缀发送邮件，一行一个
+                    </span>
+                  </label>
+                )}
+              </div>
+
+              {/* WeLINK */}
+              <div className="flex flex-col gap-3 rounded-lg p-3" style={{ background: "var(--surface-1)", border: "1px solid var(--border-subtle)" }}>
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <MessageSquare size={14} style={{ color: "var(--text-secondary)" }} />
+                    <div>
+                      <div className="text-xs font-semibold" style={{ color: "var(--text-primary)" }}>WeLINK 消息</div>
+                      <div className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>tools.welink — 小鲁班</div>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={form.welinkEnabled}
+                    onClick={() => setForm((prev) => ({ ...prev, welinkEnabled: !prev.welinkEnabled }))}
+                    className="relative inline-flex h-5 w-9 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none"
+                    style={{
+                      background: form.welinkEnabled ? "var(--accent)" : "var(--surface-3)",
+                      boxShadow: "inset 0 0 0 1px var(--border-subtle)",
+                    }}
+                  >
+                    <span
+                      className="pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow transition duration-200"
+                      style={{ transform: form.welinkEnabled ? "translateX(16px)" : "translateX(0)" }}
+                    />
+                  </button>
+                </div>
+                {form.welinkEnabled && (
+                  <div className="flex flex-col gap-3">
+                    <label className="flex flex-col gap-1 text-xs ui-text-secondary">
+                      <span>
+                        小鲁班 Token{" "}
+                        {form.welinkAuthConfigured && (
+                          <span className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>
+                            （已配置；留空则保持不变）
+                          </span>
+                        )}
+                      </span>
+                      <input
+                        type="password"
+                        value={form.welinkAuth}
+                        onChange={(e) => setForm((prev) => ({ ...prev, welinkAuth: e.target.value }))}
+                        className="rounded-lg border px-2 py-1.5 text-xs font-mono"
+                        style={{ borderColor: "var(--border-subtle)", background: "var(--surface-2)", color: "var(--text-primary)" }}
+                        placeholder={form.welinkAuthConfigured ? "******" : "请输入小鲁班 auth token"}
+                      />
+                      <span className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>
+                        也可通过环境变量 XIAOLUBAN_AUTH 配置（优先级更高）
+                      </span>
+                    </label>
+                    <div className="flex gap-3">
+                      <label className="flex-1 flex flex-col gap-1 text-xs ui-text-secondary">
+                        <span>频率限制（条/分钟）</span>
+                        <input
+                          type="number"
+                          min={1}
+                          max={30}
+                          value={form.welinkRateLimitPerMinute}
+                          onChange={(e) => setForm((prev) => ({ ...prev, welinkRateLimitPerMinute: Math.max(1, Number(e.target.value) || 1) }))}
+                          className="rounded-lg border px-2 py-1.5 text-xs"
+                          style={{ borderColor: "var(--border-subtle)", background: "var(--surface-2)", color: "var(--text-primary)" }}
+                        />
+                      </label>
+                      <label className="flex-1 flex flex-col gap-1 text-xs ui-text-secondary">
+                        <span>频率限制（条/天）</span>
+                        <input
+                          type="number"
+                          min={1}
+                          max={300}
+                          value={form.welinkRateLimitPerDay}
+                          onChange={(e) => setForm((prev) => ({ ...prev, welinkRateLimitPerDay: Math.max(1, Number(e.target.value) || 1) }))}
+                          className="rounded-lg border px-2 py-1.5 text-xs"
+                          style={{ borderColor: "var(--border-subtle)", background: "var(--surface-2)", color: "var(--text-primary)" }}
+                        />
+                      </label>
+                    </div>
+                    <div className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>
+                      小鲁班限频上限：30条/分钟、300条/天。建议保留余量。
+                    </div>
+                  </div>
+                )}
+              </div>
             </section>
 
             <section className="ui-card rounded-xl p-4 flex flex-col gap-3">

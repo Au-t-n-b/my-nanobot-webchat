@@ -73,20 +73,28 @@ class ProvidersConfig(Base):
 
     custom: ProviderConfig = Field(default_factory=ProviderConfig)  # Any OpenAI-compatible endpoint
     azure_openai: ProviderConfig = Field(default_factory=ProviderConfig)  # Azure OpenAI (model = deployment name)
+    bedrock: ProviderConfig = Field(default_factory=ProviderConfig)  # AWS Bedrock (uses AWS credentials/env)
     anthropic: ProviderConfig = Field(default_factory=ProviderConfig)
     openai: ProviderConfig = Field(default_factory=ProviderConfig)
     openrouter: ProviderConfig = Field(default_factory=ProviderConfig)
+    huggingface: ProviderConfig = Field(default_factory=ProviderConfig)  # Hugging Face Inference Providers
     deepseek: ProviderConfig = Field(default_factory=ProviderConfig)
     groq: ProviderConfig = Field(default_factory=ProviderConfig)
     zhipu: ProviderConfig = Field(default_factory=ProviderConfig)
     dashscope: ProviderConfig = Field(default_factory=ProviderConfig)
     vllm: ProviderConfig = Field(default_factory=ProviderConfig)
     ollama: ProviderConfig = Field(default_factory=ProviderConfig)  # Ollama local models
+    lm_studio: ProviderConfig = Field(default_factory=ProviderConfig)  # LM Studio local models
     ovms: ProviderConfig = Field(default_factory=ProviderConfig)  # OpenVINO Model Server (OVMS)
     gemini: ProviderConfig = Field(default_factory=ProviderConfig)
     moonshot: ProviderConfig = Field(default_factory=ProviderConfig)
     minimax: ProviderConfig = Field(default_factory=ProviderConfig)
+    minimax_anthropic: ProviderConfig = Field(default_factory=ProviderConfig)  # MiniMax Anthropic-compatible endpoint
     mistral: ProviderConfig = Field(default_factory=ProviderConfig)
+    stepfun: ProviderConfig = Field(default_factory=ProviderConfig)  # Step Fun (阶跃星辰)
+    xiaomi_mimo: ProviderConfig = Field(default_factory=ProviderConfig)  # Xiaomi MIMO
+    longcat: ProviderConfig = Field(default_factory=ProviderConfig)  # LongCat
+    qianfan: ProviderConfig = Field(default_factory=ProviderConfig)  # Baidu Qianfan
     aihubmix: ProviderConfig = Field(default_factory=ProviderConfig)  # AiHubMix API gateway
     siliconflow: ProviderConfig = Field(default_factory=ProviderConfig)  # SiliconFlow (硅基流动)
     volcengine: ProviderConfig = Field(default_factory=ProviderConfig)  # VolcEngine (火山引擎)
@@ -139,6 +147,24 @@ class ExecToolConfig(Base):
     timeout: int = 60
     path_append: str = ""
 
+class EmailToolConfig(Base):
+    """Email sending tool configuration (Outlook COM)."""
+
+    enable: bool = False
+    allowed_domains: list[str] = Field(default_factory=lambda: ["huawei.com"])
+
+
+class WelinkToolConfig(Base):
+    """WeLINK XiaoLuban messaging tool configuration."""
+
+    enable: bool = False
+    xiaoluban_auth: str = ""
+    xiaoluban_url: str = "http://xiaoluban.rnd.huawei.com:80/"
+    xiaoluban_sender: str = ""
+    rate_limit_per_minute: int = 20
+    rate_limit_per_day: int = 200
+
+
 class MCPServerConfig(Base):
     """MCP server connection configuration (stdio or HTTP)."""
 
@@ -156,8 +182,104 @@ class ToolsConfig(Base):
 
     web: WebToolsConfig = Field(default_factory=WebToolsConfig)
     exec: ExecToolConfig = Field(default_factory=ExecToolConfig)
+    email: EmailToolConfig = Field(default_factory=EmailToolConfig)
+    welink: WelinkToolConfig = Field(default_factory=WelinkToolConfig)
     restrict_to_workspace: bool = False  # If true, restrict all tool access to workspace directory
     mcp_servers: dict[str, MCPServerConfig] = Field(default_factory=dict)
+
+
+class ConsolidationConfig(Base):
+    """Context consolidation (compact) trigger thresholds."""
+
+    trigger_percent: int = 60
+    fixed_reserved_tokens: int = 20_000
+    max_rounds: int = 5
+    max_consecutive_failures: int = 3
+
+
+class PersistedOutputConfig(Base):
+    """Tool result persistence (replaces in-flight truncation)."""
+
+    enabled: bool = True
+    size_threshold: int = 3000
+    preview_head: int = 2000
+    preview_tail: int = 1000
+    results_dir: str = "tool-results"
+    exempt_tools: list[str] = Field(default_factory=lambda: ["web_search", "web_fetch"])
+    aggregate_budget: int = 100_000
+    retention_days: int = 30
+
+
+class TimeBasedGraduatedCompactConfig(Base):
+    """Time-triggered graduated compact (compress stale session history)."""
+
+    enabled: bool = True
+    gap_threshold_hours: int = 24
+    keep_recent: int = 30
+    leaf_model: str | None = None
+
+
+class SessionMemoryConfig(Base):
+    """Session memory extractor (single-file summary.md per session)."""
+
+    enabled: bool = False
+    auxiliary_model: str | None = None
+    memory_dir: str = "session-memory"
+
+
+class MessageArchiveConfig(Base):
+    """SQLite archive for compacted message storage."""
+
+    enabled: bool = True
+    db_path: str = "message-archive.db"
+
+
+class HookConfig(Base):
+    """A single pre/post-compact hook command."""
+
+    command: str = ""
+    trigger: list[str] = Field(default_factory=lambda: ["auto", "time"])
+    timeout: int = 30
+
+
+class HooksConfig(Base):
+    """Compact lifecycle hooks."""
+
+    pre_compact: list[HookConfig] = Field(default_factory=list)
+    post_compact: list[HookConfig] = Field(default_factory=list)
+
+
+class ContextConfig(Base):
+    """Context management: consolidation, persistence, archive, hooks."""
+
+    consolidation: ConsolidationConfig = Field(default_factory=ConsolidationConfig)
+    persisted_output: PersistedOutputConfig = Field(default_factory=PersistedOutputConfig)
+    time_based_graduated_compact: TimeBasedGraduatedCompactConfig = Field(
+        default_factory=TimeBasedGraduatedCompactConfig
+    )
+    session_memory: SessionMemoryConfig = Field(default_factory=SessionMemoryConfig)
+    message_archive: MessageArchiveConfig = Field(default_factory=MessageArchiveConfig)
+    hooks: HooksConfig = Field(default_factory=HooksConfig)
+
+
+class SkillsAutoConfig(Base):
+    """Skill auto-management: Darwin optimizer + Hermes creator."""
+
+    darwin_enabled: bool = False  # Enable Darwin skill auto-optimization
+    hermes_enabled: bool = False  # Enable Hermes skill auto-creation/review
+    hermes_nudge_interval: int = 10  # Tool calls before background review triggers
+    request_expiry_days: int = 60  # Auto-expire pending skill change requests after N days
+    hermes_cooldown_turns: int = 5  # Min user turns between Hermes reviews
+    hermes_max_pending: int = 5  # Pause Hermes when this many requests are pending
+    hermes_max_reviews_per_session: int = 3  # Max auto-reviews per session
+    hermes_distill_snapshot: bool = True  # Use distilled snapshot instead of raw deepcopy
+    hermes_use_reject_feedback: bool = True  # Inject recent rejected notes into review prompt
+    hermes_duplicate_grace_days: int = 14  # Grace period extension when similar pending is re-matched
+    hermes_scope_expand_enabled: bool = True  # Enable flow boundary expansion and partial deferral
+    hermes_scope_expand_back_messages: int = 40  # Max messages to scan backward for flow start
+    hermes_scope_expand_forward_messages: int = 40  # Max messages to scan forward for flow end (marker resume)
+    hermes_scope_expand_back_user_turns: int = 4  # Max user turns to cross backward
+    hermes_partial_flow_max_age_hours: int = 24  # Partial marker timeout before abandoned
 
 
 class BridgeSdkConfig(Base):
@@ -190,6 +312,8 @@ class Config(BaseSettings):
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
     bridge_sdk: BridgeSdkConfig = Field(default_factory=BridgeSdkConfig)
     internal_chat: InternalChatConfig = Field(default_factory=InternalChatConfig)
+    context: ContextConfig = Field(default_factory=ContextConfig)
+    skills_auto: SkillsAutoConfig = Field(default_factory=SkillsAutoConfig)
 
     @property
     def workspace_path(self) -> Path:
@@ -289,4 +413,4 @@ class Config(BaseSettings):
                 return spec.default_api_base
         return None
 
-    model_config = ConfigDict(env_prefix="NANOBOT_", env_nested_delimiter="__")
+    model_config = ConfigDict(env_prefix="NANOBOT_", env_nested_delimiter="__", extra="ignore")

@@ -2,7 +2,9 @@
 
 import { useState } from "react";
 import { useSkillUiRuntime } from "@/components/sdui/SkillUiRuntimeProvider";
+import { HitlCardShell } from "@/components/sdui/HitlCardShell";
 import { formatLegacyModuleActionBlockedMessage, useLegacyModuleActionAllowed } from "@/lib/legacyModuleGate";
+import type { SduiUploadedFileRecord } from "@/lib/sdui";
 
 type Props = {
   title: string;
@@ -16,6 +18,8 @@ type Props = {
   skillName?: string;
   stateNamespace?: string;
   stepId?: string;
+  aggregateDeferredUploads?: boolean;
+  aggregateTextInputIds?: string[];
 };
 
 export function SduiConfirmCard({
@@ -29,6 +33,8 @@ export function SduiConfirmCard({
   skillName,
   stateNamespace,
   stepId,
+  aggregateDeferredUploads,
+  aggregateTextInputIds,
 }: Props) {
   const runtime = useSkillUiRuntime();
   const legacyGate = useLegacyModuleActionAllowed(moduleId);
@@ -68,6 +74,33 @@ export function SduiConfirmCard({
     const pendingRequestId = hitlRid || cid;
     if (skill && pendingRequestId) {
       setDone(true);
+      const wantAgg =
+        Boolean(aggregateDeferredUploads) ||
+        (Array.isArray(aggregateTextInputIds) && aggregateTextInputIds.length > 0);
+      if (wantAgg) {
+        const result: Record<string, unknown> = { confirmed: true };
+        if (aggregateDeferredUploads) {
+          const uploads = runtime.getDeferredHitlUploads?.(hitlRid || pendingRequestId) ?? [];
+          result.uploads = uploads;
+          if (uploads.length > 0) {
+            result.upload = uploads[uploads.length - 1];
+          }
+        }
+        if (Array.isArray(aggregateTextInputIds) && aggregateTextInputIds.length > 0) {
+          const firstId = String(aggregateTextInputIds[0] ?? "").trim();
+          const txt = firstId ? runtime.getInputValue(firstId).trim() : "";
+          result.symptomText = txt;
+          result.text = txt;
+        }
+        runtime.clearDeferredHitlUploads?.(hitlRid || pendingRequestId);
+        const lockCid = cid || (runtime.chatCardId ?? "").trim();
+        const ups = (result.uploads as unknown[] | undefined) ?? [];
+        if (lockCid && Array.isArray(ups) && ups.length > 0) {
+          runtime.lockFilePickerCard?.(lockCid, ups as SduiUploadedFileRecord[]);
+        }
+        postSkillResult("ok", result);
+        return;
+      }
       postSkillResult("ok", { confirmed: true });
       return;
     }
@@ -102,6 +135,7 @@ export function SduiConfirmCard({
     const pendingRequestId = hitlRid || cid;
     if (skill && pendingRequestId) {
       setDone(true);
+      runtime.clearDeferredHitlUploads?.(hitlRid || pendingRequestId);
       postSkillResult("cancel", { confirmed: false });
       return;
     }
@@ -129,41 +163,26 @@ export function SduiConfirmCard({
   };
 
   return (
-    <div
-      className="rounded-lg overflow-hidden border"
-      style={{
-        background: "color-mix(in oklab, var(--accent) 6%, var(--surface-1))",
-        borderColor: "color-mix(in oklab, var(--accent) 22%, transparent)",
-        borderLeft: "3px solid var(--accent)",
-      }}
-    >
-      <div
-        className="flex flex-col gap-2 px-3 py-2.5 border-b"
-        style={{ borderColor: "color-mix(in oklab, var(--accent) 15%, transparent)" }}
-      >
-        <span className="text-[10px] font-bold tracking-wide uppercase" style={{ color: "var(--accent)" }}>
-          需要你的确认
-        </span>
-        <p className="text-xs ui-text-secondary leading-relaxed">{title}</p>
-        {error ? (
-          <div
-            className="rounded-md px-2.5 py-2 text-[11px] leading-relaxed"
-            style={{
-              background: "rgba(239,107,115,0.12)",
-              border: "1px solid rgba(239,107,115,0.22)",
-              color: "var(--danger)",
-            }}
-          >
-            {error}
-          </div>
-        ) : null}
-      </div>
-      <div className="flex gap-2 px-3 py-2.5">
+    <HitlCardShell eyebrow="需要你的确认">
+      <p className="text-xs ui-text-secondary leading-relaxed">{title}</p>
+      {error ? (
+        <div
+          className="rounded-md px-2.5 py-2 ui-text-label"
+          style={{
+            background: "color-mix(in oklab, var(--danger) 12%, transparent)",
+            border: "1px solid color-mix(in oklab, var(--danger) 22%, transparent)",
+            color: "var(--danger)",
+          }}
+        >
+          {error}
+        </div>
+      ) : null}
+      <div className="flex gap-2">
         <button
           type="button"
           disabled={done}
           onClick={onCancel}
-          className="flex-1 rounded-md py-2 text-xs font-semibold border transition-opacity disabled:opacity-40"
+          className="flex-1 rounded-md py-2 text-xs font-semibold border ui-motion-fast transition-opacity disabled:opacity-40"
           style={{ borderColor: "var(--border-subtle)", color: "var(--text-primary)" }}
         >
           {cancelLabel}
@@ -172,12 +191,12 @@ export function SduiConfirmCard({
           type="button"
           disabled={done}
           onClick={onConfirm}
-          className="flex-1 rounded-md py-2 text-xs font-semibold text-white transition-opacity disabled:opacity-40"
+          className="flex-1 rounded-md py-2 text-xs font-semibold text-white ui-motion-fast transition-opacity disabled:opacity-40"
           style={{ background: "var(--accent)" }}
         >
           {confirmLabel}
         </button>
       </div>
-    </div>
+    </HitlCardShell>
   );
 }

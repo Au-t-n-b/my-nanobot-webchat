@@ -61,7 +61,9 @@ export function EmbeddedWeb({
   embedSandbox = true,
 }: Props) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  const hostRef = useRef<HTMLDivElement | null>(null);
   const [loaded, setLoaded] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const lastSentJsonRef = useRef<string | null>(null);
   const runtime = useSkillUiRuntime();
   const syncState = runtime.syncState;
@@ -112,6 +114,32 @@ export function EmbeddedWeb({
   const onLoad = useCallback(() => {
     setLoaded(true);
     lastSentJsonRef.current = null;
+  }, []);
+
+  const onRefresh = useCallback(() => {
+    const myIframe = document.getElementById("myIframe") as any;
+    const win = myIframe.contentWindow;
+    // console.log(iframeRef)
+    if (!win) return;
+    try {
+      // Reload the iframe's current document (keeps user at current in-iframe page when supported).
+      win.postMessage({
+        name: 'pageRefresh',
+        type: 'data'
+      }, '*');
+    } catch {
+      // Best-effort only for cross-origin restricted embeds.
+    }
+  }, []);
+
+  useEffect(() => {
+    const onFsChange = () => {
+      const el = hostRef.current;
+      if (!el) return setIsFullscreen(false);
+      setIsFullscreen(document.fullscreenElement === el);
+    };
+    document.addEventListener("fullscreenchange", onFsChange);
+    return () => document.removeEventListener("fullscreenchange", onFsChange);
   }, []);
 
   // 上行：message 监听，cleanup 移除；handler 用 ref 保持最新 syncState/embedId，避免 Strict Mode 双绑
@@ -174,21 +202,71 @@ export function EmbeddedWeb({
 
   return (
     <div
+      ref={hostRef}
       className={["relative w-full overflow-hidden rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-0)]", className ?? ""].join(" ")}
       style={{ minHeight: minH }}
     >
+      <div className="absolute right-2 top-2 z-[3] flex items-center gap-2">
+        <button
+          type="button"
+          onClick={async () => {
+            const el = hostRef.current;
+            if (!el) return;
+            try {
+              if (document.fullscreenElement) await document.exitFullscreen();
+              else await el.requestFullscreen();
+            } catch {
+              try {
+                window.open(src, "_blank", "noopener,noreferrer");
+              } catch {
+                /* ignore */
+              }
+            }
+          }}
+          className="rounded-lg border border-[var(--border-subtle)] bg-[color-mix(in_oklab,var(--surface-0)_80%,transparent)] px-2 py-1 ui-text-eyebrow font-medium ui-text-secondary hover:ui-text-primary hover:bg-[var(--surface-2)] transition-colors"
+          aria-label={isFullscreen ? "退出全屏" : "全屏显示"}
+          title={isFullscreen ? "退出全屏" : "全屏显示"}
+        >
+          {isFullscreen ? "退出全屏" : "全屏"}
+        </button>
+        <button
+          type="button"
+          onClick={onRefresh}
+          className="rounded-lg border border-[var(--border-subtle)] bg-[color-mix(in_oklab,var(--surface-0)_80%,transparent)] px-2 py-1 ui-text-eyebrow font-medium ui-text-secondary hover:ui-text-primary hover:bg-[var(--surface-2)] transition-colors"
+          aria-label="刷新当前页面"
+          title="刷新当前页面"
+        >
+          刷新
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            try {
+              window.open(src, "_blank", "noopener,noreferrer");
+            } catch {
+              /* ignore */
+            }
+          }}
+          className="rounded-lg border border-[var(--border-subtle)] bg-[color-mix(in_oklab,var(--surface-0)_80%,transparent)] px-2 py-1 ui-text-eyebrow font-medium ui-text-secondary hover:ui-text-primary hover:bg-[var(--surface-2)] transition-colors"
+          aria-label="新窗口打开"
+          title="新窗口打开"
+        >
+          新窗口
+        </button>
+      </div>
       {!loaded ? (
         <div
           className="absolute inset-0 z-[1] flex flex-col gap-3 p-4 animate-pulse"
           aria-busy="true"
           aria-label="加载嵌入页面"
         >
-          <div className="h-4 w-1/3 max-w-xs rounded-md bg-[var(--surface-3)]/40 dark:bg-white/10" />
-          <div className="flex-1 min-h-[200px] rounded-lg bg-[var(--surface-2)]/30 dark:bg-white/[0.06]" />
-          <div className="h-3 w-2/3 rounded-md bg-[var(--surface-3)]/30 dark:bg-white/[0.07]" />
+          <div className="h-4 w-1/3 max-w-xs rounded-md bg-[var(--surface-3)]/40" />
+          <div className="flex-1 min-h-[200px] rounded-lg bg-[var(--surface-2)]/30" />
+          <div className="h-3 w-2/3 rounded-md bg-[var(--surface-3)]/30" />
         </div>
       ) : null}
       <iframe
+        id="myIframe"
         ref={iframeRef}
         title={embedId}
         src={src}
@@ -198,7 +276,13 @@ export function EmbeddedWeb({
         // 是 transparent（如 job_workbench.html / gantt_editor.html）时，浏览器会用 user agent
         // 默认 light 底色填充，从而出现「右侧大块白屏」。声明 ``dark light`` 后浏览器优先使用 dark
         // 调色板，与父级 ``--surface-0`` 一致。
-        style={{ minHeight: minH, colorScheme: "dark light", backgroundColor: "var(--surface-0)" }}
+        style={{
+          minHeight: minH,
+          // 强制 iframe 使用深色调色板，避免 transparent 文档被 UA 以 light canvas 填充成白底
+          colorScheme: "dark",
+          // 兜底：即便主题切到 light，也让嵌入区域保持黑底（与历史工作台一致）
+          backgroundColor: "#09090b",
+        }}
         onLoad={onLoad}
         {...(embedSandbox
           ? { sandbox: "allow-scripts allow-same-origin allow-forms allow-popups allow-presentation" as const }

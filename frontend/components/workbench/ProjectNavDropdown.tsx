@@ -20,7 +20,7 @@ function ProjectOptionRow({
         className={
           "flex min-w-0 items-center gap-1 rounded-lg transition-colors " +
           (active
-            ? "bg-[color-mix(in_oklab,var(--accent)_12%,transparent)]"
+            ? "bg-[var(--accent-bg-soft)]"
             : "hover:bg-[var(--surface-2)]")
         }
       >
@@ -30,7 +30,7 @@ function ProjectOptionRow({
           aria-selected={active}
           onClick={onSelect}
           className={
-            "min-w-0 flex-1 truncate rounded-lg px-2 py-2 text-left text-sm sm:text-[15px] ui-text-primary " +
+            "min-w-0 flex-1 truncate rounded-lg px-2 py-2 text-left text-sm ui-text-primary " +
             (active ? "font-medium" : "")
           }
         >
@@ -47,9 +47,9 @@ function NewProjectAction({ onClick }: { onClick: () => void }) {
       <button
         type="button"
         onClick={onClick}
-        className="flex w-full items-center gap-1.5 px-2 py-2 text-left text-sm sm:text-[15px] text-[var(--accent)] transition-colors hover:bg-[color-mix(in_oklab,var(--accent)_10%,transparent)]"
+        className="flex w-full items-center gap-1.5 px-2 py-2 text-left text-sm text-[var(--accent)] transition-colors hover:bg-[var(--accent-bg-soft)]"
       >
-        <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-[color-mix(in_srgb,var(--accent)_40%,transparent)] bg-[var(--surface-2)]">
+        <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-[var(--accent-border)] bg-[var(--surface-2)]">
           <Plus className="h-3.5 w-3.5" strokeWidth={2.25} aria-hidden />
         </span>
         新建项目
@@ -115,11 +115,8 @@ export function ProjectNavDropdown({
             aria-expanded={open}
             aria-haspopup="listbox"
             className={
-              "relative flex h-7 w-full min-w-0 items-center rounded-full border border-[color-mix(in_oklab,var(--border-subtle)_72%,var(--text-primary)_16%)] bg-[var(--surface-2)] px-2 py-0.5 text-sm font-medium transition-colors sm:text-[15px] " +
-              "ui-text-primary hover:bg-[color-mix(in_oklab,var(--surface-3)_90%,transparent)] " +
-              "hover:border-[color-mix(in_oklab,var(--border-subtle)_62%,var(--text-primary)_22%)] " +
-              "dark:border-[color-mix(in_oklab,var(--border-subtle)_50%,rgb(255_255_255/0.22))] " +
-              "dark:hover:border-[color-mix(in_oklab,var(--border-subtle)_44%,rgb(255_255_255/0.28))]"
+              "relative flex h-7 w-full min-w-0 items-center rounded-full border border-[var(--border-subtle)] bg-[var(--surface-2)] px-2 py-0.5 text-sm font-medium transition-colors " +
+              "ui-text-primary hover:bg-[var(--interactive-hover-bg)] hover:border-[var(--border-strong)]"
             }
           >
             <span className="absolute inset-y-0 left-2 right-7 flex min-w-0 items-center justify-center">
@@ -136,13 +133,12 @@ export function ProjectNavDropdown({
           {open ? (
             <div
               className={
-                "absolute left-0 right-0 top-[calc(100%+6px)] z-[80] flex w-full min-w-0 flex-col overflow-hidden rounded-xl border border-[color-mix(in_oklab,var(--border-subtle)_72%,var(--text-primary)_14%)] bg-[var(--surface-1)] py-1 shadow-xl " +
-                "dark:border-[color-mix(in_oklab,var(--border-subtle)_48%,rgb(255_255_255/0.2))]"
+                "absolute left-0 right-0 top-[calc(100%+6px)] z-[80] flex w-full min-w-0 flex-col overflow-hidden rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-1)] py-1 shadow-xl"
               }
               role="listbox"
             >
               {projects.length === 0 ? (
-                <div className="px-3 py-3 text-center text-sm sm:text-[15px] ui-text-muted">暂无项目，请新建</div>
+                <div className="px-3 py-3 text-center text-sm ui-text-muted">暂无项目，请新建</div>
               ) : (
                 <ul className="max-h-[min(50dvh,280px)] min-w-0 overflow-y-auto py-0.5 [scrollbar-width:thin]">
                   {projects.map((p) => {

@@ -14,7 +14,7 @@ const variantClass: Record<NonNullable<Props["variant"]>, string> = {
   heading: "text-base font-semibold tracking-tight text-[var(--text-primary)]",
   body: "text-sm leading-relaxed text-[var(--text-secondary)]",
   caption: "text-xs text-[var(--text-muted)]",
-  mono: "text-[13px] font-mono text-[var(--text-muted)] bg-[var(--surface-2)] px-1 py-0.5 rounded",
+  mono: "text-sm font-mono text-[var(--text-muted)] bg-[var(--surface-2)] px-1 py-0.5 rounded-lg",
 };
 
 const alignMap: Record<NonNullable<Props["align"]>, string> = {

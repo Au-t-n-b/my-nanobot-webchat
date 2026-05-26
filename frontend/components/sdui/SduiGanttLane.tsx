@@ -29,12 +29,12 @@ export function SduiGanttLane({ title, caption, lanes }: Props) {
   return (
     <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--canvas-rail)] p-3 sm:p-4 space-y-3">
       {title ? <div className="text-xs font-semibold ui-text-primary">{title}</div> : null}
-      {caption ? <div className="text-[11px] ui-text-secondary leading-relaxed">{caption}</div> : null}
+      {caption ? <div className="ui-text-label ui-text-secondary leading-relaxed">{caption}</div> : null}
       <div className="space-y-2.5">
         {rows.map((lane, li) => (
           <div key={`${lane.label}-${li}`} className="min-w-0 space-y-1">
-            <div className="text-[10px] font-medium ui-text-muted truncate">{lane.label}</div>
-            <div className="h-6 w-full rounded-md bg-[var(--surface-3)] border border-[var(--border-subtle)] overflow-hidden flex relative">
+            <div className="ui-text-eyebrow font-medium ui-text-muted truncate">{lane.label}</div>
+            <div className="h-6 w-full rounded-lg bg-[var(--surface-3)] border border-[var(--border-subtle)] overflow-hidden flex relative">
               {(lane.bars ?? ([] as SduiGanttBar[])).map((b, bi) => {
                 const start = Math.max(0, Math.min(100, b.startPct ?? 0));
                 const w = Math.max(0, Math.min(100 - start, b.widthPct));

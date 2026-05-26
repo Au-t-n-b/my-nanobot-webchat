@@ -20,7 +20,7 @@ function ImageEmbed({ url, path }: { url: string; path: string }) {
         type="button"
         onClick={copy}
         aria-label="复制文件路径"
-        className="inline-flex items-center gap-1 rounded-md border border-[var(--border-subtle)] px-2 py-1 text-xs ui-text-secondary hover:bg-[var(--surface-3)] transition-colors"
+        className="inline-flex items-center gap-1 rounded-lg border border-[var(--border-subtle)] px-2 py-1 text-xs ui-text-secondary hover:bg-[var(--surface-3)] transition-colors"
       >
         {copied ? <Check size={10} /> : <Copy size={10} />}
         {copied ? "已复制路径" : "复制路径"}
@@ -36,11 +36,11 @@ export function EmbedRenderer(props: BaseRendererProps & { embedKind: "image" | 
   if (props.embedKind === "image") return <ImageEmbed url={url} path={props.path} />;
 
   return (
-    <div className="rounded-xl border border-black/[0.06] dark:border-white/10 bg-slate-100/90 dark:bg-black/40 p-2 shadow-inner overflow-hidden">
+    <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-2)]/70 p-2 shadow-inner overflow-hidden">
       <iframe
         title="preview"
         src={url}
-        className="w-full min-h-[500px] rounded-lg border border-black/[0.08] dark:border-white/10 bg-white"
+        className="w-full min-h-[500px] rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-0)]"
       />
     </div>
   );

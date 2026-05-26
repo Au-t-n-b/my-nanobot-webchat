@@ -45,7 +45,7 @@ export function SduiFileKindBadge({ kind, size = "default" }: Props) {
         title="PDF"
         aria-hidden
       >
-        <span className={`select-none ${lg ? "text-xs" : "text-[10px]"}`}>PDF</span>
+        <span className={`select-none ${lg ? "text-xs" : "ui-text-eyebrow"}`}>PDF</span>
       </div>
     );
   }

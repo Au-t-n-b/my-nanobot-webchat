@@ -10,6 +10,14 @@
   --motion-base: 200ms;
   --motion-slow: 320ms;
   --ease-out: cubic-bezier(0.33, 1, 0.68, 1);
+
+  /* ── Layout density tokens（与高度自适应联动；非 theme 相关，三主题共享） ── */
+  --panel-pad: 1.25rem;        /* baseline = p-5 */
+  --section-gap: 1.25rem;      /* baseline = gap-5 */
+  --card-pad: 1.5rem;          /* baseline = SduiCard p-6 */
+  --card-pad-compact: 0.75rem; /* baseline = SduiCard p-3 */
+  --item-gap: 0.875rem;        /* baseline = gap-3.5 */
+  --row-pad-y: 0.625rem;       /* baseline = py-2.5 */
 }
 
 /* 与 html[data-theme] 同步：使 dark:* 在 data-theme="dark" 下生效（默认变体为 prefers-color-scheme） */
@@ -60,13 +68,25 @@
   --surface-3: #27272a;
   --surface-elevated: #2a2a30;
   /* 极弱线框，避免暗色下边框“发亮” */
-  --border-subtle: rgba(255, 255, 255, 0.1);
+  --border-subtle: rgba(255, 255, 255, 0.12);
   --border-strong: rgba(255, 255, 255, 0.16);
   --text-primary: #e4e4e7;
   --text-secondary: #a1a1aa;
-  --text-muted: #636369;
+  --text-muted: #7a7a82;
   --accent: #f59e0b;
   --accent-soft: rgba(245, 158, 11, 0.15);
+  /* ── Discrete interaction tokens (A11y-stable, no background-dependent mixing) ── */
+  --interactive-hover-bg: rgba(255, 255, 255, 0.05);
+  --interactive-active-bg: rgba(255, 255, 255, 0.08);
+  --interactive-selected-bg: rgba(245, 158, 11, 0.12);
+  --interactive-focus-ring: rgba(245, 158, 11, 0.55);
+  /* Accent interaction (discrete) */
+  --accent-bg-soft: rgba(245, 158, 11, 0.14);
+  --accent-border: rgba(245, 158, 11, 0.40);
+  /* Danger semantic layer (token-driven) */
+  --danger-bg: rgba(248, 113, 113, 0.12);
+  --danger-border: rgba(248, 113, 113, 0.28);
+  --danger-fg: rgba(255, 214, 214, 0.95);
   /* 状态语义：与主操作 accent 解耦 */
   --state-running: #f59e0b;
   --state-success: #34d399;
@@ -93,6 +113,10 @@
   --sdui-error: var(--danger);
   --sdui-accent-blue: #60a5fa; /* blue-400 for dark */
   --sdui-subtle: rgba(113, 113, 122, 0.9);
+  /* ── Ambient Aurora（Arc 风格双光斑强度，Linear 骨架冷峻底色保留）
+   * "底妆但看得见"：右上主光 6%，左下辅光 4%，14s 慢呼吸。 */
+  --aurora-strength-1: 6%;
+  --aurora-strength-2: 4%;
 }
 
 /* ─────────────────────────────────────────────
@@ -109,13 +133,25 @@
   --canvas-rail: #f9fafb;
   --paper-chat: #ffffff;
   --paper-card: #ffffff;
-  --border-subtle: #e2e8f0;
+  --border-subtle: #d7dee8;
   --border-strong: #cbd5e1;
   --text-primary: #0f172a;
   --text-secondary: #334155;
-  --text-muted: #5c6570;
+  --text-muted: #66707c;
   --accent: #2563eb;
   --accent-soft: rgba(37, 99, 235, 0.10);
+  /* ── Discrete interaction tokens (A11y-stable, no background-dependent mixing) ── */
+  --interactive-hover-bg: rgba(15, 23, 42, 0.05);
+  --interactive-active-bg: rgba(15, 23, 42, 0.08);
+  --interactive-selected-bg: rgba(37, 99, 235, 0.10);
+  --interactive-focus-ring: rgba(37, 99, 235, 0.55);
+  /* Accent interaction (discrete) */
+  --accent-bg-soft: rgba(37, 99, 235, 0.10);
+  --accent-border: rgba(37, 99, 235, 0.35);
+  /* Danger semantic layer (token-driven) */
+  --danger-bg: rgba(220, 38, 38, 0.10);
+  --danger-border: rgba(220, 38, 38, 0.22);
+  --danger-fg: rgba(127, 29, 29, 0.95);
   --state-running: #d97706;
   --state-success: #059669;
   --state-pending: #94a3b8;
@@ -133,6 +169,9 @@
   --sdui-error: var(--danger);
   --sdui-accent-blue: #2563eb; /* blue-600 for light */
   --sdui-subtle: rgba(100, 116, 139, 0.9);
+  /* 白日下 accent 是冷蓝，压低强度避免染白底 */
+  --aurora-strength-1: 2.5%;
+  --aurora-strength-2: 1.5%;
 }
 
 /* ─────────────────────────────────────────────
@@ -149,13 +188,25 @@
   --canvas-rail: #efe8de;
   --paper-chat: #fafaf9;
   --paper-card: #fafaf9;
-  --border-subtle: #e7e5e4;
+  --border-subtle: #dfdcda;
   --border-strong: #d6d3d1;
   --text-primary: #44403c;
   --text-secondary: #78716c;
-  --text-muted: #978f8a;
+  --text-muted: #a19994;
   --accent: #b45309;
   --accent-soft: rgba(180, 83, 9, 0.12);
+  /* ── Discrete interaction tokens (A11y-stable, no background-dependent mixing) ── */
+  --interactive-hover-bg: rgba(68, 64, 60, 0.06);
+  --interactive-active-bg: rgba(68, 64, 60, 0.10);
+  --interactive-selected-bg: rgba(180, 83, 9, 0.12);
+  --interactive-focus-ring: rgba(180, 83, 9, 0.55);
+  /* Accent interaction (discrete) */
+  --accent-bg-soft: rgba(180, 83, 9, 0.12);
+  --accent-border: rgba(180, 83, 9, 0.35);
+  /* Danger semantic layer (token-driven) */
+  --danger-bg: rgba(185, 28, 28, 0.10);
+  --danger-border: rgba(185, 28, 28, 0.22);
+  --danger-fg: rgba(127, 29, 29, 0.95);
   --state-running: #b45309;
   --state-success: #4d7c0f;
   --state-pending: #a8a29e;
@@ -180,12 +231,217 @@ body {
   font-family: "Inter", "HarmonyOS Sans SC", "PingFang SC", ui-sans-serif, system-ui, sans-serif;
 }
 
+/* ── E · Ambient Aurora 底妆（body::before，全屏 fixed，永远不被任何容器遮住） ─────────
+ * 关键点：
+ *  · isolation: isolate 让 body 形成自己的 stacking context，::before 用 z-index:-1 退到所有 React 子内容之下
+ *  · pointer-events: none 不参与命中
+ *  · 双 radial：右上主光 + 左下辅光，对角线打破死灰
+ *  · 配合工作台壳"留 padding 不铺 paper-card"，光从 rail/gap 透出
+ * ──────────────────────────────────────────────────────────── */
+body {
+  position: relative;
+  isolation: isolate;
+  min-height: 100vh;
+}
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: -1;
+  background-image:
+    radial-gradient(
+      55% 45% at 100% 0%,
+      color-mix(in oklab, var(--accent) var(--aurora-strength-1), transparent) 0%,
+      transparent 62%
+    ),
+    radial-gradient(
+      45% 50% at 0% 100%,
+      color-mix(in oklab, var(--accent) var(--aurora-strength-2), transparent) 0%,
+      transparent 62%
+    );
+  animation: ambient-aurora-breath 14s ease-in-out infinite;
+  will-change: opacity;
+}
+@media (prefers-reduced-motion: reduce) {
+  body::before { animation: none; }
+}
+
 @layer utilities {
   /* Legacy alias —— 与 .ui-motion 保持完全等价，避免遗留调用点失效 */
   .transition-standard {
     transition-property: all;
     transition-duration: var(--motion-base);
     transition-timing-function: var(--ease-out);
+  }
+
+  /* ─────────────────────────────────────────────
+     P3 Type Scale —— 四档命名 utility，与 Linear 内部排版保持同档
+     · 上调一档以缓解全屏"挤眯眼"：10/11/12/14 → 11/12.5/13.5/15
+     ───────────────────────────────────────────── */
+  .ui-text-eyebrow {
+    font-size: 11.5px;
+    line-height: 1.25;
+    font-weight: 700;
+    letter-spacing: 0.095em;
+    text-transform: uppercase;
+  }
+  .ui-text-label {
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  .ui-text-body {
+    font-size: 14.5px;
+    line-height: 1.6;
+  }
+  .ui-text-title {
+    font-size: 16px;
+    font-weight: 600;
+    line-height: 1.4;
+  }
+
+  /* Ambient Aurora 由全局 body::before 接管；此处保留 className 入口，
+     便于 className 上仍引用它的容器获得"局部 isolation"，但不再注入伪元素光层。 */
+  .ambient-aurora { position: relative; }
+
+  @keyframes ambient-aurora-breath {
+    0%, 100% { opacity: 0.78; }
+    50%      { opacity: 1; }
+  }
+
+  /* Linear 骨架式渐变 Headline（Welcome 字样专用） */
+  .ui-headline-aurora {
+    background-image: linear-gradient(
+      135deg,
+      var(--text-primary) 0%,
+      var(--text-primary) 40%,
+      var(--accent) 100%
+    );
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    -webkit-text-fill-color: transparent;
+  }
+
+  /* Quick-Start 气泡：surface-1 + 静默 hairline，hover 时 accent 描边发光 */
+  .ui-quick-chip {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.625rem;
+    padding: 0.75rem 0.875rem;
+    border-radius: 0.875rem;
+    background: var(--surface-1);
+    border: 1px solid var(--border-subtle);
+    color: var(--text-primary);
+    text-align: left;
+    transition:
+      border-color var(--motion-base) var(--ease-out),
+      box-shadow   var(--motion-base) var(--ease-out),
+      background-color var(--motion-base) var(--ease-out),
+      transform    var(--motion-fast) var(--ease-out);
+    cursor: pointer;
+  }
+  .ui-quick-chip:hover {
+    border-color: color-mix(in oklab, var(--accent) 55%, var(--border-subtle));
+    background: color-mix(in oklab, var(--accent) 4%, var(--surface-1));
+    box-shadow:
+      0 0 0 1px color-mix(in oklab, var(--accent) 22%, transparent),
+      0 8px 24px -8px color-mix(in oklab, var(--accent) 35%, transparent);
+  }
+  .ui-quick-chip:active {
+    transform: translateY(1px);
+  }
+  .ui-quick-chip:focus-visible {
+    outline: none;
+    box-shadow:
+      0 0 0 2px var(--surface-0),
+      0 0 0 4px color-mix(in oklab, var(--accent) 55%, transparent);
+  }
+  .ui-quick-chip-icon {
+    background: color-mix(in oklab, var(--accent) 10%, var(--surface-2));
+    color: var(--accent);
+    transition:
+      background-color var(--motion-base) var(--ease-out),
+      color var(--motion-base) var(--ease-out);
+  }
+  .ui-quick-chip:hover .ui-quick-chip-icon {
+    background: color-mix(in oklab, var(--accent) 22%, var(--surface-2));
+  }
+
+  /* ─────────────────────────────────────────────
+     Follow-up Chip —— ChatArea 输入框上方的"下一步"锚点
+     · 比 quick-chip 更小更克制：胶囊形 + 11px 文字
+     · Hover 调用 ui-interactive 同源 token，外加淡淡 accent 描边
+     ───────────────────────────────────────────── */
+  .ui-followup-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.4375rem 0.875rem;
+    border-radius: 9999px;
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 1;
+    /* 默认就有"暖意"：3% accent 染底 + accent-border 30% 描边 */
+    background: color-mix(in oklab, var(--accent) 3%, var(--surface-1));
+    border: 1px solid color-mix(in oklab, var(--accent) 18%, var(--border-subtle));
+    color: var(--text-primary);
+    cursor: pointer;
+    transition:
+      background-color var(--motion-fast) var(--ease-out),
+      border-color var(--motion-fast) var(--ease-out),
+      color var(--motion-fast) var(--ease-out),
+      box-shadow var(--motion-fast) var(--ease-out);
+  }
+  .ui-followup-chip:hover {
+    background: color-mix(in oklab, var(--accent) 10%, var(--surface-1));
+    border-color: color-mix(in oklab, var(--accent) 55%, var(--border-subtle));
+    color: var(--text-primary);
+    box-shadow: 0 0 0 1px color-mix(in oklab, var(--accent) 25%, transparent);
+  }
+  .ui-followup-chip:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px color-mix(in oklab, var(--accent) 50%, transparent);
+  }
+}
+
+@layer components {
+  /* ── Semantic primitives: keep className clean & consistent ───────────── */
+  .ui-overlay {
+    background: rgba(0, 0, 0, 0.4);
+    backdrop-filter: blur(8px);
+  }
+
+  .ui-sheet {
+    border: 1px solid var(--border-subtle);
+    background: color-mix(in oklab, var(--surface-elevated) 92%, transparent);
+    box-shadow: var(--shadow-float), var(--highlight-inset);
+  }
+
+  .ui-surface-chatFrame {
+    border: 1px solid var(--border-subtle);
+    background: var(--paper-chat);
+    box-shadow: var(--shadow-panel);
+  }
+
+  .ui-surface-dashboardFrame {
+    background: var(--paper-card);
+    box-shadow: var(--shadow-card);
+  }
+
+  .ui-surface-rail {
+    background: var(--canvas-rail);
+  }
+
+  .ui-interactive {
+    transition: background-color var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out);
+  }
+  .ui-interactive:hover {
+    background: var(--interactive-hover-bg);
+  }
+  .ui-interactive:active {
+    background: var(--interactive-active-bg);
   }
 }
 
@@ -226,6 +482,15 @@ body {
 @keyframes ui-shimmer {
   0% { transform: translateX(-60%); }
   100% { transform: translateX(60%); }
+}
+
+/* ─────────────────────────────────────────────
+   Error / danger banner — replaces inline rgba(239,107,115,...) everywhere
+   ───────────────────────────────────────────── */
+.ui-error-banner {
+  background: color-mix(in oklab, var(--danger) 10%, transparent);
+  border: 1px solid color-mix(in oklab, var(--danger) 26%, transparent);
+  color: var(--danger);
 }
 
 /* 反向联动：右侧预览 Tab 切换时，聊天区产物锚点闪烁提示 */
@@ -321,6 +586,10 @@ body {
 
 .ui-btn-accent:hover {
   filter: brightness(1.05);
+}
+
+.ui-btn-danger-soft:hover {
+  background: var(--danger-bg);
 }
 
 /* Accent button sheen sweep (for onboarding login button). */
@@ -509,10 +778,10 @@ body,
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 2.5rem;
-  height: 2.5rem;
-  padding: 0.5rem;
-  border-radius: 0.5rem;
+  width: 2.875rem;
+  height: 2.875rem;
+  padding: 0.625rem;
+  border-radius: 0.75rem;
   color: var(--text-muted);
   transition: background-color var(--motion-fast) var(--ease-out),
     color var(--motion-fast) var(--ease-out);
@@ -647,12 +916,35 @@ body,
 /* 视口较窄时略收紧大盘正文字号与指标间距（信息密度） */
 @media (max-width: 1279px) {
   .dashboard-density-viewport {
-    font-size: 0.8125rem;
+    font-size: 0.9rem;
     line-height: 1.45;
   }
 
   .dashboard-density-viewport .metrics-grid {
     gap: 0.35rem;
+  }
+}
+
+/* ── Viewport-height-aware density（笔记本屏纵向自适应） ── */
+@media (max-height: 900px) {
+  :root {
+    --panel-pad: 1rem;
+    --section-gap: 0.875rem;
+    --card-pad: 1.125rem;
+    --card-pad-compact: 0.625rem;
+    --item-gap: 0.625rem;
+    --row-pad-y: 0.5rem;
+  }
+}
+
+@media (max-height: 720px) {
+  :root {
+    --panel-pad: 0.75rem;
+    --section-gap: 0.625rem;
+    --card-pad: 0.875rem;
+    --card-pad-compact: 0.5rem;
+    --item-gap: 0.5rem;
+    --row-pad-y: 0.375rem;
   }
 }
 
@@ -684,7 +976,7 @@ body,
     color var(--motion-fast) var(--ease-out);
 }
 .ui-hover-soft:hover {
-  background-color: color-mix(in oklab, var(--text-primary) 6%, transparent);
+  background-color: var(--interactive-hover-bg);
   color: var(--text-primary);
 }
 .ui-hover-strong {
@@ -692,13 +984,13 @@ body,
     color var(--motion-fast) var(--ease-out);
 }
 .ui-hover-strong:hover {
-  background-color: color-mix(in oklab, var(--text-primary) 10%, transparent);
+  background-color: var(--interactive-active-bg);
   color: var(--text-primary);
 }
 
 /* ── Global focus-visible & disabled baseline ─────────────────── */
 :where(button, [role="button"], a, summary, input, select, textarea):focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--accent) 70%, transparent);
+  outline: 2px solid var(--interactive-focus-ring);
   outline-offset: 2px;
   border-radius: 6px;
 }

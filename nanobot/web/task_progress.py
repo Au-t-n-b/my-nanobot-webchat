@@ -59,8 +59,8 @@ def default_task_progress_file_payload() -> dict[str, Any]:
                 ),
             },
             {
-                # ``moduleId`` 与 ``templates/project_guide/data/phases.json`` 中
-                # 该阶段的 ``moduleId`` 保持一致；jmfz driver 发出的 ``task_progress.sync``
+                # ``moduleId`` 与 ``~/.nanobot/workspace/skills/project_guide/data/phases.json``
+                # 中该阶段的 ``moduleId`` 保持一致；jmfz driver 发出的 ``task_progress.sync``
                 # 也使用此 ID，避免 ``merge_task_progress_sync_to_disk`` 找不到模块而跳过。
                 "moduleId": "modeling_simulation_workbench",
                 "moduleName": "建模仿真",

@@ -120,18 +120,18 @@ export function ConfigModal() {
         >
           {/* Backdrop */}
           <div
-            className="absolute inset-0 bg-black/70 backdrop-blur-sm"
+            className="absolute inset-0 bg-[var(--surface-0)]/70 backdrop-blur-sm"
             onClick={() => setOpen(false)}
           />
 
           {/* Panel */}
-          <div className="relative z-10 w-full max-w-2xl flex flex-col rounded-2xl border border-white/[0.05] bg-[#050505] shadow-[0_0_50px_rgba(0,0,0,0.8)] overflow-hidden max-h-[85dvh]">
+          <div className="relative z-10 w-full max-w-2xl flex flex-col rounded-2xl border border-[var(--border-subtle)] bg-[#050505] shadow-[0_0_50px_rgba(0,0,0,0.8)] overflow-hidden max-h-[85dvh]">
             {/* Header */}
-            <div className="flex items-center justify-between px-5 py-4 border-b border-white/[0.05] shrink-0">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border-subtle)] shrink-0">
               <div className="flex items-center gap-2.5">
                 <Settings size={16} className="text-slate-400" />
                 <span className="font-semibold text-sm text-slate-200 tracking-wide">配置中心</span>
-                <span className="text-[10px] font-mono text-slate-600 bg-slate-800/60 px-2 py-0.5 rounded-md border border-white/[0.04]">
+                <span className="ui-text-eyebrow font-mono text-slate-600 bg-slate-800/60 px-2 py-0.5 rounded-lg border border-[var(--border-subtle)]">
                   ~/.nanobot/config.json
                 </span>
               </div>
@@ -139,7 +139,7 @@ export function ConfigModal() {
                 type="button"
                 onClick={() => setOpen(false)}
                 aria-label="关闭"
-                className="rounded-lg p-1.5 text-slate-500 hover:text-slate-200 hover:bg-white/[0.05] transition-colors"
+                className="rounded-lg p-1.5 text-slate-500 hover:text-slate-200 hover:bg-[var(--interactive-hover-bg)] transition-colors"
               >
                 <X size={16} />
               </button>
@@ -184,7 +184,7 @@ export function ConfigModal() {
             </div>
 
             {/* Footer */}
-            <div className="flex items-center justify-between px-5 py-3.5 border-t border-white/[0.05] bg-black/30 shrink-0">
+            <div className="flex items-center justify-between px-5 py-3.5 border-t border-[var(--border-subtle)] bg-[var(--surface-0)]/30 shrink-0">
               <button
                 type="button"
                 onClick={handleReset}
@@ -197,7 +197,7 @@ export function ConfigModal() {
 
               <div className="flex items-center gap-2">
                 {isDirty && (
-                  <span className="text-[10px] text-amber-500/70 font-medium">未保存的更改</span>
+                  <span className="ui-text-eyebrow text-amber-500/70 font-medium">未保存的更改</span>
                 )}
                 <button
                   type="button"
@@ -207,7 +207,7 @@ export function ConfigModal() {
                 >
                   {status === "saving" ? (
                     <>
-                      <div className="w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                      <div className="w-3 h-3 border-2 border-[var(--border-subtle)] border-t-[var(--text-primary)] rounded-full animate-spin" />
                       保存中…
                     </>
                   ) : (

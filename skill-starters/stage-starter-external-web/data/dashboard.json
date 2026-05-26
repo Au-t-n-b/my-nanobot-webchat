@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "type": "SduiDocument",
+  "meta": {
+    "docId": "dashboard:stage-starter-external-web",
+    "provenance": "stage_starter_external_web",
+    "role": "dashboard"
+  },
+  "root": {
+    "type": "Stack",
+    "gap": "lg",
+    "children": [
+      {
+        "type": "Stepper",
+        "id": "stepper-main",
+        "steps": [
+          { "id": "s0", "title": "初始化", "status": "running" },
+          { "id": "s1", "title": "外链系统操作", "status": "waiting" },
+          { "id": "s2", "title": "回收结果", "status": "waiting" }
+        ]
+      },
+      {
+        "type": "Card",
+        "id": "hint-card",
+        "title": "说明",
+        "children": [
+          {
+            "type": "Markdown",
+            "id": "hint-md",
+            "content": "这是【外链 iframe】Starter：用于像“建模仿真”那样嵌入外部系统页面。\n\n注意：外链页面可能受 CSP / X-Frame-Options / frame-ancestors 限制而无法嵌入；必要时与外链系统侧配合放通。"
+          }
+        ]
+      },
+      {
+        "type": "EmbeddedWeb",
+        "id": "external-web",
+        "src": "https://example.com",
+        "embedSandbox": true,
+        "minHeight": "min(65vh, 760px)",
+        "state": {}
+      }
+    ]
+  }
+}
+

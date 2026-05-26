@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useSkillUiRuntime } from "@/components/sdui/SkillUiRuntimeProvider";
+import { HitlCardShell } from "@/components/sdui/HitlCardShell";
 import type { SduiChoiceOption } from "@/lib/sdui";
 import { formatLegacyModuleActionBlockedMessage, useLegacyModuleActionAllowed } from "@/lib/legacyModuleGate";
 
@@ -124,16 +125,15 @@ export function SduiChoiceCard({
   const confirmDisabled = confirmed || !selected || (selected === OTHER_VALUE && !otherText.trim());
 
   return (
-    <div className="bg-transparent p-0 m-0">
-      {/* Single title render (avoid nested wrappers duplicating labels) */}
-      <div className="mb-3 text-sm font-semibold ui-text-primary">{title}</div>
+    <HitlCardShell eyebrow="需要你的选择">
+      <p className="text-xs ui-text-secondary leading-relaxed">{title}</p>
 
       {error ? (
         <div
-          className="mb-2 rounded-md px-3 py-2 text-[11px] leading-relaxed"
+          className="rounded-md px-3 py-2 ui-text-label"
           style={{
-            background: "rgba(239,107,115,0.12)",
-            border: "1px solid rgba(239,107,115,0.22)",
+            background: "color-mix(in oklab, var(--danger) 12%, transparent)",
+            border: "1px solid color-mix(in oklab, var(--danger) 22%, transparent)",
             color: "var(--danger)",
           }}
         >
@@ -155,11 +155,9 @@ export function SduiChoiceCard({
                 setSelected(val);
               }}
               className={[
-                "w-full text-left flex items-start gap-3 rounded-md px-3 py-2 text-xs transition-colors duration-200",
-                confirmed ? "cursor-default" : "cursor-pointer",
-                confirmed ? "" : "hover:bg-white/5",
-                isSelected ? "text-[var(--warning)]" : "ui-text-secondary hover:ui-text-primary",
-                confirmed ? "cursor-default opacity-90" : "",
+                "w-full text-left flex items-start gap-3 rounded-md px-3 py-2 text-xs",
+                confirmed ? "cursor-default opacity-90" : "cursor-pointer ui-hover-soft",
+                isSelected ? "text-[var(--warning)]" : "ui-text-secondary",
               ].join(" ")}
               style={{
                 background: "transparent",
@@ -178,12 +176,12 @@ export function SduiChoiceCard({
                   background: isSelected ? "var(--warning)" : "transparent",
                 }}
               >
-                {isSelected ? <span className="w-1.5 h-1.5 rounded-full bg-black/80" /> : null}
+                {isSelected ? <span className="w-1.5 h-1.5 rounded-full bg-[var(--text-primary)]/80" /> : null}
               </span>
               <span className="min-w-0 flex-1">
                 <span className="block font-medium">{String(opt.label ?? "")}</span>
                 {opt.description ? (
-                  <span className="mt-0.5 block text-[11px] ui-text-muted leading-relaxed">
+                  <span className="mt-0.5 block ui-text-label ui-text-muted">
                     {String(opt.description)}
                   </span>
                 ) : null}
@@ -195,10 +193,9 @@ export function SduiChoiceCard({
         {/* Other (escape hatch) — inline input when selected */}
         <div
           className={[
-            "w-full flex items-start gap-3 rounded-md px-3 py-2 text-xs transition-colors duration-200",
-            confirmed ? "cursor-default" : "cursor-pointer hover:bg-white/5",
+            "w-full flex items-start gap-3 rounded-md px-3 py-2 text-xs",
+            confirmed ? "cursor-default opacity-90" : "cursor-pointer ui-hover-soft",
             selected === OTHER_VALUE ? "text-[var(--warning)]" : "ui-text-secondary",
-            confirmed ? "opacity-90" : "",
           ].join(" ")}
           onClick={() => {
             if (confirmed) return;
@@ -236,7 +233,7 @@ export function SduiChoiceCard({
               background: selected === OTHER_VALUE ? "var(--warning)" : "transparent",
             }}
           >
-            {selected === OTHER_VALUE ? <span className="w-1.5 h-1.5 rounded-full bg-black/80" /> : null}
+            {selected === OTHER_VALUE ? <span className="w-1.5 h-1.5 rounded-full bg-[var(--text-primary)]/80" /> : null}
           </button>
 
           <div className="min-w-0 flex-1">
@@ -273,7 +270,7 @@ export function SduiChoiceCard({
         </div>
       </div>
 
-      <div className="mt-5 flex items-center justify-end gap-2">
+      <div className="mt-2 flex items-center justify-end gap-2">
         <button
           type="button"
           disabled={confirmed}
@@ -291,13 +288,13 @@ export function SduiChoiceCard({
           type="button"
           disabled={confirmDisabled}
           onClick={confirm}
-          className="rounded-lg px-4 py-2 text-xs font-semibold text-black disabled:opacity-40 transition-opacity"
-          style={{ background: "var(--warning)" }}
+          className="rounded-lg px-4 py-2 text-xs font-semibold text-white ui-motion-fast transition-opacity disabled:opacity-40"
+          style={{ background: "var(--accent)" }}
           title={confirmDisabled && selected === OTHER_VALUE && !otherText.trim() ? "请输入自定义意图" : undefined}
         >
           确认
         </button>
       </div>
-    </div>
+    </HitlCardShell>
   );
 }

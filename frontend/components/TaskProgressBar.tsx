@@ -42,12 +42,12 @@ export function TaskProgressBar({
           <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75" />
           <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-blue-500" />
         </span>
-        <span className="text-[10px] font-semibold tracking-widest text-slate-500 dark:text-slate-400 whitespace-nowrap">
+        <span className="ui-text-eyebrow font-semibold tracking-widest text-slate-500 dark:text-slate-400 whitespace-nowrap">
           项目总览
         </span>
       </div>
       <div className="min-w-0 flex-1">
-        <div className="mb-1 flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
+        <div className="mb-1 flex items-center justify-between ui-text-label text-slate-500 dark:text-slate-400">
           <span>{overall.doneCount}/{overall.totalCount} 模块完成</span>
           <span>{summary.activeCount} 运行中</span>
         </div>
@@ -61,7 +61,7 @@ export function TaskProgressBar({
           />
         </div>
         {!compact ? (
-          <div className="mt-1 flex items-center gap-3 text-[10px] text-slate-400 dark:text-slate-500">
+          <div className="mt-1 flex items-center gap-3 ui-text-eyebrow text-slate-400 dark:text-slate-500">
             <span>{summary.pendingCount} 待开始</span>
             <span>{summary.completedCount} 已完成</span>
           </div>

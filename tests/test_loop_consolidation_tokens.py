@@ -1,3 +1,4 @@
+from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -27,6 +28,9 @@ def _make_loop(tmp_path, *, estimated_tokens: int, context_window_tokens: int) -
     )
     loop.tools.get_definitions = MagicMock(return_value=[])
     loop.memory_consolidator._SAFETY_BUFFER = 0
+    # Disable archive so tests hit the legacy consolidate_messages path
+    # (these tests mock consolidate_messages, not compact)
+    loop.memory_consolidator.archive = None
     return loop
 
 
@@ -45,10 +49,12 @@ async def test_prompt_above_threshold_triggers_consolidation(tmp_path, monkeypat
     loop = _make_loop(tmp_path, estimated_tokens=1000, context_window_tokens=200)
     loop.memory_consolidator.consolidate_messages = AsyncMock(return_value=True)  # type: ignore[method-assign]
     session = loop.sessions.get_or_create("cli:test")
+    # Use recent timestamps so time-based compact doesn't trigger in pre-turn
+    now_ts = datetime.now().isoformat()
     session.messages = [
-        {"role": "user", "content": "u1", "timestamp": "2026-01-01T00:00:00"},
-        {"role": "assistant", "content": "a1", "timestamp": "2026-01-01T00:00:01"},
-        {"role": "user", "content": "u2", "timestamp": "2026-01-01T00:00:02"},
+        {"role": "user", "content": "u1", "timestamp": now_ts},
+        {"role": "assistant", "content": "a1", "timestamp": now_ts},
+        {"role": "user", "content": "u2", "timestamp": now_ts},
     ]
     loop.sessions.save(session)
     monkeypatch.setattr(memory_module, "estimate_message_tokens", lambda _message: 500)

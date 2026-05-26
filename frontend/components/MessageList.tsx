@@ -69,7 +69,7 @@ function MessageActions({
           onClick={(e) => { e.stopPropagation(); onDelete(); }}
           aria-label="删除消息"
           title="删除"
-          className="rounded-md p-1 ui-text-muted hover:text-red-500 hover:bg-[var(--surface-3)] transition-colors"
+          className="rounded-md p-1 ui-text-muted ui-btn-danger-soft hover:text-[var(--danger)] transition-colors"
         >
           <Trash2 size={11} />
         </button>
@@ -167,7 +167,7 @@ function FileIndexChips({
               onFileLinkClick?.(path);
             }}
             className={
-              "inline-flex items-center gap-1.5 rounded-lg border px-2 py-1 text-[11px] font-medium transition-all duration-150 " +
+              "inline-flex items-center gap-1.5 rounded-lg border px-2 py-1 ui-text-label font-medium transition-all duration-150 " +
               "hover:-translate-y-px hover:shadow-sm active:translate-y-0 " +
               (active
                 ? "ring-2 ring-[var(--accent)] bg-[var(--surface-3)] text-[var(--text-primary)] border-[color-mix(in_oklab,var(--accent)_55%,var(--border-subtle))]"
@@ -187,14 +187,14 @@ function Avatar({ role }: { role: "user" | "assistant" }) {
   return (
     <div
       className={
-        "shrink-0 mt-0.5 w-8 h-8 rounded-full flex items-center justify-center " +
+        "shrink-0 mt-0.5 w-10 h-10 rounded-full flex items-center justify-center " +
         (role === "user" ? "bg-[var(--surface-3)]" : "ui-card")
       }
     >
       {role === "user" ? (
-        <User size={16} className="ui-text-secondary" />
+        <User size={20} className="ui-text-secondary" />
       ) : (
-        <Bot size={16} style={{ color: "var(--accent)" }} />
+        <Bot size={20} style={{ color: "var(--accent)" }} />
       )}
     </div>
   );
@@ -218,12 +218,7 @@ class ChatCardErrorBoundary extends Component<
     if (this.state.hasError) {
       return (
         <div
-          className="rounded-xl px-3 py-3 text-sm"
-          style={{
-            border: "1px solid rgba(239,107,115,0.24)",
-            background: "rgba(239,107,115,0.08)",
-            color: "var(--danger)",
-          }}
+          className="ui-error-banner rounded-xl px-3 py-3 text-sm"
         >
           ChatCard 渲染失败（已隔离，不影响聊天流）。
         </div>
@@ -292,6 +287,7 @@ function ChatCardBubble({
             onSendTextRaw={onSendTextRaw}
             onOpenPreview={(p) => onFileLinkClick?.(p)}
             docId={card.docId}
+            chatCardId={card.cardId}
           >
             <SduiNodeView node={{ ...card.node, cardId: card.cardId } as unknown as typeof card.node} />
           </SkillUiRuntimeProvider>
@@ -426,7 +422,7 @@ export const MessageList = memo(function MessageList({
             bottomRef.current?.scrollIntoView({ behavior: "smooth" });
             setShowJumpToBottom(false);
           }}
-          className="absolute bottom-2 right-2 z-20 inline-flex h-10 w-10 items-center justify-center rounded-full bg-[var(--surface-2)] shadow-lg ring-1 ring-white/10 ui-motion-fast hover:bg-[var(--surface-3)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)] dark:bg-[var(--surface-1)]/80 dark:hover:bg-[var(--surface-2)]"
+          className="absolute bottom-2 right-2 z-20 inline-flex h-10 w-10 items-center justify-center rounded-full bg-[var(--surface-2)] shadow-lg ring-1 ring-[var(--border-subtle)] ui-motion-fast hover:bg-[var(--surface-3)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent)]"
           aria-label="跳到底部"
           title="回到底部"
         >
@@ -531,7 +527,7 @@ export const MessageList = memo(function MessageList({
         {inlineStatusTag ? (
           <div className="mt-3 flex justify-center">
             <span
-              className="inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] ui-text-secondary"
+              className="inline-flex items-center rounded-full border px-2.5 py-1 ui-text-label ui-text-secondary"
               style={{ borderColor: "var(--border-subtle)", background: "var(--surface-2)" }}
             >
               {inlineStatusTag}

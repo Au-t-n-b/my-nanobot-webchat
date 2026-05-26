@@ -188,7 +188,7 @@ async def test_skill_chain_starts_project_guide_with_transition_in_result(
     )
 
     # The flattened ``result`` is exactly what
-    # ``templates/project_guide/runtime/driver.py`` reads on stdin.
+    # ``~/.nanobot/workspace/skills/project_guide/runtime/driver.py`` reads on stdin.
     child_result = child_request["result"]
     assert child_result["transition"] == {
         "from_module": "job_management",

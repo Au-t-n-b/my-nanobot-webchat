@@ -5,15 +5,15 @@ import type { SduiSemanticColor } from "@/lib/sdui";
 export function semanticTextClass(color?: SduiSemanticColor): string {
   switch (color) {
     case "success":
-      return "text-green-600 dark:text-green-400";
+      return "text-[var(--success)]";
     case "warning":
-      return "text-yellow-600 dark:text-yellow-400";
+      return "text-[var(--warning)]";
     case "error":
-      return "text-red-600 dark:text-red-400";
+      return "text-[var(--danger)]";
     case "accent":
-      return "text-blue-600 dark:text-blue-400";
+      return "text-[var(--accent)]";
     case "subtle":
-      return "text-slate-500 dark:text-slate-400";
+      return "ui-text-muted";
     default:
       return "";
   }
@@ -22,15 +22,15 @@ export function semanticTextClass(color?: SduiSemanticColor): string {
 export function semanticBgClass(color?: SduiSemanticColor): string {
   switch (color) {
     case "success":
-      return "bg-green-500";
+      return "bg-[var(--success)]";
     case "warning":
-      return "bg-yellow-500";
+      return "bg-[var(--warning)]";
     case "error":
-      return "bg-red-500";
+      return "bg-[var(--danger)]";
     case "accent":
-      return "bg-blue-600 dark:bg-blue-500";
+      return "bg-[var(--accent)]";
     case "subtle":
-      return "bg-slate-200/60 dark:bg-white/10";
+      return "bg-[var(--surface-3)]";
     default:
       return "";
   }
@@ -39,15 +39,15 @@ export function semanticBgClass(color?: SduiSemanticColor): string {
 export function semanticSoftBadgeClass(color?: SduiSemanticColor): string {
   switch (color) {
     case "success":
-      return "bg-green-50 text-green-700 ring-1 ring-inset ring-green-600/10 dark:bg-green-500/10 dark:text-green-300 dark:ring-green-500/20";
+      return "bg-[var(--success-bg)] text-[var(--success)] ring-1 ring-inset ring-[var(--success-border)]";
     case "warning":
-      return "bg-yellow-50 text-yellow-800 ring-1 ring-inset ring-yellow-600/10 dark:bg-yellow-500/10 dark:text-yellow-300 dark:ring-yellow-500/20";
+      return "bg-[var(--warning-bg)] text-[var(--warning)] ring-1 ring-inset ring-[var(--warning-border)]";
     case "error":
-      return "bg-red-50 text-red-700 ring-1 ring-inset ring-red-600/10 dark:bg-red-500/10 dark:text-red-300 dark:ring-red-500/20";
+      return "bg-[var(--danger-bg)] text-[var(--danger-fg)] ring-1 ring-inset ring-[var(--danger-border)]";
     case "accent":
-      return "bg-blue-50 text-blue-700 ring-1 ring-inset ring-blue-600/10 dark:bg-blue-500/10 dark:text-blue-300 dark:ring-blue-500/20";
+      return "bg-[var(--accent-bg-soft)] text-[var(--accent)] ring-1 ring-inset ring-[var(--accent-border)]";
     case "subtle":
-      return "bg-slate-100/90 text-slate-600 ring-1 ring-inset ring-slate-500/10 dark:bg-white/5 dark:text-[var(--text-secondary)] dark:ring-white/10";
+      return "bg-[var(--surface-2)] text-[var(--text-secondary)] ring-1 ring-inset ring-[var(--border-subtle)]";
     default:
       return "";
   }

@@ -9,6 +9,7 @@ import {
   selectProjectOverviewModules,
   useProjectOverviewStore,
 } from "@/lib/projectOverviewStore";
+import { canonicalModuleIdForMerge, moduleTabLabelFromId } from "@/lib/moduleDisplayLabels";
 
 export type ModuleEntry = {
   moduleId: string;
@@ -51,49 +52,16 @@ function extractModuleId(syntheticPath: string): string | null {
   return m2?.[1] ?? null;
 }
 
-/** 六阶段标准 ID + 已知 chat-only skill 的中文显示名。
- *
- * 与 ``frontend/lib/projectOverviewRegistry.js`` 的 ``CANONICAL_SIX`` 一致；
- * 多录入两个 alias（``smart_survey`` / ``modeling_simulation_workbench``）以覆盖
- * 后端 driver 与 ``task_progress.json`` 中可能并存的两套 moduleId 写法。
- *
- * 该表只用于 tab 显示名的兜底，**不**改变路由 / 分发 / 文件路径里的 moduleId。
- */
-const KNOWN_MODULE_LABELS: Record<string, string> = {
-  job_management: "作业管理",
-  smart_survey_workbench: "智慧工勘",
-  smart_survey: "智慧工勘",
-  jmfz: "建模仿真",
-  modeling_simulation_workbench: "建模仿真",
-  system_design: "系统设计",
-  device_install: "设备安装",
-  sw_deploy_commission: "软件部署与调测",
-  project_guide: "项目引导",
-};
-
-function moduleLabel(id: string): string {
-  const known = KNOWN_MODULE_LABELS[id];
-  if (known) return known;
-  return id.replace(/[-_]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-}
-
-/** Chat-only skills：这些 skill 仅经左侧 chat 卡片输出（如 ``project_guide`` 的 GuidanceCard），
- * 不应在右侧 DashboardNavigator 注册成 panel tab，否则会出现一个空壳 module（白屏）。
- *
- * 后端 ``skill_runtime_bridge._NON_PANEL_SKILL_NAMES`` 已经避免了 ``ModuleSessionFocus``
- * 抢焦点；前端这层是兜底：``activeSkillName`` / Patch / Bootstrap 三条 useEffect 都不应把
- * 这些 skill 写进本地 ``modules`` map。
- */
-const CHAT_ONLY_SKILL_IDS: ReadonlySet<string> = new Set(["project_guide"]);
-
-function isChatOnlySkill(id: string | null | undefined): boolean {
-  if (!id) return false;
-  return CHAT_ONLY_SKILL_IDS.has(id.trim());
-}
-
 /** 在收到 Patch 前仅有 moduleId 时，占位 dataFile（须含 `/skills/{id}/` 供 extractModuleId 与后续 Patch 对齐） */
 function placeholderSyntheticPath(moduleId: string): string {
   return `skill-ui://SduiView?dataFile=skills/${moduleId}/data/dashboard.json`;
+}
+
+function activeModuleIdsMatchCanon(activeModuleIds: ReadonlySet<string>, canon: string): boolean {
+  for (const id of activeModuleIds) {
+    if (canonicalModuleIdForMerge(id) === canon) return true;
+  }
+  return false;
 }
 
 export function DashboardNavigator({
@@ -137,14 +105,13 @@ export function DashboardNavigator({
     const name = activeSkillName?.trim();
     if (!name) return;
     if (name === "nanobot_agent") return;
-    // Chat-only skills（如 ``project_guide``）只在左侧 chat 出引导卡，不应该出现在右侧 panel tab。
-    if (isChatOnlySkill(name)) return;
+    const canon = canonicalModuleIdForMerge(name);
     setModules((prev) => {
-      if (prev.has(name)) return prev;
+      if (prev.has(canon)) return prev;
       const next = new Map(prev);
-      next.set(name, {
+      next.set(canon, {
         syntheticPath: placeholderSyntheticPath(name),
-        label: moduleLabel(name),
+        label: moduleTabLabelFromId(name),
       });
       return next;
     });
@@ -161,17 +128,19 @@ export function DashboardNavigator({
   const switchToModule = useCallback(
     (moduleId: string, byUser: boolean) => {
       if (byUser) userOverrideRef.current = true;
+      const raw = moduleId.trim();
+      const canon = canonicalModuleIdForMerge(raw);
       setModules((prev) => {
-        if (prev.has(moduleId)) return prev;
+        if (prev.has(canon)) return prev;
         const next = new Map(prev);
-        next.set(moduleId, {
-          syntheticPath: placeholderSyntheticPath(moduleId),
-          label: moduleLabel(moduleId),
+        next.set(canon, {
+          syntheticPath: placeholderSyntheticPath(raw),
+          label: moduleTabLabelFromId(raw),
         });
         return next;
       });
       fadeSwitch(() => {
-        selectProjectModule(moduleId);
+        selectProjectModule(canon);
         setView("module");
       });
     },
@@ -185,7 +154,13 @@ export function DashboardNavigator({
     const moduleId = extractModuleId(ev.syntheticPath);
     if (!moduleId) return;
     if (userOverrideRef.current) return;
-    if (view === "module" && activeModuleId === moduleId) return;
+    if (
+      view === "module" &&
+      activeModuleId &&
+      canonicalModuleIdForMerge(activeModuleId) === canonicalModuleIdForMerge(moduleId)
+    ) {
+      return;
+    }
     switchToModule(moduleId, false);
   }, [latestSkillUiPatch, view, activeModuleId, switchToModule]);
 
@@ -194,14 +169,15 @@ export function DashboardNavigator({
     const name = activeSkillName?.trim();
     if (!name) return;
     if (name === "nanobot_agent") return;
-    // Chat-only skills 不抢右侧大盘焦点。
-    if (isChatOnlySkill(name)) return;
     if (userOverrideRef.current) return;
-    const knownByOverview = overviewModules.some((item) => item.moduleId === name);
-    if (!modules.has(name) && !knownByOverview) return;
+    const canon = canonicalModuleIdForMerge(name);
+    const knownByOverview = overviewModules.some(
+      (item) => canonicalModuleIdForMerge(item.moduleId) === canon,
+    );
+    if (!modules.has(canon) && !knownByOverview) return;
     if (view !== "overview") return;
-    if (autoOpenedSkillRef.current === name) return;
-    autoOpenedSkillRef.current = name;
+    if (autoOpenedSkillRef.current === canon) return;
+    autoOpenedSkillRef.current = canon;
     switchToModule(name, false);
   }, [activeSkillName, modules, overviewModules, view, switchToModule]);
 
@@ -224,15 +200,17 @@ export function DashboardNavigator({
     if (!syntheticPath) return;
     const moduleId = extractModuleId(syntheticPath);
     if (!moduleId) return;
-    // 防御性兜底：chat-only skill 不应该有 dashboard patch / bootstrap，但若上游误发也不要登记。
-    if (isChatOnlySkill(moduleId)) return;
+    const canon = canonicalModuleIdForMerge(moduleId);
 
     setModules((prev) => {
       const next = new Map(prev);
-      const existing = next.get(moduleId);
-      next.set(moduleId, {
+      for (const [k] of next.entries()) {
+        if (k !== canon && canonicalModuleIdForMerge(k) === canon) next.delete(k);
+      }
+      const existing = next.get(canon);
+      next.set(canon, {
         syntheticPath,
-        label: existing?.label ?? moduleLabel(moduleId),
+        label: existing?.label ?? moduleTabLabelFromId(moduleId),
       });
       return next;
     });
@@ -244,11 +222,11 @@ export function DashboardNavigator({
       let changed = false;
       const next = new Map(prev);
       for (const id of activeModuleIds) {
-        if (isChatOnlySkill(id)) continue;
-        if (!next.has(id)) {
-          next.set(id, {
+        const canon = canonicalModuleIdForMerge(id);
+        if (!next.has(canon)) {
+          next.set(canon, {
             syntheticPath: placeholderSyntheticPath(id),
-            label: moduleLabel(id),
+            label: moduleTabLabelFromId(id),
           });
           changed = true;
         }
@@ -257,8 +235,8 @@ export function DashboardNavigator({
     });
 
     const prev = prevActiveRef.current;
-    const added = [...activeModuleIds].filter((id) => !prev.has(id) && !isChatOnlySkill(id));
-    prevActiveRef.current = new Set(activeModuleIds);
+    const added = [...activeModuleIds].filter((id) => !prev.has(canonicalModuleIdForMerge(id)));
+    prevActiveRef.current = new Set([...activeModuleIds].map((id) => canonicalModuleIdForMerge(id)));
 
     if (added.length > 0 && !userOverrideRef.current) {
       const newId = added[added.length - 1]!;
@@ -269,32 +247,44 @@ export function DashboardNavigator({
   const moduleEntries: ModuleEntry[] = useMemo(() => {
     const merged = new Map<string, ModuleEntry>();
     for (const item of overviewModules) {
-      if (isChatOnlySkill(item.moduleId)) continue;
-      const dynamic = modules.get(item.moduleId);
-      // Overview 主导名：``item.label`` 来自 ``CANONICAL_SIX``（中文），动态注册的 ``dynamic.label``
-      // 可能因为 ``moduleLabel(id)`` 的 fallback 退化成英文（"Job Management"）。这里**优先**取
-      // overview 的中文 label，只有当 overview 里没有时才用 dynamic 的 fallback。
-      merged.set(item.moduleId, {
-        moduleId: item.moduleId,
+      const canon = canonicalModuleIdForMerge(item.moduleId);
+      const dynamic = modules.get(canon);
+      merged.set(canon, {
+        moduleId: canon,
         syntheticPath: dynamic?.syntheticPath ?? item.syntheticPath,
-        label: item.label || dynamic?.label || moduleLabel(item.moduleId),
+        label: dynamic?.label ?? item.label,
         description: item.description,
         isPlaceholder: item.isPlaceholder,
         progressPct: item.progressPct,
         progressLabel: item.currentStepLabel,
         steps: item.steps,
-        status: activeModuleIds.has(item.moduleId) ? "running" : item.status,
+        status: activeModuleIdsMatchCanon(activeModuleIds, canon) ? "running" : item.status,
       });
     }
     for (const [moduleId, row] of modules.entries()) {
-      if (merged.has(moduleId)) continue;
-      if (isChatOnlySkill(moduleId)) continue;
-      merged.set(moduleId, {
-        moduleId,
+      const canon = canonicalModuleIdForMerge(moduleId);
+      if (merged.has(canon)) {
+        const ex = merged.get(canon)!;
+        let syntheticPath = ex.syntheticPath;
+        if (
+          !syntheticPath.includes("modeling_simulation_workbench") &&
+          row.syntheticPath.includes("modeling_simulation_workbench")
+        ) {
+          syntheticPath = row.syntheticPath;
+        }
+        merged.set(canon, {
+          ...ex,
+          syntheticPath,
+          label: ex.label || row.label,
+        });
+        continue;
+      }
+      merged.set(canon, {
+        moduleId: canon,
         syntheticPath: row.syntheticPath,
         label: row.label,
         isPlaceholder: true,
-        status: activeModuleIds.has(moduleId) ? "running" : "idle",
+        status: activeModuleIdsMatchCanon(activeModuleIds, canon) ? "running" : "idle",
       });
     }
     return [...merged.values()];

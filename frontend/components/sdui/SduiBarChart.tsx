@@ -94,6 +94,16 @@ export function SduiBarChart({ data, valueUnit }: Props) {
                 }
               />
               <title>{`${d.label}: ${d.value}${unit}`}</title>
+              {/* value */}
+              <text
+                x={x + barW / 2}
+                y={Math.max(12, y - 6)}
+                textAnchor="middle"
+                fontSize="10"
+                fill="var(--text-secondary)"
+              >
+                {`${d.value}${unit}`}
+              </text>
               {/* label */}
               <text
                 x={x + barW / 2}
@@ -102,14 +112,14 @@ export function SduiBarChart({ data, valueUnit }: Props) {
                 fontSize="10"
                 fill="var(--text-muted)"
               >
-                {d.label}
+                {String(d.label).length > 6 ? `${String(d.label).slice(0, 6)}…` : d.label}
               </text>
             </g>
           );
         })}
       </svg>
 
-      <div className="flex flex-wrap gap-x-3 gap-y-1 border-t border-[var(--border-subtle)] pt-2 text-[11px] text-[var(--text-secondary)]">
+      <div className="flex flex-wrap gap-x-3 gap-y-1 border-t border-[var(--border-subtle)] pt-2 ui-text-label text-[var(--text-secondary)]">
         {rows.map((d, i) => (
           <span key={`sum-${d.label}-${i}`} className="tabular-nums">
             <span className="text-[var(--text-muted)]">{d.label}</span>{" "}

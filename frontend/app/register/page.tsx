@@ -71,7 +71,7 @@ export default function RegisterPage() {
                 onChange={(e) => setUsername(e.target.value)}
                 autoComplete="username"
                 placeholder="工号或账号"
-                className="ui-input ui-input-focusable w-full rounded-xl px-4 py-3 text-sm"
+                className="ui-input ui-input-focusable w-full rounded-lg px-4 py-3 text-sm"
               />
             </div>
             <div>
@@ -82,7 +82,7 @@ export default function RegisterPage() {
                 onChange={(e) => setPassword(e.target.value)}
                 autoComplete="new-password"
                 placeholder="至少 4 位"
-                className="ui-input ui-input-focusable w-full rounded-xl px-4 py-3 text-sm"
+                className="ui-input ui-input-focusable w-full rounded-lg px-4 py-3 text-sm"
               />
             </div>
             <div>
@@ -93,7 +93,7 @@ export default function RegisterPage() {
                 onChange={(e) => setPassword2(e.target.value)}
                 autoComplete="new-password"
                 placeholder="再次输入密码"
-                className="ui-input ui-input-focusable w-full rounded-xl px-4 py-3 text-sm"
+                className="ui-input ui-input-focusable w-full rounded-lg px-4 py-3 text-sm"
               />
             </div>
             {error ? (
@@ -104,7 +104,7 @@ export default function RegisterPage() {
             <button
               type="submit"
               disabled={busy}
-              className="ui-btn-accent relative overflow-hidden rounded-xl py-3 text-sm font-medium transition-transform hover:scale-[1.02] active:scale-[0.99] disabled:opacity-50"
+              className="ui-btn-accent relative overflow-hidden rounded-lg py-3 text-sm font-medium transition-transform hover:scale-[1.02] active:scale-[0.99] disabled:opacity-50"
             >
               {busy ? "提交中…" : "注册并进入"}
             </button>
